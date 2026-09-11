@@ -7,6 +7,8 @@ listeners:
     bind: "127.0.0.1:8080"
     auth: local
     policy: default
+    max_connections: 256
+    idle_timeout: 2m
 admin:
   bind: "127.0.0.1:9090"
 inspect:
@@ -16,3 +18,5 @@ cache:
     enabled: false
 security:
   deny_private_networks_for_untrusted_clients: true
+  allow_direct: false
+  direct_allowlist: []

@@ -22,11 +22,12 @@ Created by Tony Nguyen. Licensed under Apache-2.0.
 Usage:
   proxysieve help
   proxysieve version [--json]
+  proxysieve start [--file PATH]
   proxysieve config validate [--file PATH] [--set dotted.path=value]
   proxysieve config print-effective [--file PATH] [--set dotted.path=value]
 
-Status: foundation build; configuration validation is available, gateway and dashboard are not.
-The start command will be enabled when the gateway milestone is implemented.
+Status: foundation build; HTTP listener is available with a fail-closed default.
+SOCKS5, upstream proxies, dashboard, authentication and accounting are not available yet.
 `
 
 // Run executes a command and returns a process exit code: 0 success, 1 output
@@ -36,6 +37,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return writeHelp(stdout)
 	}
 	switch args[0] {
+	case "start":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			_, _ = io.WriteString(stderr, "CONFIG_HOME_UNAVAILABLE\n")
+			return 1
+		}
+		return runStart(args[1:], stdout, stderr, home, environment())
 	case "config":
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -65,10 +73,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return 0
-	case "start":
-		// A bootstrap must not silently open an unauthenticated or direct proxy.
-		_, _ = io.WriteString(stderr, "GATEWAY_NOT_IMPLEMENTED: start is unavailable in the bootstrap build. No listener was opened.\n")
-		return 1
 	default:
 		return usageError(stderr)
 	}
