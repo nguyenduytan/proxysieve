@@ -1,5 +1,8 @@
 **
 !go.mod
+!go.sum
+!pkg/
+!pkg/**
 !cmd/
 !cmd/**
 !internal/

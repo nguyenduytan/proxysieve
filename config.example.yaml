@@ -1,4 +1,5 @@
-# Planned schema, not yet parsed by the M0 CLI.
+# Configuration schema v1. Validate without starting a listener:
+# proxysieve config validate --file config.example.yaml
 version: 1
 listeners:
   - name: http

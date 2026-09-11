@@ -9,7 +9,7 @@ bootstrap:
 	$(PNPM) --dir web install --frozen-lockfile
 
 fmt:
-	gofmt -w cmd internal
+	gofmt -w cmd internal pkg
 	$(PNPM) --dir web format
 
 lint:

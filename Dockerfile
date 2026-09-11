@@ -1,8 +1,10 @@
 FROM golang:1.27.1-alpine AS build
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
+RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
+COPY pkg ./pkg
 ARG VERSION=0.0.0-dev
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown

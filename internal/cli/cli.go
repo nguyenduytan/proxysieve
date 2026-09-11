@@ -6,11 +6,15 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/nguyenduytan/proxysieve/internal/buildinfo"
 )
+
+var errUsage = errors.New("invalid command syntax")
 
 const help = `ProxySieve — Smart traffic control for paid proxies.
 Created by Tony Nguyen. Licensed under Apache-2.0.
@@ -18,8 +22,10 @@ Created by Tony Nguyen. Licensed under Apache-2.0.
 Usage:
   proxysieve help
   proxysieve version [--json]
+  proxysieve config validate [--file PATH] [--set dotted.path=value]
+  proxysieve config print-effective [--file PATH] [--set dotted.path=value]
 
-Status: repository bootstrap; gateway and dashboard are not available yet.
+Status: foundation build; configuration validation is available, gateway and dashboard are not.
 The start command will be enabled when the gateway milestone is implemented.
 `
 
@@ -30,6 +36,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return writeHelp(stdout)
 	}
 	switch args[0] {
+	case "config":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			_, _ = io.WriteString(stderr, "CONFIG_HOME_UNAVAILABLE\n")
+			return 1
+		}
+		return runConfig(args[1:], stdout, stderr, home, environment())
 	case "help", "--help", "-h":
 		if len(args) != 1 {
 			return usageError(stderr)

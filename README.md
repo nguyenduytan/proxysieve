@@ -6,11 +6,13 @@ Created and maintained by **Tony Nguyen** · [@nguyenduytan](https://github.com/
 
 Stop paying for bytes you don't need. Route smarter, filter earlier, measure everything.
 
-## Current status: M0 bootstrap
+## Current status: local foundation build (M1)
 
 This repository is under active development, **not a usable proxy gateway yet**.
-The CLI provides help and build/version metadata. `start` fails explicitly and
-opens no listeners. No dashboard, routing, filtering, or savings metrics are shipped.
+The CLI provides help, build/version metadata, configuration validation and
+effective-config inspection. The backend includes domain contracts and tested
+SQLite/in-memory endpoint repository foundations. `start` still fails explicitly
+and opens no listeners. No dashboard, routing, filtering, or savings metrics ship.
 
 See [milestone progress](PROGRESS.md), [the implementation contract](PLAN.md), and
 [engineering refinements](docs/plan-refinements.md) for planned work and verification.
@@ -29,7 +31,7 @@ or headers. Browser integrations and explicitly enabled HTTPS inspection are
 separate planned capabilities. Measured upstream bytes and estimated avoided bytes
 will always be reported separately. Savings depend on workload and policy.
 
-## Build the bootstrap
+## Build the foundation
 
 Prerequisites: Go **1.27.x** (tested 1.27.1), Node.js **24 LTS**, pnpm **11.19.0**.
 
@@ -39,6 +41,8 @@ go vet ./...
 go build -trimpath -o bin/ ./cmd/proxysieve
 go run ./cmd/proxysieve version
 go run ./cmd/proxysieve version --json
+go run ./cmd/proxysieve config validate --file config.example.yaml
+go run ./cmd/proxysieve config print-effective --file config.example.yaml
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
 pnpm --dir web test
@@ -52,7 +56,9 @@ PATH, add its `bin` directory to your terminal's PATH (normally
 
 The frontend currently builds a TypeScript library entry as a tooling smoke test,
 not an application. React 19.3 and Vite 8.1 are pinned for the planned dashboard.
-The Go bootstrap uses only the standard library, so `go.sum` is not generated yet.
+Go dependencies and their checksums are pinned in go.mod/go.sum. YAML decoding and
+SQLite remain internal adapters; public domain contracts use the standard library.
+See [configuration](docs/configuration.md) and [security foundation](docs/security-foundation.md).
 
 ### Container scaffold
 

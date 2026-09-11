@@ -5,7 +5,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-11.
 ## Status
 
 - [ ] M0 — Repository bootstrap (local checks passed; hosted acceptance pending)
-- [ ] M1 — Domain, config, storage, secret foundations
+- [ ] M1 — Domain, config, storage, secret foundations (local implementation in progress)
 - [ ] M2 — Proxy normalization, sources, endpoint management
 - [ ] M3 — HTTP forward and CONNECT gateway
 - [ ] M4 — SOCKS5 downstream and multi-listener support
@@ -43,10 +43,12 @@ Verified locally on Windows amd64, Go 1.27.1 / Node 24.19.0 / pnpm 11.19.0:
   backend CI includes this check).
 - [ ] Hosted repository protection/security settings confirmed.
 
-Publication gate: the existing remote is public. No push was performed; explicit
-maintainer confirmation is required before publishing the original plan and new
-project files. Hosted checks therefore remain pending, not passed. Stop at this
-M0 checkpoint before advancing to M1 until the publication/CI path is resolved.
+Publication gate: the existing remote is public. No push was performed. The user's
+general continuation request did not satisfy the publication approval gate, so no
+further publication attempt will be made without specific authorization. Hosted
+checks remain pending, not passed. Local development continues on an unpublished
+branch under the user's instruction to keep working; M0 hosted acceptance is not
+waived. See ADR 0009 for this delivery-only adjustment.
 
 The original plan's intentional Markdown hard-break spaces are preserved. The
 staged whitespace check applies to newly authored files without rewriting that

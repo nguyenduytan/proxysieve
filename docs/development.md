@@ -7,19 +7,20 @@ The frontend pins TypeScript 5.9.3 because the selected TypeScript ESLint releas
 does not support TypeScript 7; do not blindly install every package's latest tag.
 Dependency changes must update `web/pnpm-lock.yaml` and pass all frontend checks.
 
-Go standard-library-only bootstrap intentionally has no go.sum. `go mod tidy` will
-create it when M1 introduces an actual dependency. CI disables Go dependency cache
-until then; enabling it later requires the real go.sum cache key.
+M1 adds pinned YAML and pure-Go SQLite dependencies with go.sum. CI uses the real
+checksum file for dependency caching. Public packages remain standard-library-only;
+an architecture test rejects implementation dependencies across that boundary.
 
 ## Commands
 
 ```sh
-gofmt -w cmd internal
+gofmt -w cmd internal pkg
 go vet ./...
 go test -count=1 ./...
 go test -race ./...
 go build -trimpath -o bin/ ./cmd/proxysieve
 go run ./cmd/proxysieve version --json
+go run ./cmd/proxysieve config validate --file config.example.yaml
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
 pnpm --dir web test
@@ -41,9 +42,12 @@ React dependencies are pinned now to establish the planned stack.
 ## Repository conventions
 
 `cmd/` owns process exit; `internal/cli` is independently testable; `internal/buildinfo`
-contains public-safe provenance. Introduce domain packages only when M1 reaches
-their contracts. Add SQL migrations, API schema, protocol fixtures, integrations,
-and benchmark commands with their milestones, never empty success scripts.
+contains public-safe provenance. `pkg/` contains M1 domain/config/store contracts.
+`internal/configload`, `internal/security`, and `internal/storage` contain adapters.
+The endpoint memory and SQLite stores share a behavioral test suite covering CRUD,
+transactions, revisions, isolation, cancellation and pagination. Add further SQL
+migrations, API schema, protocol fixtures, integrations, and benchmark commands
+with their milestones, never empty success scripts.
 
 Tests should not read developer credentials or dial public/paid proxies. Separate
 deterministic integration fixtures from opt-in live experiments. Proxy credential

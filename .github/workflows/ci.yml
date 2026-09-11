@@ -23,9 +23,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.27.1'
-          cache: false # Standard-library-only M0 has no go.sum yet.
+          cache: true
       - name: Check formatting
-        run: test -z "$(gofmt -l cmd internal)"
+        run: test -z "$(gofmt -l cmd internal pkg)"
       - run: go vet ./...
       - uses: golangci/golangci-lint-action@v9
         with:
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.27.1'
-          cache: false
+          cache: true
       - run: go test -count=1 -cover ./...
   race-go:
     runs-on: ubuntu-latest
@@ -52,7 +52,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.27.1'
-          cache: false
+          cache: true
       - run: go test -race -count=1 ./...
   build-go:
     runs-on: ${{ matrix.os }}
@@ -68,7 +68,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.27.1'
-          cache: false
+          cache: true
       - run: go build -trimpath -o bin/ ./cmd/proxysieve
       - run: go run ./cmd/proxysieve version --json
   container:
