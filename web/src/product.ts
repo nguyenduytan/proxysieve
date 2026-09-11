@@ -6,5 +6,5 @@ export const product = Object.freeze({
   author: "Tony Nguyen",
   tagline: "Smart traffic control for paid proxies.",
   license: "Apache-2.0",
-  stage: "bootstrap",
+  stage: "local-gateway-foundation",
 });

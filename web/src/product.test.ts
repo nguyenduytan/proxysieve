@@ -8,8 +8,8 @@ describe("bootstrap product metadata", () => {
     expect(product.license).toBe("Apache-2.0");
   });
 
-  it("reports an immutable bootstrap identity, not a ready dashboard", () => {
-    expect(product.stage).toBe("bootstrap");
+  it("reports an immutable local foundation identity", () => {
+    expect(product.stage).toBe("local-gateway-foundation");
     expect(Object.isFrozen(product)).toBe(true);
   });
 });

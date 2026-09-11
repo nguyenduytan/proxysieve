@@ -1,12 +1,7 @@
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
-// M0 tooling smoke build only. The API-driven SPA is implemented in M12.
 export default defineConfig({
-  build: {
-    lib: {
-      entry: "src/product.ts",
-      formats: ["es"],
-      fileName: "proxysieve-bootstrap",
-    },
-  },
+  plugins: [react()],
+  server: { port: 5173, strictPort: true },
 });
