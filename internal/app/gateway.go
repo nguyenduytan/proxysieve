@@ -15,6 +15,7 @@ import (
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
 	"github.com/nguyenduytan/proxysieve/internal/api"
+	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	internalhealth "github.com/nguyenduytan/proxysieve/internal/health"
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
@@ -277,6 +278,13 @@ func Build(c config.Config) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
+	var responseCache *internalcache.Memory
+	if c.Cache.Response.Enabled {
+		responseCache, err = internalcache.NewMemory(c.Cache.Response.MaxEntries, c.Cache.Response.MaxBytes)
+		if err != nil {
+			return Runtime{}, err
+		}
+	}
 	healthManager, err := internalhealth.New(publichealth.Defaults(), nil)
 	if err != nil {
 		return Runtime{}, err
@@ -318,7 +326,7 @@ func Build(c config.Config) (Runtime, error) {
 			if runtime.Server != nil {
 				return Runtime{}, config.ErrInvalid
 			}
-			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: trafficRecorder})
+			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: trafficRecorder, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20)})
 			if err != nil {
 				return Runtime{}, err
 			}
@@ -467,4 +475,10 @@ func (r Runtime) serveSOCKS(ctx context.Context, listener net.Listener) error {
 		}
 		go r.SOCKS.Serve(ctx, connection)
 	}
+}
+func min64(left, right int64) int64 {
+	if left < right {
+		return left
+	}
+	return right
 }

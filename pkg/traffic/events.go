@@ -24,6 +24,7 @@ type Event struct {
 	UpstreamUpload   Bytes     `json:"upstream_upload_bytes"`
 	UpstreamDownload Bytes     `json:"upstream_download_bytes"`
 	Direct           Bytes     `json:"direct_bytes"`
+	CacheServed      Bytes     `json:"cache_served_bytes"`
 	HealthCheck      Bytes     `json:"health_check_bytes"`
 	EstimatedAvoided Bytes     `json:"estimated_avoided_bytes"`
 }

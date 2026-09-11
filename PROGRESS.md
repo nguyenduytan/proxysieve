@@ -11,8 +11,8 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-11.
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local no-auth SOCKS5 CONNECT and runtime multi-listener support implemented; password auth/metrics pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator locally implemented; runtime/API simulator pending)
 - [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors locally implemented; pool/session services and chaining pending)
-- [ ] M7 — Health, circuit breaker, safe retries (caller-driven health/circuit state machine locally implemented; router/retry/active checks pending)
-- [ ] M8 — Traffic, cost, budgets, retention (exact HTTP application-stream counters and bounded in-memory events locally implemented; tunnel accounting/rollups/budgets pending)
+- [ ] M7 — Health, circuit breaker, safe retries (health/circuit routing and conservative retry eligibility locally implemented; active checks/backoff/transport retry pending)
+- [ ] M8 — Traffic, cost, budgets, retention (exact HTTP application-stream counters, bounded events and atomic hard-budget reservation foundation locally implemented; tunnel accounting/rollups/durable enforcement pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API and SQLite user migration locally implemented; resource CRUD/API keys/audit/SSE pending)

@@ -1,101 +1,145 @@
-# ProxySieve
+<div align="center">
+  <h1>ProxySieve</h1>
+  <p><strong>Smart traffic control for paid proxies.</strong></p>
+  <p>Stop paying for bytes you do not need. Route smarter, filter earlier, measure everything.</p>
+  <p>
+    <a href="https://github.com/nguyenduytan/proxysieve/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nguyenduytan/proxysieve/ci.yml?branch=main&label=backend&style=flat-square" alt="Backend CI" /></a>
+    <a href="https://github.com/nguyenduytan/proxysieve/actions/workflows/frontend.yml"><img src="https://img.shields.io/github/actions/workflow/status/nguyenduytan/proxysieve/frontend.yml?branch=main&label=frontend&style=flat-square" alt="Frontend CI" /></a>
+    <img src="https://img.shields.io/badge/Go-1.27.1-00ADD8?logo=go&logoColor=white&style=flat-square" alt="Go 1.27.1" />
+    <img src="https://img.shields.io/badge/React-19.3-149ECA?logo=react&logoColor=white&style=flat-square" alt="React 19.3" />
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-3DA639?style=flat-square" alt="Apache 2.0 license" /></a>
+    <img src="https://img.shields.io/badge/status-development-F59E0B?style=flat-square" alt="Development status" />
+  </p>
+  <p>Created and maintained by <strong>Tony Nguyen</strong> · <a href="https://github.com/nguyenduytan">@nguyenduytan</a></p>
+</div>
 
-**Smart traffic control for paid proxies.**
+## Status
 
-Created and maintained by **Tony Nguyen** · [@nguyenduytan](https://github.com/nguyenduytan)
+ProxySieve is an active **development build**, not a production release. It has a
+locally tested HTTP forward/CONNECT and SOCKS5 CONNECT foundation, configurable
+upstream HTTP/HTTPS/SOCKS routes, a protected local admin API, SQLite-backed
+first-run setup, and an embedded operational dashboard.
 
-Stop paying for bytes you don't need. Route smarter, filter earlier, measure everything.
+The project intentionally fails closed. A configured endpoint inventory does not
+activate a live route by itself; explicit policy, pool, credential and runtime
+configuration are required. There is no stable release, hosted dashboard, or
+published container image yet.
 
-## Current status: local gateway and control-plane foundation
+## Architecture
 
-This repository is under active development and is **not production-ready**. It
-now has local HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, SQLite-backed first-run
-admin setup and a protected versioned control-plane foundation,
-but its default policy fails closed until a route is configured. The CLI provides
-help, build/version metadata, configuration validation and effective-config inspection.
-but it is not production-ready. Dashboard/API integration, full RBAC resource APIs,
-health wiring, budgets, cache, browser filtering and optional HTTPS inspection have
-not shipped.
+```text
+Client
+  |
+  +-- HTTP forward / CONNECT
+  +-- SOCKS5 CONNECT
+          |
+          v
+  ProxySieve listener
+          |
+          v
+  Policy -> route decision -> pool selector -> health / budget guard
+          |
+          +-- BLOCK / REJECT
+          +-- DIRECT (explicit allowlist only)
+          +-- PROXY (HTTP / HTTPS / SOCKS upstream)
+          |
+          v
+  Accounting + protected local control plane
+```
 
-See [milestone progress](PROGRESS.md), [the implementation contract](PLAN.md), and
-[engineering refinements](docs/plan-refinements.md) for planned work and verification.
-There is no stable release or published container to install yet.
+Encrypted CONNECT and SOCKS tunnels expose only connection metadata such as target
+host and port. ProxySieve does not claim path, header, MIME, or resource visibility
+inside those tunnels. Browser integrations and optional HTTPS inspection are later,
+explicitly scoped features.
 
-## What we are building
+## Current Capabilities
 
-ProxySieve will sit between clients and paid HTTP/SOCKS proxies to apply policies,
-select healthy pools, preserve sticky sessions, and account for traffic and costs.
-Browsers, scripts, CLI tools, and services will use standard proxy interfaces.
-Optional Playwright/Puppeteer adapters will filter resources before they reach the
-paid proxy. Providers stay replaceable adapters, not hardcoded core dependencies.
+| Area | Available locally | Still in progress |
+| --- | --- | --- |
+| Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, graceful shutdown, listener limits | SOCKS password auth, UDP, tunnel accounting |
+| Routing | Deterministic policies, pools, selection strategies, configured upstream HTTP/HTTPS/SOCKS | Persisted pool management, chains, full failover |
+| Safety | Loopback defaults, private destination checks, pinned DIRECT DNS, no implicit DIRECT, source fetch guard | Persistent encrypted secret store, TLS remote admin |
+| Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC foundation | API keys, audit log, SSE, backup/restore |
+| Measurement | HTTP application-stream counters, bounded live events, health/circuit state, hard-budget reservation primitive | Durable rollups, budget wiring, provider billing reconciliation |
+| Dashboard | Embedded authenticated admin shell, live event view, proxy inventory and import preview | Full CRUD for every domain, charts from durable analytics |
 
-HTTPS CONNECT is opaque: domain/port rules do not reveal encrypted paths, images,
-or headers. Browser integrations and explicitly enabled HTTPS inspection are
-separate planned capabilities. Measured upstream bytes and estimated avoided bytes
-will always be reported separately. Savings depend on workload and policy.
+Read [PROGRESS.md](PROGRESS.md) for the precise milestone checklist. A green local
+test does not imply an unimplemented capability is available.
 
-## Build the foundation
+## Quick Start
 
-Prerequisites: Go **1.27.x** (tested 1.27.1), Node.js **24 LTS**, pnpm **11.19.0**.
+Prerequisites: Go **1.27.x** (tested 1.27.1), Node.js **24 LTS**, and pnpm
+**11.19.0** for dashboard development.
 
 ```sh
 go test ./...
-go vet ./...
 go build -trimpath -o bin/ ./cmd/proxysieve
-go run ./cmd/proxysieve version
-go run ./cmd/proxysieve version --json
-go run ./cmd/proxysieve config validate --file config.example.yaml
-go run ./cmd/proxysieve config print-effective --file config.example.yaml
-go run ./cmd/proxysieve start --file config.example.yaml
+./bin/proxysieve start --file config.example.yaml
+```
+
+On Windows, run `bin\proxysieve.exe start --file config.example.yaml` from
+PowerShell. If Go is installed but not on `PATH`, use its normal installation
+directory, typically `C:\Program Files\Go\bin`.
+
+The admin control plane binds to `http://127.0.0.1:9090` by default. On first run,
+the terminal prints a one-time setup token that expires after 10 minutes. Use it
+only in the local setup form. It is never returned by the API.
+
+The example configuration is intentionally fail-closed. It starts the local
+listener/control plane but does not route user traffic until a policy/pool/endpoint
+configuration explicitly permits it. See [configuration](docs/configuration.md)
+and [admin API foundation](docs/admin-api-foundation.md).
+
+## Development
+
+```sh
+go test ./...
+go test -race ./...
+go vet ./...
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run
+
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
 pnpm --dir web test
 pnpm --dir web build
+pnpm --dir web dev
 ```
 
-The executable is `bin/proxysieve` on Unix and `bin/proxysieve.exe` on Windows.
-On Windows use PowerShell; Make is optional. If Go is installed but missing from
-PATH, add its `bin` directory to your terminal's PATH (normally
-`C:\Program Files\Go\bin`), then open a new terminal.
+`pnpm --dir web build` produces immutable SPA assets under `internal/api/ui/` for
+embedding in the Go binary. The dashboard consumes same-origin `/api/v1` routes;
+it never opens SQLite directly.
 
-The frontend currently builds a TypeScript library entry as a tooling smoke test,
-not an application. React 19.3 and Vite 8.1 are pinned for the planned dashboard.
-Go dependencies and their checksums are pinned in go.mod/go.sum. YAML decoding and
-SQLite remain internal adapters; public domain contracts use the standard library.
-See [configuration](docs/configuration.md) and [security foundation](docs/security-foundation.md).
+## Security Model
 
-On the first local start with admin enabled, ProxySieve prints a one-time setup
-token to the terminal. Do not paste it in issues, shells with shared history, or
-logs. The admin server exposes local `/health`, `/ready`, `/api/v1/auth/setup-status`
-and protected `/api/v1` routes. Full dashboard serving is a later milestone.
+- Listener and admin defaults bind to loopback only.
+- DIRECT is disabled unless both global configuration and a policy allowlist permit it.
+- Private, loopback, link-local, multicast and unspecified destinations are denied
+  for untrusted traffic.
+- Proxy credentials use secret references, not YAML URL userinfo or endpoint metadata.
+- Sensitive headers, URL userinfo and query values are redacted in diagnostic helpers.
+- Admin setup is single-use; passwords use Argon2id; mutation APIs need a
+  session-bound CSRF token and same-origin request validation.
+- Upstream remote DNS is an explicit trust boundary. Strict private-destination
+  protection requires `trusted_remote_dns: true` on an operator-approved endpoint.
 
-### Container scaffold
+Please read [SECURITY.md](SECURITY.md) before reporting a vulnerability. Do not
+paste proxy credentials, cookies, API keys, setup tokens, or user traffic in issues.
 
-```sh
-docker build -t proxysieve:dev .
-docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges proxysieve:dev version
-```
+## Documentation
 
-The current non-root container runs the CLI only; no ports are exposed. Compose
-also defaults to `version`. Container runtime listeners and embedded SPA assets
-arrive in later milestones, not through a misleading placeholder server.
+- [Implementation plan](PROXYSIEVE_PLAN.md)
+- [Milestone progress](PROGRESS.md)
+- [Engineering refinements](docs/plan-refinements.md)
+- [Configuration](docs/configuration.md)
+- [Admin control plane](docs/admin-api-foundation.md)
+- [Proxy source security](docs/proxy-sources.md)
+- [Traffic accounting](docs/traffic-accounting.md)
+- [Development guide](docs/development.md)
+- [Contributing](CONTRIBUTING.md)
 
-## Planned safety defaults
+## License And Credits
 
-Loopback binds, no open proxy, no implicit DIRECT fallback, no HTTPS inspection,
-redacted secrets, private-destination restrictions for untrusted clients, and
-bounded resource use. Until those capabilities are implemented and tested, do not
-use this bootstrap with production traffic or credentials.
-
-## Development and contribution
-
-- [Contributing](CONTRIBUTING.md) and [development guide](docs/development.md)
-- [Security reporting](SECURITY.md)
-- [Support](SUPPORT.md) and [code of conduct](CODE_OF_CONDUCT.md)
-- [Changelog](CHANGELOG.md)
-
-## License and credits
-
-Copyright 2026 **Tony Nguyen**. Licensed under [Apache-2.0](LICENSE).
-See [NOTICE](NOTICE). Contributions remain credited; provider brands do not define
-ProxySieve's identity. Branding is never injected into proxied user traffic.
+Copyright 2026 **Tony Nguyen**. ProxySieve is licensed under
+[Apache-2.0](LICENSE); attribution details are in [NOTICE](NOTICE). Contributions
+remain credited. Provider brands are adapters, never part of the core identity, and
+ProxySieve never injects branding into proxied traffic.

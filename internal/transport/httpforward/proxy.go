@@ -2,6 +2,7 @@
 package httpforward
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -12,7 +13,9 @@ import (
 	"sync"
 	"time"
 
+	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
+	cachepkg "github.com/nguyenduytan/proxysieve/pkg/cache"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
@@ -36,12 +39,16 @@ type Options struct {
 	Evaluator      gateway.Evaluator
 	Router         gateway.Router
 	Recorder       trafficpkg.Recorder
+	ResponseCache  *internalcache.Memory
+	MaxCacheBody   int64
 	MaxHeaderBytes int
 }
 type Handler struct {
 	evaluator      gateway.Evaluator
 	router         gateway.Router
 	recorder       trafficpkg.Recorder
+	responseCache  *internalcache.Memory
+	maxCacheBody   int64
 	maxHeaderBytes int
 }
 
@@ -55,7 +62,13 @@ func New(options Options) (*Handler, error) {
 	if options.MaxHeaderBytes < 1024 || options.MaxHeaderBytes > 1<<20 {
 		return nil, errors.New("invalid header limit")
 	}
-	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, maxHeaderBytes: options.MaxHeaderBytes}, nil
+	if options.MaxCacheBody == 0 {
+		options.MaxCacheBody = 1 << 20
+	}
+	if options.MaxCacheBody < 1 || options.MaxCacheBody > 8<<20 {
+		return nil, errors.New("invalid cache response limit")
+	}
+	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, responseCache: options.ResponseCache, maxCacheBody: options.MaxCacheBody, maxHeaderBytes: options.MaxHeaderBytes}, nil
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodConnect {
@@ -103,6 +116,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ROUTE_UNAVAILABLE", http.StatusBadGateway)
 		return
 	}
+	cacheKey := cacheKeyFor(route, r)
+	if h.responseCache != nil && cachepkg.CheckRequest(r).Eligible {
+		if cached, ok := h.responseCache.Get(cacheKey, time.Now().UTC()); ok {
+			copyHeader(w.Header(), http.Header(cached.Header))
+			w.WriteHeader(cached.Status)
+			delivered := &internaltraffic.Writer{Destination: w}
+			_, copyErr := delivered.Write(cached.Body)
+			if h.recorder != nil {
+				_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: "cache", StatusCode: cached.Status, ClientDownload: delivered.Bytes(), CacheServed: delivered.Bytes()})
+			}
+			if copyErr != nil {
+				panic(http.ErrAbortHandler)
+			}
+			return
+		}
+	}
 	body := r.Body
 	if body == nil {
 		body = http.NoBody
@@ -134,20 +163,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	download := &internaltraffic.Reader{Source: response.Body}
 	responseHeaders := response.Header.Clone()
 	stripHopByHop(responseHeaders)
+	cacheable := h.responseCache != nil && cachepkg.CheckRequest(r).Eligible && response.Header.Get("Vary") == "" && cachepkg.CheckResponse(response.StatusCode, response.Header, response.ContentLength, h.maxCacheBody).Eligible
+	if cacheable {
+		body, readErr := io.ReadAll(io.LimitReader(download, h.maxCacheBody+1))
+		if readErr == nil && int64(len(body)) <= h.maxCacheBody {
+			_ = h.responseCache.Put(cacheKey, internalcache.Entry{Status: response.StatusCode, Header: responseHeaders, Body: body, ExpiresAt: time.Now().UTC().Add(time.Minute)})
+			copyHeader(w.Header(), responseHeaders)
+			w.WriteHeader(response.StatusCode)
+			delivered := &internaltraffic.Writer{Destination: w}
+			_, copyErr := delivered.Write(body)
+			if h.recorder != nil {
+				recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), download.Bytes(), delivered.Bytes(), response.StatusCode, 0)
+			}
+			if copyErr != nil {
+				panic(http.ErrAbortHandler)
+			}
+			return
+		}
+		download = &internaltraffic.Reader{Source: io.MultiReader(bytes.NewReader(body), response.Body)}
+	}
 	copyHeader(w.Header(), responseHeaders)
 	w.WriteHeader(response.StatusCode)
 	delivered := &internaltraffic.Writer{Destination: w}
 	_, copyErr := io.Copy(delivered, download)
 	if h.recorder != nil {
-		direct := trafficpkg.Bytes(0)
-		proxyUpload, proxyDownload := trafficpkg.Bytes(0), trafficpkg.Bytes(0)
-		switch route.Action {
-		case "direct":
-			direct = upload.Bytes() + download.Bytes()
-		case "proxy":
-			proxyUpload, proxyDownload = upload.Bytes(), download.Bytes()
-		}
-		_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: route.Action, StatusCode: response.StatusCode, ClientUpload: upload.Bytes(), ClientDownload: delivered.Bytes(), UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct})
+		recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), download.Bytes(), delivered.Bytes(), response.StatusCode, 0)
 	}
 	if copyErr != nil {
 		panic(http.ErrAbortHandler)
@@ -268,6 +308,25 @@ func stripHopByHop(h http.Header) {
 type countedBody struct {
 	io.Reader
 	io.Closer
+}
+
+func cacheKeyFor(route gateway.Route, request *http.Request) cachepkg.Key {
+	routeID := route.PoolID
+	if routeID == "" {
+		routeID = "direct"
+	}
+	return cachepkg.Key{ClientID: "local", SessionHash: "anonymous", RouteID: routeID, Method: request.Method, URL: request.URL.String(), Vary: map[string]string{}}
+}
+func recordHTTP(recorder trafficpkg.Recorder, request *http.Request, ctx policy.RequestContext, route gateway.Route, host string, upload, download, delivered trafficpkg.Bytes, status int, cacheServed trafficpkg.Bytes) {
+	direct := trafficpkg.Bytes(0)
+	proxyUpload, proxyDownload := trafficpkg.Bytes(0), trafficpkg.Bytes(0)
+	switch route.Action {
+	case "direct":
+		direct = upload + download
+	case "proxy":
+		proxyUpload, proxyDownload = upload, download
+	}
+	_ = recorder.Record(context.WithoutCancel(request.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: route.Action, StatusCode: status, ClientUpload: upload, ClientDownload: delivered, UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, CacheServed: cacheServed})
 }
 
 var _ http.Handler = (*Handler)(nil)
