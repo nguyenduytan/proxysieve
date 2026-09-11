@@ -65,6 +65,9 @@ parsing and database functionality intentionally remain unavailable at M0.
 
 Repository initially had only the untracked original plan, no commits, and an empty
 remote at https://github.com/nguyenduytan/proxysieve.git. No user code was replaced.
+The maintainer subsequently moved the local working copy of `PROXYSIEVE_PLAN.md`
+outside the workspace; the canonical committed copy remains available in Git history
+at the bootstrap commit. This is intentional and is not treated as a product change.
 
 ## Next milestone entry gate
 

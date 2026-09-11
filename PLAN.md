@@ -4,7 +4,8 @@ Created and maintained by **Tony Nguyen** (`@nguyenduytan`).
 
 Read these documents together, in order, before each milestone:
 
-1. [Full product and implementation plan](PROXYSIEVE_PLAN.md).
+1. Full product and implementation plan: the maintainer's external `PROXYSIEVE_PLAN.md`
+   working copy; the exact canonical bootstrap copy is retained in Git history.
 2. [Accepted engineering refinements](docs/plan-refinements.md).
 3. [Milestone checklist and verification evidence](PROGRESS.md).
 
