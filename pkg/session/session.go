@@ -2,10 +2,13 @@
 package session
 
 import (
+	"errors"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 	"time"
 )
+
+var ErrInvalid = errors.New("invalid session")
 
 type Session struct {
 	ID              model.ID      `json:"id"`
@@ -30,4 +33,16 @@ type Policy struct {
 	IdleTTL     time.Duration `json:"idle_ttl_ns"`
 	MaxRequests uint64        `json:"max_requests"`
 	MaxBytes    traffic.Bytes `json:"max_bytes"`
+}
+
+func (p Policy) Validate() error {
+	switch p.Strategy {
+	case "none", "explicit", "client", "destination", "client_destination":
+	default:
+		return ErrInvalid
+	}
+	if p.TTL < 0 || p.IdleTTL < 0 || p.TTL > 365*24*time.Hour || p.IdleTTL > 365*24*time.Hour {
+		return ErrInvalid
+	}
+	return nil
 }
