@@ -1,0 +1,16 @@
+name: Performance or benchmark issue
+description: Report a measured regression with a reproducible workload.
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: Versions, machine, configuration, and workload
+    validations:
+      required: true
+  - type: textarea
+    id: measurement
+    attributes:
+      label: Commands, baseline, results, and measurement boundaries
+      description: Distinguish upstream bytes from estimated savings. Sanitize traces.
+    validations:
+      required: true

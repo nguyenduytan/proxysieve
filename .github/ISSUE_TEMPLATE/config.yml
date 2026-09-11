@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security reporting
+    url: https://github.com/nguyenduytan/proxysieve/blob/main/SECURITY.md
+    about: Please report vulnerabilities privately, never in public issues.

@@ -1,0 +1,9 @@
+name: Documentation issue
+description: Report missing, incorrect, or confusing documentation.
+body:
+  - type: textarea
+    id: documentation
+    attributes:
+      label: Affected document and proposed clarification
+    validations:
+      required: true

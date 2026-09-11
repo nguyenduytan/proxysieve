@@ -1,0 +1,24 @@
+version: 2
+project_name: proxysieve
+builds:
+  - id: proxysieve
+    main: ./cmd/proxysieve
+    binary: proxysieve
+    env: [CGO_ENABLED=0]
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/nguyenduytan/proxysieve/internal/buildinfo.Version={{.Version}} -X github.com/nguyenduytan/proxysieve/internal/buildinfo.Commit={{.Commit}} -X github.com/nguyenduytan/proxysieve/internal/buildinfo.Date={{.Date}}
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, NOTICE, README.md, CHANGELOG.md]
+checksum:
+  name_template: checksums.txt
+release:
+  draft: true
+  prerelease: auto

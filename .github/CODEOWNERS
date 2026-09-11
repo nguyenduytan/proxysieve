@@ -1,0 +1,7 @@
+* @nguyenduytan
+/pkg/gateway/ @nguyenduytan
+/pkg/proxy/ @nguyenduytan
+/pkg/policy/ @nguyenduytan
+/internal/security/ @nguyenduytan
+/internal/inspect/ @nguyenduytan
+/.github/workflows/ @nguyenduytan

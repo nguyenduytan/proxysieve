@@ -1,0 +1,16 @@
+name: Proxy provider integration
+description: Propose an adapter, not a provider dependency in core.
+body:
+  - type: input
+    id: provider
+    attributes:
+      label: Provider and public documentation URL
+    validations:
+      required: true
+  - type: textarea
+    id: capability
+    attributes:
+      label: Protocols, credential template, session/rotation and quota capabilities
+      description: Use fake examples only. Never include your account credentials.
+    validations:
+      required: true

@@ -1,0 +1,20 @@
+name: Feature request
+description: Propose a focused improvement with a use case.
+title: 'feat: '
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and expected benefit
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal, alternatives, and relevant milestone
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Security, privacy, and traffic-cost considerations

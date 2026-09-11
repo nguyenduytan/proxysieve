@@ -1,0 +1,17 @@
+# Planned schema, not yet parsed by the M0 CLI.
+version: 1
+listeners:
+  - name: http
+    type: http
+    bind: "127.0.0.1:8080"
+    auth: local
+    policy: default
+admin:
+  bind: "127.0.0.1:9090"
+inspect:
+  enabled: false
+cache:
+  response:
+    enabled: false
+security:
+  deny_private_networks_for_untrusted_clients: true
