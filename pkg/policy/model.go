@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 )
@@ -12,32 +13,57 @@ import (
 var ErrInvalid = errors.New("invalid policy")
 
 type Condition struct {
-	Field    string      `json:"field,omitempty"`
-	Operator string      `json:"operator,omitempty"`
-	Values   []string    `json:"values,omitempty"`
-	All      []Condition `json:"all,omitempty"`
-	Any      []Condition `json:"any,omitempty"`
-	Not      *Condition  `json:"not,omitempty"`
+	Field    string      `json:"field,omitempty" yaml:"field,omitempty"`
+	Operator string      `json:"operator,omitempty" yaml:"operator,omitempty"`
+	Values   []string    `json:"values,omitempty" yaml:"values,omitempty"`
+	All      []Condition `json:"all,omitempty" yaml:"all,omitempty"`
+	Any      []Condition `json:"any,omitempty" yaml:"any,omitempty"`
+	Not      *Condition  `json:"not,omitempty" yaml:"not,omitempty"`
 }
 type Action struct {
-	Type   string   `json:"type"`
-	PoolID model.ID `json:"pool_id,omitempty"`
-	Value  string   `json:"value,omitempty"`
+	Type   string   `json:"type" yaml:"type"`
+	PoolID model.ID `json:"pool_id,omitempty" yaml:"pool_id,omitempty"`
+	Value  string   `json:"value,omitempty" yaml:"value,omitempty"`
 }
 type Rule struct {
-	ID             model.ID  `json:"id"`
-	Name           string    `json:"name"`
-	Priority       int       `json:"priority"`
-	Enabled        bool      `json:"enabled"`
-	StopProcessing bool      `json:"stop_processing"`
-	Conditions     Condition `json:"conditions"`
-	Actions        []Action  `json:"actions"`
+	ID             model.ID  `json:"id" yaml:"id"`
+	Name           string    `json:"name" yaml:"name"`
+	Priority       int       `json:"priority" yaml:"priority"`
+	Enabled        bool      `json:"enabled" yaml:"enabled"`
+	StopProcessing bool      `json:"stop_processing" yaml:"stop_processing"`
+	Conditions     Condition `json:"conditions" yaml:"conditions"`
+	Actions        []Action  `json:"actions" yaml:"actions"`
 }
 type Policy struct {
-	Version int      `json:"version"`
-	ID      model.ID `json:"id"`
-	Name    string   `json:"name"`
-	Rules   []Rule   `json:"rules"`
+	Version int      `json:"version" yaml:"version"`
+	ID      model.ID `json:"id" yaml:"id"`
+	Name    string   `json:"name" yaml:"name"`
+	Rules   []Rule   `json:"rules" yaml:"rules"`
+}
+
+func (p Policy) Clone() Policy {
+	p.Rules = slices.Clone(p.Rules)
+	for i := range p.Rules {
+		p.Rules[i].Actions = slices.Clone(p.Rules[i].Actions)
+		p.Rules[i].Conditions = p.Rules[i].Conditions.Clone()
+	}
+	return p
+}
+func (c Condition) Clone() Condition {
+	c.Values = slices.Clone(c.Values)
+	c.All = slices.Clone(c.All)
+	for i := range c.All {
+		c.All[i] = c.All[i].Clone()
+	}
+	c.Any = slices.Clone(c.Any)
+	for i := range c.Any {
+		c.Any[i] = c.Any[i].Clone()
+	}
+	if c.Not != nil {
+		clone := c.Not.Clone()
+		c.Not = &clone
+	}
+	return c
 }
 
 func (p Policy) Validate() error {

@@ -3,13 +3,13 @@ package httpforward
 import (
 	"bufio"
 	"context"
-	"github.com/nguyenduytan/proxysieve/internal/security"
+	"errors"
+	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/netip"
 	"net/url"
 	"strings"
 	"testing"
@@ -18,6 +18,11 @@ import (
 func direct(_ context.Context, _ policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
 	return policy.Result{Actions: []policy.Action{{Type: "direct"}}}, nil
 }
+func routeDirect(_ context.Context, _ policy.RequestContext, _ policy.Result) (gateway.Route, error) {
+	return gateway.Route{Action: "direct", Transport: &http.Transport{Proxy: nil, ForceAttemptHTTP2: false}, Dial: func(ctx context.Context, address string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	}}, nil
+}
 func TestDirectForwardAndCredentialStripping(t *testing.T) {
 	var sawProxyAuth string
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -25,9 +30,7 @@ func TestDirectForwardAndCredentialStripping(t *testing.T) {
 		_, _ = io.WriteString(w, "ok")
 	}))
 	defer target.Close()
-	h, err := New(Options{Evaluator: Decider(direct), Resolver: ResolverFunc(func(context.Context, string) ([]netip.Addr, error) {
-		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
-	}), DestinationPolicy: security.DestinationPolicy{AllowTrusted: true}})
+	h, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,13 +51,13 @@ func TestDirectForwardAndCredentialStripping(t *testing.T) {
 	}
 }
 func TestRejectsUnsafeAndUnsupported(t *testing.T) {
-	h, err := New(Options{Evaluator: Decider(direct), Resolver: ResolverFunc(func(context.Context, string) ([]netip.Addr, error) {
-		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
-	}), DestinationPolicy: security.DestinationPolicy{DenyPrivate: true}})
+	h, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+		return gateway.Route{}, errors.New("denied")
+	})})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ method, target, want string }{{http.MethodGet, "http://example.invalid/", "DESTINATION_DENIED"}, {http.MethodConnect, "example.invalid:443", "DESTINATION_DENIED"}} {
+	for _, tc := range []struct{ method, target, want string }{{http.MethodGet, "http://example.invalid/", "POLICY_BLOCKED"}, {http.MethodConnect, "example.invalid:443", "DESTINATION_DENIED"}} {
 		r := httptest.NewRequest(tc.method, tc.target, nil)
 		r.RequestURI = ""
 		w := httptest.NewRecorder()
@@ -68,9 +71,7 @@ func TestConnectDirectTunnel(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "tunnel ok") }))
 	defer target.Close()
 	targetURL, _ := url.Parse(target.URL)
-	h, err := New(Options{Evaluator: Decider(direct), Resolver: ResolverFunc(func(context.Context, string) ([]netip.Addr, error) {
-		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
-	}), DestinationPolicy: security.DestinationPolicy{AllowTrusted: true}})
+	h, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect)})
 	if err != nil {
 		t.Fatal(err)
 	}

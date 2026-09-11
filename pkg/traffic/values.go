@@ -26,8 +26,8 @@ func (b Bytes) Add(other Bytes) (Bytes, error) {
 
 // Money stores millionths of one currency unit (USD 1 = 1,000,000 micros).
 type Money struct {
-	Currency string `json:"currency"`
-	Micros   int64  `json:"micros"`
+	Currency string `json:"currency" yaml:"currency"`
+	Micros   int64  `json:"micros" yaml:"micros"`
 }
 
 var currencyPattern = regexp.MustCompile(`^[A-Z]{3}$`)
@@ -60,10 +60,10 @@ const (
 // rounding each I/O chunk separately is incorrect. Costs are configured estimates,
 // not a provider invoice. History retains the applicable rate and effective time.
 type Rate struct {
-	Price        Money     `json:"price"`
-	Unit         ByteUnit  `json:"unit_bytes"`
-	DownloadOnly bool      `json:"download_only"`
-	EffectiveAt  time.Time `json:"effective_at"`
+	Price        Money     `json:"price" yaml:"price"`
+	Unit         ByteUnit  `json:"unit_bytes" yaml:"unit_bytes"`
+	DownloadOnly bool      `json:"download_only" yaml:"download_only"`
+	EffectiveAt  time.Time `json:"effective_at" yaml:"effective_at"`
 }
 
 func (r Rate) Validate() error {

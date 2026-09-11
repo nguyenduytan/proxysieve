@@ -31,23 +31,24 @@ const (
 func (p Protocol) Valid() bool { return p == HTTP || p == HTTPS || p == SOCKS5 || p == SOCKS5H }
 
 type Endpoint struct {
-	ID            model.ID          `json:"id"`
-	Name          string            `json:"name"`
-	Protocol      Protocol          `json:"protocol"`
-	Host          string            `json:"host"`
-	Port          uint16            `json:"port"`
-	CredentialRef secret.Ref        `json:"credential_ref,omitempty"`
-	ProviderID    model.ID          `json:"provider_id,omitempty"`
-	SourceID      model.ID          `json:"source_id,omitempty"`
-	Tags          []string          `json:"tags,omitempty"`
-	Country       string            `json:"country,omitempty"`
-	Weight        uint32            `json:"weight"`
-	Priority      int               `json:"priority"`
-	Enabled       bool              `json:"enabled"`
-	Rate          *traffic.Rate     `json:"rate,omitempty"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
+	ID               model.ID          `json:"id" yaml:"id"`
+	Name             string            `json:"name" yaml:"name"`
+	Protocol         Protocol          `json:"protocol" yaml:"protocol"`
+	Host             string            `json:"host" yaml:"host"`
+	Port             uint16            `json:"port" yaml:"port"`
+	CredentialRef    secret.Ref        `json:"credential_ref,omitempty" yaml:"credential_ref,omitempty"`
+	ProviderID       model.ID          `json:"provider_id,omitempty" yaml:"provider_id,omitempty"`
+	SourceID         model.ID          `json:"source_id,omitempty" yaml:"source_id,omitempty"`
+	Tags             []string          `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Country          string            `json:"country,omitempty" yaml:"country,omitempty"`
+	Weight           uint32            `json:"weight" yaml:"weight"`
+	Priority         int               `json:"priority" yaml:"priority"`
+	Enabled          bool              `json:"enabled" yaml:"enabled"`
+	TrustedRemoteDNS bool              `json:"trusted_remote_dns" yaml:"trusted_remote_dns"`
+	Rate             *traffic.Rate     `json:"rate,omitempty" yaml:"rate,omitempty"`
+	CreatedAt        time.Time         `json:"created_at" yaml:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at" yaml:"updated_at"`
+	Metadata         map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
 func (e Endpoint) Validate() error {
@@ -134,15 +135,15 @@ const (
 )
 
 type Source struct {
-	ID                model.ID      `json:"id"`
-	Name              string        `json:"name"`
-	Type              SourceType    `json:"type"`
-	ProviderID        model.ID      `json:"provider_id,omitempty"`
-	RefreshInterval   time.Duration `json:"refresh_interval_ns"`
-	LastRefreshAt     time.Time     `json:"last_refresh_at"`
-	LastRefreshStatus string        `json:"last_refresh_status"`
-	CredentialRef     secret.Ref    `json:"credential_ref,omitempty"`
-	Enabled           bool          `json:"enabled"`
+	ID                model.ID      `json:"id" yaml:"id"`
+	Name              string        `json:"name" yaml:"name"`
+	Type              SourceType    `json:"type" yaml:"type"`
+	ProviderID        model.ID      `json:"provider_id,omitempty" yaml:"provider_id,omitempty"`
+	RefreshInterval   time.Duration `json:"refresh_interval_ns" yaml:"refresh_interval"`
+	LastRefreshAt     time.Time     `json:"last_refresh_at" yaml:"last_refresh_at"`
+	LastRefreshStatus string        `json:"last_refresh_status" yaml:"last_refresh_status"`
+	CredentialRef     secret.Ref    `json:"credential_ref,omitempty" yaml:"credential_ref,omitempty"`
+	Enabled           bool          `json:"enabled" yaml:"enabled"`
 }
 
 func (s Source) Validate() error {

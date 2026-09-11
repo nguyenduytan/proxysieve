@@ -105,6 +105,16 @@ func TestNumericPrecedence(t *testing.T) {
 		t.Fatal(e, err)
 	}
 }
+
+func TestSecretEnvironmentIsNotConfig(t *testing.T) {
+	e, err := Load(Options{Home: t.TempDir(), Env: map[string]string{"PROXYSIEVE_SECRET_UPSTREAM_AUTH": `{"username":"demo","password":"fake-password"}`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := e.Sources["PROXYSIEVE_SECRET_UPSTREAM_AUTH"]; exists {
+		t.Fatal("secret reported as config")
+	}
+}
 func FuzzLoad(f *testing.F) {
 	f.Add("version: 1\nlogging:\n  level: info\n")
 	f.Add("version: 2")

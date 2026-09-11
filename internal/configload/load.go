@@ -112,6 +112,9 @@ func Load(o Options) (Effective, error) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
+		if strings.HasPrefix(k, "PROXYSIEVE_SECRET_") {
+			continue
+		}
 		if !strings.HasPrefix(k, "PROXYSIEVE_") {
 			continue
 		}

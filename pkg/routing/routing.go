@@ -6,6 +6,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/traffic"
+	"slices"
 	"time"
 )
 
@@ -33,16 +34,23 @@ func (s Strategy) Valid() bool {
 }
 
 type Pool struct {
-	ID              model.ID      `json:"id"`
-	Name            string        `json:"name"`
-	Strategy        Strategy      `json:"strategy"`
-	EndpointIDs     []model.ID    `json:"endpoint_ids"`
-	FallbackPoolIDs []model.ID    `json:"fallback_pool_ids"`
-	RequiredTags    []string      `json:"required_tags"`
-	Country         string        `json:"country"`
-	MinHealthScore  uint8         `json:"min_health_score"`
-	MaxLatency      time.Duration `json:"max_latency_ns"`
-	Enabled         bool          `json:"enabled"`
+	ID              model.ID      `json:"id" yaml:"id"`
+	Name            string        `json:"name" yaml:"name"`
+	Strategy        Strategy      `json:"strategy" yaml:"strategy"`
+	EndpointIDs     []model.ID    `json:"endpoint_ids" yaml:"endpoint_ids"`
+	FallbackPoolIDs []model.ID    `json:"fallback_pool_ids" yaml:"fallback_pool_ids"`
+	RequiredTags    []string      `json:"required_tags" yaml:"required_tags"`
+	Country         string        `json:"country" yaml:"country"`
+	MinHealthScore  uint8         `json:"min_health_score" yaml:"min_health_score"`
+	MaxLatency      time.Duration `json:"max_latency_ns" yaml:"max_latency"`
+	Enabled         bool          `json:"enabled" yaml:"enabled"`
+}
+
+func (p Pool) Clone() Pool {
+	p.EndpointIDs = slices.Clone(p.EndpointIDs)
+	p.FallbackPoolIDs = slices.Clone(p.FallbackPoolIDs)
+	p.RequiredTags = slices.Clone(p.RequiredTags)
+	return p
 }
 
 func (p Pool) Validate() error {

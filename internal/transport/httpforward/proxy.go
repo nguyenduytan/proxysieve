@@ -7,23 +7,15 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/nguyenduytan/proxysieve/internal/security"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 )
-
-type ResolverFunc func(context.Context, string) ([]netip.Addr, error)
-
-func (f ResolverFunc) LookupNetIP(ctx context.Context, host string) ([]netip.Addr, error) {
-	return f(ctx, host)
-}
 
 type Decider func(context.Context, policy.RequestContext, policy.Visibility) (policy.Result, error)
 
@@ -31,27 +23,26 @@ func (f Decider) Evaluate(ctx context.Context, r policy.RequestContext, v policy
 	return f(ctx, r, v)
 }
 
+type RouterFunc func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error)
+
+func (f RouterFunc) Route(ctx context.Context, r policy.RequestContext, result policy.Result) (gateway.Route, error) {
+	return f(ctx, r, result)
+}
+
 type Options struct {
-	Evaluator         gateway.Evaluator
-	Resolver          security.Resolver
-	DestinationPolicy security.DestinationPolicy
-	Transport         http.RoundTripper
-	MaxHeaderBytes    int
+	Evaluator      gateway.Evaluator
+	Router         gateway.Router
+	MaxHeaderBytes int
 }
 type Handler struct {
 	evaluator      gateway.Evaluator
-	resolver       security.Resolver
-	policy         security.DestinationPolicy
-	transport      http.RoundTripper
+	router         gateway.Router
 	maxHeaderBytes int
 }
 
 func New(options Options) (*Handler, error) {
-	if options.Evaluator == nil || options.Resolver == nil {
+	if options.Evaluator == nil || options.Router == nil {
 		return nil, errors.New("http forward proxy dependencies are required")
-	}
-	if options.Transport == nil {
-		options.Transport = &http.Transport{Proxy: nil, ForceAttemptHTTP2: false, ResponseHeaderTimeout: 30 * time.Second, IdleConnTimeout: 90 * time.Second, MaxIdleConns: 64, MaxIdleConnsPerHost: 8}
 	}
 	if options.MaxHeaderBytes == 0 {
 		options.MaxHeaderBytes = 32 << 10
@@ -59,7 +50,7 @@ func New(options Options) (*Handler, error) {
 	if options.MaxHeaderBytes < 1024 || options.MaxHeaderBytes > 1<<20 {
 		return nil, errors.New("invalid header limit")
 	}
-	return &Handler{evaluator: options.Evaluator, resolver: options.Resolver, policy: options.DestinationPolicy, transport: options.Transport, maxHeaderBytes: options.MaxHeaderBytes}, nil
+	return &Handler{evaluator: options.Evaluator, router: options.Router, maxHeaderBytes: options.MaxHeaderBytes}, nil
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodConnect {
@@ -89,18 +80,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POLICY_REJECTED", http.StatusForbidden)
 		return
 	}
-	action := terminal(result.Actions)
-	if action == "block" || action == "reject" || action == "" {
+	route, err := h.router.Route(r.Context(), ctx, result)
+	if err != nil || route.Action == "block" || route.Action == "reject" || route.Action == "" {
+		if errors.Is(err, gateway.ErrDenied) {
+			http.Error(w, "DESTINATION_DENIED", http.StatusForbidden)
+			return
+		}
 		http.Error(w, "POLICY_BLOCKED", http.StatusForbidden)
 		return
 	}
-	if action != "direct" {
+	if route.Transport == nil {
 		http.Error(w, "ROUTE_UNAVAILABLE", http.StatusBadGateway)
-		return
-	}
-	addrs, err := h.resolver.LookupNetIP(r.Context(), host)
-	if err != nil || h.policy.Allow(addrs) != nil {
-		http.Error(w, "DESTINATION_DENIED", http.StatusForbidden)
 		return
 	}
 	out := r.Clone(r.Context())
@@ -110,7 +100,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stripHopByHop(out.Header)
 	out.Header.Del("Proxy-Authorization")
 	out.Header.Del("Proxy-Connection")
-	response, err := h.transport.RoundTrip(out)
+	response, err := route.Transport.RoundTrip(out)
 	if err != nil {
 		http.Error(w, "UPSTREAM_FAILED", http.StatusBadGateway)
 		return
@@ -134,23 +124,20 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), Listener: "http", Protocol: "connect", Host: host, Port: uint16(port64), Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true})
-	if err != nil || terminal(result.Actions) != "direct" {
+	if err != nil {
 		http.Error(w, "POLICY_BLOCKED", http.StatusForbidden)
 		return
 	}
-	addrs, err := h.resolver.LookupNetIP(r.Context(), host)
-	if err != nil || h.policy.Allow(addrs) != nil {
+	route, err := h.router.Route(r.Context(), ctx, result)
+	if err != nil || route.Dial == nil {
+		if errors.Is(err, gateway.ErrDenied) {
+			http.Error(w, "DESTINATION_DENIED", http.StatusForbidden)
+			return
+		}
 		http.Error(w, "DESTINATION_DENIED", http.StatusForbidden)
 		return
 	}
-	var upstream net.Conn
-	dialer := net.Dialer{Timeout: 15 * time.Second}
-	for _, addr := range addrs {
-		upstream, err = dialer.DialContext(r.Context(), "tcp", net.JoinHostPort(addr.String(), portRaw))
-		if err == nil {
-			break
-		}
-	}
+	upstream, err := route.Dial(r.Context(), net.JoinHostPort(host, portRaw))
 	if err != nil {
 		http.Error(w, "UPSTREAM_FAILED", http.StatusBadGateway)
 		return
@@ -198,15 +185,6 @@ func defaultPort(scheme string) int {
 		return 80
 	}
 	return 0
-}
-func terminal(actions []policy.Action) string {
-	for _, a := range actions {
-		switch a.Type {
-		case "block", "reject", "proxy", "direct", "cache", "mock", "redirect", "rewrite":
-			return a.Type
-		}
-	}
-	return ""
 }
 func cloneHeader(h http.Header) map[string][]string {
 	out := make(map[string][]string, len(h))

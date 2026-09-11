@@ -15,6 +15,9 @@ import (
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/pkg/model"
+	pspolicy "github.com/nguyenduytan/proxysieve/pkg/policy"
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	"github.com/nguyenduytan/proxysieve/pkg/secret"
 )
 
@@ -42,16 +45,19 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 }
 
 type Config struct {
-	Version   int        `json:"version" yaml:"version"`
-	Server    Server     `json:"server" yaml:"server"`
-	Listeners []Listener `json:"listeners" yaml:"listeners"`
-	Admin     Admin      `json:"admin" yaml:"admin"`
-	Storage   Storage    `json:"storage" yaml:"storage"`
-	Traffic   Traffic    `json:"traffic" yaml:"traffic"`
-	Inspect   Inspect    `json:"inspect" yaml:"inspect"`
-	Cache     Cache      `json:"cache" yaml:"cache"`
-	Security  Security   `json:"security" yaml:"security"`
-	Logging   Logging    `json:"logging" yaml:"logging"`
+	Version   int               `json:"version" yaml:"version"`
+	Server    Server            `json:"server" yaml:"server"`
+	Listeners []Listener        `json:"listeners" yaml:"listeners"`
+	Admin     Admin             `json:"admin" yaml:"admin"`
+	Storage   Storage           `json:"storage" yaml:"storage"`
+	Traffic   Traffic           `json:"traffic" yaml:"traffic"`
+	Inspect   Inspect           `json:"inspect" yaml:"inspect"`
+	Cache     Cache             `json:"cache" yaml:"cache"`
+	Security  Security          `json:"security" yaml:"security"`
+	Logging   Logging           `json:"logging" yaml:"logging"`
+	Proxies   []proxy.Endpoint  `json:"proxies" yaml:"proxies"`
+	Pools     []routing.Pool    `json:"pools" yaml:"pools"`
+	Policies  []pspolicy.Policy `json:"policies" yaml:"policies"`
 }
 type Server struct {
 	DataDir         string   `json:"data_dir" yaml:"data_dir"`
@@ -125,6 +131,7 @@ func Defaults(home string) Config {
 		Cache:    Cache{DNS: CacheLimit{Enabled: true, MaxEntries: 4096, MaxBytes: 4 << 20}, Response: CacheLimit{MaxEntries: 1024, MaxBytes: 64 << 20}},
 		Security: Security{DenyPrivate: true},
 		Logging:  Logging{Level: "info", Format: "json"},
+		Policies: []pspolicy.Policy{{Version: 1, ID: "default", Name: "Fail closed", Rules: []pspolicy.Rule{{ID: "deny", Name: "Deny requests until configured", Priority: 100, Enabled: true, StopProcessing: true, Actions: []pspolicy.Action{{Type: "reject"}}}}}},
 	}
 }
 
@@ -205,7 +212,89 @@ func (c Config) Validate() error {
 	if c.Logging.Format != "json" && c.Logging.Format != "console" {
 		return ErrInvalid
 	}
+	proxyIDs := map[model.ID]bool{}
+	for _, endpoint := range c.Proxies {
+		if endpoint.Validate() != nil || proxyIDs[endpoint.ID] {
+			return ErrInvalid
+		}
+		proxyIDs[endpoint.ID] = true
+	}
+	poolIDs := map[model.ID]routing.Pool{}
+	for _, pool := range c.Pools {
+		if pool.Validate() != nil {
+			return ErrInvalid
+		}
+		if _, exists := poolIDs[pool.ID]; exists {
+			return ErrInvalid
+		}
+		for _, id := range pool.EndpointIDs {
+			if !proxyIDs[id] {
+				return ErrInvalid
+			}
+		}
+		poolIDs[pool.ID] = pool
+	}
+	for _, pool := range c.Pools {
+		for _, fallback := range pool.FallbackPoolIDs {
+			if _, exists := poolIDs[fallback]; !exists {
+				return ErrInvalid
+			}
+		}
+	}
+	if hasPoolCycle(poolIDs) {
+		return ErrInvalid
+	}
+	policyIDs := map[model.ID]bool{}
+	for _, document := range c.Policies {
+		if document.Validate() != nil || policyIDs[document.ID] {
+			return ErrInvalid
+		}
+		policyIDs[document.ID] = true
+		for _, rule := range document.Rules {
+			for _, action := range rule.Actions {
+				if action.Type == "proxy" {
+					if _, exists := poolIDs[action.PoolID]; !exists {
+						return ErrInvalid
+					}
+				}
+			}
+		}
+	}
+	for _, listener := range c.Listeners {
+		if !policyIDs[model.ID(listener.Policy)] {
+			return ErrInvalid
+		}
+	}
 	return nil
+}
+
+func hasPoolCycle(pools map[model.ID]routing.Pool) bool {
+	visiting := map[model.ID]bool{}
+	done := map[model.ID]bool{}
+	var visit func(model.ID) bool
+	visit = func(id model.ID) bool {
+		if visiting[id] {
+			return true
+		}
+		if done[id] {
+			return false
+		}
+		visiting[id] = true
+		for _, next := range pools[id].FallbackPoolIDs {
+			if visit(next) {
+				return true
+			}
+		}
+		visiting[id] = false
+		done[id] = true
+		return false
+	}
+	for id := range pools {
+		if visit(id) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c Config) Clone() Config {
@@ -213,6 +302,18 @@ func (c Config) Clone() Config {
 	c.Security.DirectAllowlist = slices.Clone(c.Security.DirectAllowlist)
 	c.Inspect.Include = slices.Clone(c.Inspect.Include)
 	c.Inspect.Exclude = slices.Clone(c.Inspect.Exclude)
+	c.Proxies = slices.Clone(c.Proxies)
+	for i := range c.Proxies {
+		c.Proxies[i] = c.Proxies[i].Clone()
+	}
+	c.Pools = slices.Clone(c.Pools)
+	for i := range c.Pools {
+		c.Pools[i] = c.Pools[i].Clone()
+	}
+	c.Policies = slices.Clone(c.Policies)
+	for i := range c.Policies {
+		c.Policies[i] = c.Policies[i].Clone()
+	}
 	return c
 }
 

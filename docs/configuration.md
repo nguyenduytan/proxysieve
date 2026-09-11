@@ -53,3 +53,30 @@ validated by their owning services when those are implemented.
 `config.Manager` atomically stores validated immutable revisions and rejects stale
 updates. It does not itself restart listeners, persist revisions, or apply effects.
 Full config migration/rollback CLI and live reload come with the owning milestones.
+
+## Local Proxy Resources
+
+The runtime also accepts `proxies`, `pools`, and `policies`. A policy route action
+references a configured pool by ID; a pool lists endpoint IDs and selection strategy.
+ProxySieve does not silently substitute `DIRECT` when a pool is empty, unhealthy,
+misconfigured, or its credentials are unavailable.
+
+Endpoint credentials are references only. For example, an endpoint with
+`credential_ref: secret://upstream/auth` reads this JSON value from the process
+environment at runtime:
+
+```text
+PROXYSIEVE_SECRET_UPSTREAM_AUTH={"username":"demo-user","password":"your-password"}
+```
+
+This variable is intentionally not configuration, never appears in effective-config
+output, and must never be copied into YAML, CLI args, logs, diagnostics, or commits.
+The current environment resolver is local-process only; encrypted persistent secret
+storage and rotation remain future work.
+
+An HTTP/HTTPS/SOCKS upstream proxy can resolve the target itself. That means local
+validation cannot prove its final target IP. When private-destination restrictions
+are enabled, set `trusted_remote_dns: true` on an operator-controlled endpoint only
+when that upstream has an explicit destination-enforcement contract. Otherwise the
+route is rejected. This intentionally makes unsafe remote DNS configuration fail
+closed rather than creating a surprise SSRF path.
