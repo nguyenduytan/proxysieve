@@ -7,8 +7,8 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-11.
 - [ ] M0 — Repository bootstrap (local checks passed; hosted acceptance pending)
 - [ ] M1 — Domain, config, storage, secret foundations (implemented locally; acceptance review pending)
 - [ ] M2 — Proxy normalization, sources, endpoint management (parser/import preview locally implemented; sources/API pending)
-- [ ] M3 — HTTP forward and CONNECT gateway (guarded DIRECT HTTP/CONNECT adapter locally implemented; listener wiring/upstreams/accounting pending)
-- [ ] M4 — SOCKS5 downstream and multi-listener support
+- [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
+- [ ] M4 — SOCKS5 downstream and multi-listener support (local no-auth SOCKS5 CONNECT and runtime multi-listener support implemented; password auth/metrics pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator locally implemented; runtime/API simulator pending)
 - [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors locally implemented; pool/session services and chaining pending)
 - [ ] M7 — Health, circuit breaker, safe retries

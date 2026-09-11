@@ -25,7 +25,7 @@ func TestRun(t *testing.T) {
 		{"short help", []string{"-h"}, 0, "Usage:", ""},
 		{"version", []string{"version"}, 0, "ProxySieve 0.0.0-dev", ""},
 		{"version alias", []string{"--version"}, 0, "Author: Tony Nguyen", ""},
-		{"start requires implemented listener set", []string{"start"}, 1, "", "LISTENER_UNAVAILABLE"},
+		{"start invalid flags", []string{"start", "--bogus"}, 2, "", "INVALID_USAGE"},
 		{"unknown", []string{"not-a-command"}, 2, "", "INVALID_USAGE"},
 		{"bad version flag", []string{"version", "--bogus"}, 2, "", "INVALID_USAGE"},
 		{"extra version args", []string{"version", "--json", "extra"}, 2, "", "INVALID_USAGE"},

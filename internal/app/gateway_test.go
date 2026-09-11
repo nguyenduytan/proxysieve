@@ -9,6 +9,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
+	"github.com/nguyenduytan/proxysieve/pkg/secret"
 	"io"
 	"net"
 	"net/http"
@@ -26,7 +27,13 @@ func TestBuildSafety(t *testing.T) {
 		t.Fatal(r, err)
 	}
 	c.Listeners = append(c.Listeners, config.Listener{Name: "socks", Type: "socks5", Bind: "127.0.0.1:1080", Auth: "local", Policy: "default", MaxConnections: 1, IdleTimeout: config.Duration(1)})
-	if _, err = Build(c); !errors.Is(err, ErrUnsupportedListener) {
+	r, err = Build(c)
+	if err != nil || r.SOCKS == nil || r.SOCKSBind != "127.0.0.1:1080" {
+		t.Fatal(r, err)
+	}
+	c.Listeners[1].Auth = "password"
+	c.Listeners[1].CredentialRef = secret.Ref("secret://client/test")
+	if _, err = Build(c); !errors.Is(err, ErrUnsupportedAuthentication) {
 		t.Fatal(err)
 	}
 	c = config.Defaults(t.TempDir())
@@ -40,6 +47,7 @@ func TestBuildSafety(t *testing.T) {
 func TestRunCancelled(t *testing.T) {
 	c := config.Defaults(t.TempDir())
 	c.Listeners = c.Listeners[:1]
+	c.Listeners[0].Bind = freeBind(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	r, err := Build(c)
@@ -117,4 +125,16 @@ func parsePort(t *testing.T, raw string) uint16 {
 		t.Fatal(raw, err)
 	}
 	return uint16(value)
+}
+func freeBind(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return address
 }

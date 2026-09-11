@@ -6,13 +6,14 @@ Created and maintained by **Tony Nguyen** · [@nguyenduytan](https://github.com/
 
 Stop paying for bytes you don't need. Route smarter, filter earlier, measure everything.
 
-## Current status: local foundation build (M1)
+## Current status: local gateway foundation (M4 in progress)
 
-This repository is under active development, **not a usable proxy gateway yet**.
-The CLI provides help, build/version metadata, configuration validation and
-effective-config inspection. The backend includes domain contracts and tested
-SQLite/in-memory endpoint repository foundations. `start` still fails explicitly
-and opens no listeners. No dashboard, routing, filtering, or savings metrics ship.
+This repository is under active development and is **not production-ready**. It
+now has local HTTP forward, HTTPS CONNECT, and SOCKS5 CONNECT listener foundations,
+but its default policy fails closed until a route is configured. The CLI provides
+help, build/version metadata, configuration validation and effective-config inspection.
+Dashboard, authentication, health, budgets, traffic analytics, cache, browser
+filtering and optional HTTPS inspection have not shipped.
 
 See [milestone progress](PROGRESS.md), [the implementation contract](PLAN.md), and
 [engineering refinements](docs/plan-refinements.md) for planned work and verification.
@@ -43,6 +44,7 @@ go run ./cmd/proxysieve version
 go run ./cmd/proxysieve version --json
 go run ./cmd/proxysieve config validate --file config.example.yaml
 go run ./cmd/proxysieve config print-effective --file config.example.yaml
+go run ./cmd/proxysieve start --file config.example.yaml
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
 pnpm --dir web test
@@ -68,8 +70,8 @@ docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges prox
 ```
 
 The current non-root container runs the CLI only; no ports are exposed. Compose
-also defaults to `version`. Runtime listeners and embedded SPA assets arrive in
-later milestones, not through a misleading placeholder server.
+also defaults to `version`. Container runtime listeners and embedded SPA assets
+arrive in later milestones, not through a misleading placeholder server.
 
 ## Planned safety defaults
 

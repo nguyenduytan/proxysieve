@@ -14,6 +14,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	"github.com/nguyenduytan/proxysieve/internal/transport/httpforward"
+	"github.com/nguyenduytan/proxysieve/internal/transport/socks5"
 	"github.com/nguyenduytan/proxysieve/internal/upstream"
 	"github.com/nguyenduytan/proxysieve/pkg/config"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
@@ -24,11 +25,14 @@ import (
 )
 
 var ErrUnsupportedListener = errors.New("configured listener type is not implemented")
+var ErrUnsupportedAuthentication = errors.New("configured listener authentication is not implemented")
 var ErrPoolUnavailable = errors.New("no usable proxy route")
 
 type Runtime struct {
-	Server *http.Server
-	Bind   string
+	Server    *http.Server
+	Bind      string
+	SOCKS     *socks5.Server
+	SOCKSBind string
 }
 type resolver struct{}
 
@@ -200,21 +204,6 @@ func Build(c config.Config) (Runtime, error) {
 	if c.Validate() != nil {
 		return Runtime{}, config.ErrInvalid
 	}
-	var listener *config.Listener
-	for i := range c.Listeners {
-		if c.Listeners[i].Type == "socks5" {
-			return Runtime{}, ErrUnsupportedListener
-		}
-		if c.Listeners[i].Type == "http" {
-			if listener != nil {
-				return Runtime{}, config.ErrInvalid
-			}
-			listener = &c.Listeners[i]
-		}
-	}
-	if listener == nil {
-		return Runtime{}, ErrUnsupportedListener
-	}
 	documents := map[model.ID]policy.Policy{}
 	for _, document := range c.Policies {
 		documents[document.ID] = document.Clone()
@@ -235,36 +224,106 @@ func Build(c config.Config) (Runtime, error) {
 			selectors[pool.Strategy] = selector
 		}
 	}
-	r := &router{document: documents[model.ID(listener.Policy)], endpoints: endpoints, pools: pools, selectors: selectors, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}}
-	handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r})
-	if err != nil {
-		return Runtime{}, err
+	runtime := Runtime{}
+	for _, listener := range c.Listeners {
+		if listener.Auth != "local" {
+			return Runtime{}, ErrUnsupportedAuthentication
+		}
+		r := &router{document: documents[model.ID(listener.Policy)], endpoints: endpoints, pools: pools, selectors: selectors, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}}
+		switch listener.Type {
+		case "http":
+			if runtime.Server != nil {
+				return Runtime{}, config.ErrInvalid
+			}
+			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r})
+			if err != nil {
+				return Runtime{}, err
+			}
+			runtime.Server = &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Duration(listener.IdleTimeout), MaxHeaderBytes: 32 << 10}
+			runtime.Bind = listener.Bind
+		case "socks5":
+			if runtime.SOCKS != nil {
+				return Runtime{}, config.ErrInvalid
+			}
+			server, err := socks5.New(socks5.Options{Evaluator: r, Router: r, IdleTimeout: time.Duration(listener.IdleTimeout)})
+			if err != nil {
+				return Runtime{}, err
+			}
+			runtime.SOCKS = server
+			runtime.SOCKSBind = listener.Bind
+		default:
+			return Runtime{}, ErrUnsupportedListener
+		}
 	}
-	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Duration(listener.IdleTimeout), MaxHeaderBytes: 32 << 10}
-	return Runtime{Server: server, Bind: listener.Bind}, nil
+	if runtime.Server == nil && runtime.SOCKS == nil {
+		return Runtime{}, ErrUnsupportedListener
+	}
+	return runtime, nil
 }
 func (r Runtime) Run(ctx context.Context) error {
-	listener, err := net.Listen("tcp", r.Bind)
-	if err != nil {
-		return err
+	listeners := make([]net.Listener, 0, 2)
+	closeAll := func() {
+		for _, listener := range listeners {
+			_ = listener.Close()
+		}
 	}
-	defer func() { _ = listener.Close() }()
-	done := make(chan error, 1)
-	go func() { done <- r.Server.Serve(listener) }()
+	if r.Server != nil {
+		listener, err := net.Listen("tcp", r.Bind)
+		if err != nil {
+			return err
+		}
+		listeners = append(listeners, listener)
+	}
+	if r.SOCKS != nil {
+		listener, err := net.Listen("tcp", r.SOCKSBind)
+		if err != nil {
+			closeAll()
+			return err
+		}
+		listeners = append(listeners, listener)
+	}
+	done := make(chan error, len(listeners))
+	if r.Server != nil {
+		listener := listeners[0]
+		go func() { done <- r.Server.Serve(listener) }()
+	}
+	if r.SOCKS != nil {
+		index := 0
+		if r.Server != nil {
+			index = 1
+		}
+		listener := listeners[index]
+		go func() { done <- r.serveSOCKS(ctx, listener) }()
+	}
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		_ = r.Server.Shutdown(shutdownCtx)
-		err = <-done
-		if errors.Is(err, http.ErrServerClosed) {
+		if r.Server != nil {
+			_ = r.Server.Shutdown(shutdownCtx)
+		}
+		closeAll()
+		for range cap(done) {
+			err := <-done
+			if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+				return err
+			}
+		}
+		return nil
+	case err := <-done:
+		closeAll()
+		if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 			return nil
 		}
 		return err
-	case err = <-done:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+	}
+}
+func (r Runtime) serveSOCKS(ctx context.Context, listener net.Listener) error {
+	for {
+		connection, err := listener.Accept()
+		if err != nil {
+			return err
 		}
-		return err
+		go r.SOCKS.Serve(ctx, connection)
 	}
 }

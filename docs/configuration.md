@@ -80,3 +80,9 @@ are enabled, set `trusted_remote_dns: true` on an operator-controlled endpoint o
 when that upstream has an explicit destination-enforcement contract. Otherwise the
 route is rejected. This intentionally makes unsafe remote DNS configuration fail
 closed rather than creating a surprise SSRF path.
+
+Current listener support is HTTP forward/CONNECT and SOCKS5 TCP CONNECT. `auth: local`
+is supported only for loopback/trusted use. `auth: password` validates as a future
+configuration shape but startup rejects it until M11 client identity storage exists.
+SOCKS5 UDP ASSOCIATE is not supported. No route reaches the network until a policy
+returns `direct` or `proxy`; `reject`/`block` remain fail-closed.
