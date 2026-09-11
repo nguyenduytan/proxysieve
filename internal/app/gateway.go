@@ -13,6 +13,7 @@ import (
 
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
+	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/internal/transport/httpforward"
 	"github.com/nguyenduytan/proxysieve/internal/transport/socks5"
 	"github.com/nguyenduytan/proxysieve/internal/upstream"
@@ -33,6 +34,7 @@ type Runtime struct {
 	Bind      string
 	SOCKS     *socks5.Server
 	SOCKSBind string
+	Traffic   *internaltraffic.Memory
 }
 type resolver struct{}
 
@@ -124,7 +126,7 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 	if err != nil {
 		return gateway.Route{}, ErrPoolUnavailable
 	}
-	return gateway.Route{Action: "proxy", Transport: transport, Dial: func(ctx context.Context, target string) (net.Conn, error) {
+	return gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, Transport: transport, Dial: func(ctx context.Context, target string) (net.Conn, error) {
 		return connector.Connect(ctx, endpoint, target)
 	}}, nil
 }
@@ -224,7 +226,11 @@ func Build(c config.Config) (Runtime, error) {
 			selectors[pool.Strategy] = selector
 		}
 	}
-	runtime := Runtime{}
+	trafficRecorder, err := internaltraffic.NewMemory(10_000)
+	if err != nil {
+		return Runtime{}, err
+	}
+	runtime := Runtime{Traffic: trafficRecorder}
 	for _, listener := range c.Listeners {
 		if listener.Auth != "local" {
 			return Runtime{}, ErrUnsupportedAuthentication
@@ -235,7 +241,7 @@ func Build(c config.Config) (Runtime, error) {
 			if runtime.Server != nil {
 				return Runtime{}, config.ErrInvalid
 			}
-			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r})
+			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: trafficRecorder})
 			if err != nil {
 				return Runtime{}, err
 			}

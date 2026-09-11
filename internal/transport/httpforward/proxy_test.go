@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"io"
@@ -48,6 +49,39 @@ func TestDirectForwardAndCredentialStripping(t *testing.T) {
 	b, _ := io.ReadAll(res.Body)
 	if res.StatusCode != 200 || string(b) != "ok" || sawProxyAuth != "" {
 		t.Fatalf("%d %s %q", res.StatusCode, b, sawProxyAuth)
+	}
+}
+func TestRecordsActualHTTPStreamBytes(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_, _ = w.Write(append([]byte("reply:"), body...))
+	}))
+	defer target.Close()
+	recorder, _ := internaltraffic.NewMemory(1)
+	handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect), Recorder: recorder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httptest.NewServer(handler)
+	defer proxy.Close()
+	proxyURL, _ := url.Parse(proxy.URL)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+	response, err := client.Post(target.URL, "text/plain", strings.NewReader("input"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if string(body) != "reply:input" {
+		t.Fatal(string(body))
+	}
+	events, dropped := recorder.Snapshot()
+	if dropped != 0 || len(events) != 1 {
+		t.Fatal(events, dropped)
+	}
+	event := events[0]
+	if event.ClientUpload != 5 || event.UpstreamUpload != 5 || event.ClientDownload != 11 || event.UpstreamDownload != 11 || event.Direct != 16 {
+		t.Fatal(event)
 	}
 }
 func TestRejectsUnsafeAndUnsupported(t *testing.T) {

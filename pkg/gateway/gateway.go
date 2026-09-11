@@ -4,6 +4,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"net"
 	"net/http"
@@ -20,6 +21,8 @@ type Evaluator interface {
 // scoped to one normalized destination and must not cross credential boundaries.
 type Route struct {
 	Action    string
+	PoolID    model.ID
+	ProxyID   model.ID
 	Transport http.RoundTripper
 	Dial      func(context.Context, string) (net.Conn, error)
 }

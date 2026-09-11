@@ -12,9 +12,11 @@ import (
 	"sync"
 	"time"
 
+	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
+	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
 type Decider func(context.Context, policy.RequestContext, policy.Visibility) (policy.Result, error)
@@ -32,11 +34,13 @@ func (f RouterFunc) Route(ctx context.Context, r policy.RequestContext, result p
 type Options struct {
 	Evaluator      gateway.Evaluator
 	Router         gateway.Router
+	Recorder       trafficpkg.Recorder
 	MaxHeaderBytes int
 }
 type Handler struct {
 	evaluator      gateway.Evaluator
 	router         gateway.Router
+	recorder       trafficpkg.Recorder
 	maxHeaderBytes int
 }
 
@@ -50,7 +54,7 @@ func New(options Options) (*Handler, error) {
 	if options.MaxHeaderBytes < 1024 || options.MaxHeaderBytes > 1<<20 {
 		return nil, errors.New("invalid header limit")
 	}
-	return &Handler{evaluator: options.Evaluator, router: options.Router, maxHeaderBytes: options.MaxHeaderBytes}, nil
+	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, maxHeaderBytes: options.MaxHeaderBytes}, nil
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodConnect {
@@ -93,7 +97,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ROUTE_UNAVAILABLE", http.StatusBadGateway)
 		return
 	}
+	body := r.Body
+	if body == nil {
+		body = http.NoBody
+	}
+	upload := &internaltraffic.Reader{Source: body}
 	out := r.Clone(r.Context())
+	out.Body = io.NopCloser(upload)
 	out.RequestURI = ""
 	out.Host = r.URL.Host
 	out.Header = cloneHeader(r.Header)
@@ -106,9 +116,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = response.Body.Close() }()
+	download := &internaltraffic.Reader{Source: response.Body}
 	copyHeader(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, response.Body)
+	_, _ = io.Copy(w, download)
+	if h.recorder != nil {
+		direct := trafficpkg.Bytes(0)
+		if route.Action == "direct" {
+			direct = upload.Bytes() + download.Bytes()
+		}
+		_ = h.recorder.Record(r.Context(), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: route.Action, StatusCode: response.StatusCode, ClientUpload: upload.Bytes(), ClientDownload: download.Bytes(), UpstreamUpload: upload.Bytes(), UpstreamDownload: download.Bytes(), Direct: direct})
+	}
 }
 
 func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
