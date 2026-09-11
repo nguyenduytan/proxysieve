@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
+	"github.com/nguyenduytan/proxysieve/internal/audit"
+	"github.com/nguyenduytan/proxysieve/internal/keys"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	"github.com/nguyenduytan/proxysieve/internal/storage/contract"
 	"github.com/nguyenduytan/proxysieve/internal/storage/memory"
@@ -29,6 +32,25 @@ type memoryUsers struct {
 type userRecord struct {
 	user auth.User
 	hash string
+}
+type memoryClients struct {
+	clients map[string]auth.Client
+	keys    map[string]auth.APIKey
+}
+
+func (m *memoryClients) CreateClient(_ context.Context, client auth.Client) error {
+	if _, ok := m.clients[string(client.ID)]; ok {
+		return store.ErrConflict
+	}
+	m.clients[string(client.ID)] = client
+	return nil
+}
+func (m *memoryClients) CreateAPIKey(_ context.Context, key auth.APIKey, _ [32]byte) (auth.APIKey, error) {
+	if _, ok := m.clients[string(key.ClientID)]; !ok {
+		return auth.APIKey{}, store.ErrNotFound
+	}
+	m.keys[string(key.ID)] = key
+	return key, nil
 }
 
 func (m *memoryUsers) UserCount(context.Context) (int, error) {
@@ -87,7 +109,7 @@ func TestSetupAndAuthenticatedAPI(t *testing.T) {
 	}
 	recorder, _ := internaltraffic.NewMemory(2)
 	_ = recorder.Record(context.Background(), publictraffic.Event{Host: "example.invalid", Action: "block"})
-	server, err := New(adminService, recorder, nil)
+	server, err := New(adminService, recorder, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +156,7 @@ func TestSetupAndAuthenticatedAPI(t *testing.T) {
 func TestAPIValidationAndSecurityHeaders(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())
-	server, _ := New(service, nil, nil)
+	server, _ := New(service, nil, nil, nil)
 	response := request(server.Handler(), http.MethodPost, "/api/v1/auth/login", map[string]string{"username": "x", "password": "y", "unexpected": "z"}, "")
 	if response.Code != http.StatusBadRequest || response.Header().Get("X-Content-Type-Options") != "nosniff" || response.Header().Get("Content-Security-Policy") == "" {
 		t.Fatal(response.Code, response.Header())
@@ -150,7 +172,7 @@ func TestAPIValidationAndSecurityHeaders(t *testing.T) {
 func TestDashboardAssetsAreServedWithoutBypassingAPIAuth(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())
-	server, _ := New(service, nil, nil)
+	server, _ := New(service, nil, nil, nil)
 	page := request(server.Handler(), http.MethodGet, "/", nil, "")
 	if page.Code != http.StatusOK || !bytes.Contains(page.Body.Bytes(), []byte(`<div id="root"></div>`)) {
 		t.Fatal(page.Code, page.Body.String())
@@ -172,7 +194,7 @@ func TestProxyInventoryRequiresSessionAndPaginates(t *testing.T) {
 	if _, err = endpoints.Put(context.Background(), endpoint, 0); err != nil {
 		t.Fatal(err)
 	}
-	server, _ := New(service, nil, endpoints)
+	server, _ := New(service, nil, endpoints, nil)
 	handler := server.Handler()
 	unauth := request(handler, http.MethodGet, "/api/v1/proxies", nil, "")
 	if unauth.Code != http.StatusUnauthorized {
@@ -193,7 +215,7 @@ func TestOperatorCreatesProxyWithCSRF(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())
 	endpoints, _ := memory.NewEndpoints(10)
-	server, _ := New(service, nil, endpoints)
+	server, _ := New(service, nil, endpoints, nil)
 	handler := server.Handler()
 	token, _ := service.SetupToken(context.Background())
 	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
@@ -222,7 +244,7 @@ func TestOperatorCreatesProxyWithCSRF(t *testing.T) {
 func TestProxyImportPreviewRequiresOperatorCSRF(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())
-	server, _ := New(service, nil, nil)
+	server, _ := New(service, nil, nil, nil)
 	handler := server.Handler()
 	token, _ := service.SetupToken(context.Background())
 	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
@@ -237,6 +259,51 @@ func TestProxyImportPreviewRequiresOperatorCSRF(t *testing.T) {
 	handler.ServeHTTP(writer, req)
 	if writer.Code != http.StatusOK || !bytes.Contains(writer.Body.Bytes(), []byte(`"valid":1`)) || !bytes.Contains(writer.Body.Bytes(), []byte(`"invalid":1`)) {
 		t.Fatal(writer.Code, writer.Body.String())
+	}
+}
+func TestAuditTrailIsAdminOnlyAndSanitized(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	audits, _ := audit.NewMemory(10)
+	server, _ := New(service, nil, nil, audits)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	result := request(handler, http.MethodGet, "/api/v1/audit", nil, cookiesFor(setup))
+	if result.Code != http.StatusOK || !bytes.Contains(result.Body.Bytes(), []byte(`"action":"admin.setup"`)) || bytes.Contains(result.Body.Bytes(), []byte("fake admin password")) {
+		t.Fatal(result.Code, result.Body.String())
+	}
+}
+func TestClientAndAPIKeyAreCreatedWithoutPersistingToken(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	clients := &memoryClients{clients: map[string]auth.Client{}, keys: map[string]auth.APIKey{}}
+	server, _ := New(service, nil, nil, nil, clients)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+	clientResponse := mutationRequest(handler, http.MethodPost, "/api/v1/clients", map[string]string{"name": "Browser automation"}, cookies)
+	if clientResponse.Code != 201 {
+		t.Fatal(clientResponse.Code, clientResponse.Body.String())
+	}
+	var client auth.Client
+	if err := json.Unmarshal(clientResponse.Body.Bytes(), &client); err != nil {
+		t.Fatal(err)
+	}
+	keyResponse := mutationRequest(handler, http.MethodPost, "/api/v1/clients/"+string(client.ID)+"/api-keys", map[string]string{}, cookies)
+	if keyResponse.Code != 201 {
+		t.Fatal(keyResponse.Code, keyResponse.Body.String())
+	}
+	var value struct {
+		APIKey auth.APIKey `json:"api_key"`
+		Token  string      `json:"token"`
+	}
+	if err := json.Unmarshal(keyResponse.Body.Bytes(), &value); err != nil {
+		t.Fatal(err)
+	}
+	if !keys.Valid(value.Token) || value.APIKey.Prefix != value.Token[:12] || strings.Contains(marshal(clients.keys), value.Token) {
+		t.Fatal(value)
 	}
 }
 func request(handler http.Handler, method, path string, body any, cookies string) *httptest.ResponseRecorder {
@@ -266,6 +333,18 @@ func requestWithCSRF(handler http.Handler, cookies, csrf string) *httptest.Respo
 	handler.ServeHTTP(w, r)
 	return w
 }
+func mutationRequest(handler http.Handler, method, path string, body any, cookies string) *httptest.ResponseRecorder {
+	payload, _ := json.Marshal(body)
+	r := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	r.Host = "127.0.0.1"
+	r.Header.Set("Cookie", cookies)
+	r.Header.Set("X-CSRF-Token", cookieValueFrom(cookies, csrfCookie))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	return w
+}
+func marshal(value any) string { body, _ := json.Marshal(value); return string(body) }
 func cookiesFor(w *httptest.ResponseRecorder) string {
 	cookies := w.Result().Cookies()
 	return cookies[0].Name + "=" + cookies[0].Value + "; " + cookies[1].Name + "=" + cookies[1].Value

@@ -39,6 +39,7 @@ type Options struct {
 	Evaluator      gateway.Evaluator
 	Router         gateway.Router
 	Recorder       trafficpkg.Recorder
+	Authenticate   func(context.Context, string) (model.ID, error)
 	ResponseCache  *internalcache.Memory
 	MaxCacheBody   int64
 	MaxHeaderBytes int
@@ -47,6 +48,7 @@ type Handler struct {
 	evaluator      gateway.Evaluator
 	router         gateway.Router
 	recorder       trafficpkg.Recorder
+	authenticate   func(context.Context, string) (model.ID, error)
 	responseCache  *internalcache.Memory
 	maxCacheBody   int64
 	maxHeaderBytes int
@@ -68,9 +70,13 @@ func New(options Options) (*Handler, error) {
 	if options.MaxCacheBody < 1 || options.MaxCacheBody > 8<<20 {
 		return nil, errors.New("invalid cache response limit")
 	}
-	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, responseCache: options.ResponseCache, maxCacheBody: options.MaxCacheBody, maxHeaderBytes: options.MaxHeaderBytes}, nil
+	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, authenticate: options.Authenticate, responseCache: options.ResponseCache, maxCacheBody: options.MaxCacheBody, maxHeaderBytes: options.MaxHeaderBytes}, nil
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	clientID, ok := h.authenticateRequest(w, r)
+	if !ok {
+		return
+	}
 	if r.Method == http.MethodConnect {
 		h.connect(w, r)
 		return
@@ -97,7 +103,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "INVALID_DESTINATION", http.StatusBadRequest)
 		return
 	}
-	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), Listener: "http", Protocol: "http", Scheme: r.URL.Scheme, Host: host, Port: port, Method: model.Optional[string]{Known: true, Value: r.Method}, Path: model.Optional[string]{Known: true, Value: r.URL.EscapedPath()}, Headers: model.Optional[map[string][]string]{Known: true, Value: cloneHeader(r.Header)}, Timestamp: time.Now().UTC()}
+	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "http", Scheme: r.URL.Scheme, Host: host, Port: port, Method: model.Optional[string]{Known: true, Value: r.Method}, Path: model.Optional[string]{Known: true, Value: r.URL.EscapedPath()}, Headers: model.Optional[map[string][]string]{Known: true, Value: cloneHeader(r.Header)}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true, Path: true, Headers: true})
 	if err != nil {
 		http.Error(w, "POLICY_REJECTED", http.StatusForbidden)
@@ -195,6 +201,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
+	clientID, ok := h.authenticateRequest(w, r)
+	if !ok {
+		return
+	}
 	host, portRaw, err := net.SplitHostPort(r.Host)
 	if err != nil || !proxy.ValidHost(host) {
 		http.Error(w, "INVALID_CONNECT_TARGET", http.StatusBadRequest)
@@ -205,7 +215,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "INVALID_CONNECT_TARGET", http.StatusBadRequest)
 		return
 	}
-	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), Listener: "http", Protocol: "connect", Host: host, Port: uint16(port64), Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
+	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "connect", Host: host, Port: uint16(port64), Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true})
 	if err != nil {
 		http.Error(w, "POLICY_BLOCKED", http.StatusForbidden)
@@ -327,6 +337,18 @@ func recordHTTP(recorder trafficpkg.Recorder, request *http.Request, ctx policy.
 		proxyUpload, proxyDownload = upload, download
 	}
 	_ = recorder.Record(context.WithoutCancel(request.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: route.Action, StatusCode: status, ClientUpload: upload, ClientDownload: delivered, UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, CacheServed: cacheServed})
+}
+func (h *Handler) authenticateRequest(w http.ResponseWriter, r *http.Request) (model.ID, bool) {
+	if h.authenticate == nil {
+		return "", true
+	}
+	id, err := h.authenticate(r.Context(), r.Header.Get("Proxy-Authorization"))
+	if err != nil {
+		w.Header().Set("Proxy-Authenticate", "Bearer")
+		http.Error(w, "PROXY_AUTH_REQUIRED", http.StatusProxyAuthRequired)
+		return "", false
+	}
+	return id, true
 }
 
 var _ http.Handler = (*Handler)(nil)

@@ -7,6 +7,7 @@ import (
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
+	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"io"
 	"net"
@@ -157,6 +158,35 @@ func TestRejectsUnsafeAndUnsupported(t *testing.T) {
 		if !strings.Contains(w.Body.String(), tc.want) {
 			t.Fatalf("%d %q", w.Code, w.Body.String())
 		}
+	}
+}
+func TestDownstreamBearerAuth(t *testing.T) {
+	called := false
+	h, err := New(Options{Evaluator: Decider(func(_ context.Context, request policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
+		called = request.ClientID == "client"
+		return direct(context.Background(), request, policy.Visibility{})
+	}), Router: RouterFunc(routeDirect), Authenticate: func(_ context.Context, header string) (model.ID, error) {
+		if header != "Bearer fake-key" {
+			return "", errors.New("bad")
+		}
+		return "client", nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://example.invalid/", nil)
+	req.Header.Set("Proxy-Authorization", "Bearer wrong")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusProxyAuthRequired || w.Header().Get("Proxy-Authenticate") != "Bearer" {
+		t.Fatal(w.Code, w.Header())
+	}
+	req = httptest.NewRequest(http.MethodGet, "http://example.invalid/", nil)
+	req.Header.Set("Proxy-Authorization", "Bearer fake-key")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if !called {
+		t.Fatal("client identity missing")
 	}
 }
 func TestConnectDirectTunnel(t *testing.T) {

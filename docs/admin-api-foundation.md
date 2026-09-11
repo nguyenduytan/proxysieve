@@ -15,6 +15,9 @@ POST /api/v1/auth/logout
 GET  /api/v1/auth/me
 GET  /api/v1/system/info
 GET  /api/v1/traffic/live
+GET  /api/v1/audit
+POST /api/v1/clients
+POST /api/v1/clients/{id}/api-keys
 ```
 
 The first run creates no default password. A random setup token appears only on
@@ -41,3 +44,28 @@ implemented. Do not work around this by exposing the local admin port publicly.
 application-stream events only. It clearly does not represent historical rollups,
 network-interface bytes or a provider invoice. Event persistence, SSE and full
 analytics arrive in later milestones.
+
+## Client API Keys
+
+An admin may create an enabled logical client with `POST /api/v1/clients`, then
+create a downstream key with `POST /api/v1/clients/{id}/api-keys`. The raw key is
+returned only by its creation response. SQLite retains a SHA-256 hash and display
+prefix, never the raw token. API key listing/revocation and client CRUD remain in
+progress.
+
+For an HTTP listener configured with `auth: api_key`, downstream clients must send:
+
+```text
+Proxy-Authorization: Bearer psk_...
+```
+
+The key is verified against the stored hash and enabled client record. It is removed
+before any origin request. SOCKS5 username/password auth has not yet been wired to
+clients, so use the documented loopback local mode for SOCKS during development.
+
+## Audit Events
+
+The SQLite audit trail records actor, action, target, request ID and timestamp for
+setup, login, logout and proxy/client/key mutations. It intentionally excludes raw
+passwords, setup tokens, cookies, API keys and request/response bodies. `/api/v1/audit`
+is administrator-only; retention/export and a dashboard audit page are pending.

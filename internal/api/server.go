@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,7 +16,9 @@ import (
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
+	"github.com/nguyenduytan/proxysieve/internal/audit"
 	"github.com/nguyenduytan/proxysieve/internal/buildinfo"
+	"github.com/nguyenduytan/proxysieve/internal/keys"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
@@ -31,6 +34,8 @@ type Server struct {
 	admin        *admin.Service
 	traffic      *internaltraffic.Memory
 	endpoints    store.Endpoints
+	clients      ClientStore
+	audit        audit.Writer
 	now          func() time.Time
 	ui           http.Handler
 	limitMu      sync.Mutex
@@ -38,11 +43,20 @@ type Server struct {
 	authAttempts int
 }
 
-func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints store.Endpoints) (*Server, error) {
+type ClientStore interface {
+	CreateClient(context.Context, auth.Client) error
+	CreateAPIKey(context.Context, auth.APIKey, [32]byte) (auth.APIKey, error)
+}
+
+func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints store.Endpoints, auditWriter audit.Writer, clientStores ...ClientStore) (*Server, error) {
 	if service == nil {
 		return nil, errors.New("admin service is required")
 	}
-	return &Server{admin: service, traffic: traffic, endpoints: endpoints, ui: dashboardHandler(), now: func() time.Time { return time.Now().UTC() }}, nil
+	var clients ClientStore
+	if len(clientStores) > 0 {
+		clients = clientStores[0]
+	}
+	return &Server{admin: service, traffic: traffic, endpoints: endpoints, clients: clients, audit: auditWriter, ui: dashboardHandler(), now: func() time.Time { return time.Now().UTC() }}, nil
 }
 func (s *Server) Handler() http.Handler { return securityHeaders(http.HandlerFunc(s.handle)) }
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
@@ -91,8 +105,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	case "/api/v1/auth/login":
 		s.login(w, r)
 	case "/api/v1/auth/logout":
-		s.requireMutation(w, r, auth.RoleViewer, func(_ auth.User) {
+		s.requireMutation(w, r, auth.RoleViewer, func(user auth.User) {
 			s.admin.Logout(cookieValue(r, sessionCookie))
+			s.record(r.Context(), user, "admin.logout", "session", "")
 			clearCookie(w, sessionCookie)
 			clearCookie(w, csrfCookie)
 			w.WriteHeader(http.StatusNoContent)
@@ -101,6 +116,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(user auth.User) { writeJSON(w, http.StatusOK, user) })
 	case "/api/v1/traffic/live":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.liveTraffic(w) })
+	case "/api/v1/audit":
+		s.require(w, r, auth.RoleAdmin, func(_ auth.User) { s.listAudit(w, r) })
 	case "/api/v1/proxies":
 		if r.Method == http.MethodGet {
 			s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.listProxies(w, r) })
@@ -109,9 +126,66 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 	case "/api/v1/proxies/import/preview":
 		s.previewImport(w, r)
+	case "/api/v1/clients":
+		if r.Method == http.MethodPost {
+			s.createClient(w, r)
+		} else {
+			methodNotAllowed(w)
+		}
 	default:
-		writeError(w, http.StatusNotFound, "NOT_FOUND", "The requested API resource was not found.")
+		if strings.HasPrefix(r.URL.Path, "/api/v1/clients/") && strings.HasSuffix(r.URL.Path, "/api-keys") {
+			s.createAPIKey(w, r)
+		} else {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "The requested API resource was not found.")
+		}
 	}
+}
+func (s *Server) createClient(w http.ResponseWriter, r *http.Request) {
+	s.requireMutation(w, r, auth.RoleAdmin, func(user auth.User) {
+		if s.clients == nil {
+			writeError(w, 503, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+			return
+		}
+		var input struct {
+			Name string `json:"name"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		client := auth.Client{ID: model.NewID(), Name: input.Name, Enabled: true, AuthMethod: "api_key", CreatedAt: s.now()}
+		if err := s.clients.CreateClient(r.Context(), client); err != nil {
+			writeError(w, 400, "INVALID_CLIENT", "Client metadata was not accepted.")
+			return
+		}
+		s.record(r.Context(), user, "client.created", "client", string(client.ID))
+		writeJSON(w, 201, client)
+	})
+}
+func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
+	s.requireMutation(w, r, auth.RoleAdmin, func(user auth.User) {
+		if s.clients == nil {
+			writeError(w, 503, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+			return
+		}
+		clientID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/clients/"), "/api-keys")
+		if !model.ID(clientID).Valid() {
+			writeError(w, 400, "INVALID_CLIENT", "Client ID was not accepted.")
+			return
+		}
+		token, prefix, hash, err := keys.Generate()
+		if err != nil {
+			writeError(w, 503, "KEY_UNAVAILABLE", "A key could not be generated.")
+			return
+		}
+		key := auth.APIKey{ID: model.NewID(), ClientID: model.ID(clientID), Prefix: prefix, CreatedAt: s.now()}
+		created, err := s.clients.CreateAPIKey(r.Context(), key, hash)
+		if err != nil {
+			writeError(w, 400, "KEY_NOT_CREATED", "API key could not be stored.")
+			return
+		}
+		s.record(r.Context(), user, "api_key.created", "client", clientID)
+		writeJSON(w, 201, map[string]any{"api_key": created, "token": token})
+	})
 }
 func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -149,6 +223,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.createSessionToken(w, token)
+	s.record(r.Context(), user, "admin.setup", "user", string(user.ID))
 	writeJSON(w, http.StatusCreated, user)
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +244,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.createSessionToken(w, token)
+	s.record(r.Context(), user, "admin.login", "user", string(user.ID))
 	writeJSON(w, http.StatusOK, user)
 }
 func (s *Server) createSessionToken(w http.ResponseWriter, token string) {
@@ -246,7 +322,7 @@ func (s *Server) listProxies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": records, "next_after": next})
 }
 func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
-	s.requireMutation(w, r, auth.RoleOperator, func(_ auth.User) {
+	s.requireMutation(w, r, auth.RoleOperator, func(user auth.User) {
 		if s.endpoints == nil {
 			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy storage is unavailable.")
 			return
@@ -273,6 +349,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy metadata could not be stored.")
 			return
 		}
+		s.record(r.Context(), user, "proxy.created", "proxy", string(record.Endpoint.ID))
 		writeJSON(w, http.StatusCreated, map[string]any{"proxy": record, "runtime_active": false, "activation": "inventory_only"})
 	})
 }
@@ -291,6 +368,34 @@ func (s *Server) previewImport(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, preview)
 	})
+}
+func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
+	reader, ok := s.audit.(audit.Reader)
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}})
+		return
+	}
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 1000 {
+			writeError(w, 400, "INVALID_PAGE", "Pagination values were not accepted.")
+			return
+		}
+		limit = value
+	}
+	events, err := reader.ListAudit(r.Context(), audit.Page{Limit: limit})
+	if err != nil {
+		writeError(w, 503, "AUDIT_UNAVAILABLE", "Audit storage is unavailable.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": events})
+}
+func (s *Server) record(ctx context.Context, user auth.User, action, targetType, targetID string) {
+	if s.audit == nil {
+		return
+	}
+	_ = s.audit.Record(context.WithoutCancel(ctx), audit.Event{ID: model.NewID(), At: s.now(), ActorID: user.ID, Action: action, TargetType: targetType, TargetID: targetID})
 }
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))

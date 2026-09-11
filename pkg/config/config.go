@@ -151,7 +151,7 @@ func (c Config) Validate() error {
 		if err != nil || ap.Port() == 0 || ap.Addr().Zone() != "" || bindings[ap] || !model.ID(l.Name).Valid() || names[l.Name] {
 			return ErrInvalid
 		}
-		if l.Type != "http" && l.Type != "socks5" || l.Auth != "local" && l.Auth != "password" || !model.ID(l.Policy).Valid() {
+		if l.Type != "http" && l.Type != "socks5" || l.Auth != "local" && l.Auth != "password" && l.Auth != "api_key" || !model.ID(l.Policy).Valid() {
 			return ErrInvalid
 		}
 		if !ap.Addr().IsLoopback() && l.Auth == "local" || l.Auth == "password" && !l.CredentialRef.Valid() {

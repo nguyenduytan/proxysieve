@@ -86,3 +86,8 @@ is supported only for loopback/trusted use. `auth: password` validates as a futu
 configuration shape but startup rejects it until M11 client identity storage exists.
 SOCKS5 UDP ASSOCIATE is not supported. No route reaches the network until a policy
 returns `direct` or `proxy`; `reject`/`block` remain fail-closed.
+
+For an HTTP listener, `auth: api_key` enables downstream `Proxy-Authorization:
+Bearer psk_...` authentication against a stored, enabled client key. Create the key
+through the local administrator API; only its hash/prefix is retained. Do not place
+the raw downstream key in YAML. SOCKS API-key/password auth remains pending.

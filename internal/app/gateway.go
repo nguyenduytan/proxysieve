@@ -16,6 +16,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/admin"
 	"github.com/nguyenduytan/proxysieve/internal/api"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
+	"github.com/nguyenduytan/proxysieve/internal/downstreamauth"
 	internalhealth "github.com/nguyenduytan/proxysieve/internal/health"
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
@@ -243,7 +244,7 @@ func Build(c config.Config) (Runtime, error) {
 	}
 	types := map[string]bool{}
 	for _, listener := range c.Listeners {
-		if listener.Auth != "local" {
+		if listener.Auth != "local" && listener.Auth != "api_key" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
 		if types[listener.Type] {
@@ -303,7 +304,7 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
-		server, err := api.New(service, trafficRecorder, controlStore)
+		server, err := api.New(service, trafficRecorder, controlStore, controlStore, controlStore)
 		if err != nil {
 			_ = controlStore.Close()
 			return Runtime{}, err
@@ -326,7 +327,16 @@ func Build(c config.Config) (Runtime, error) {
 			if runtime.Server != nil {
 				return Runtime{}, config.ErrInvalid
 			}
-			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: trafficRecorder, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20)})
+			var authenticate func(context.Context, string) (model.ID, error)
+			if listener.Auth == "api_key" {
+				if runtime.Store == nil {
+					return Runtime{}, ErrUnsupportedAuthentication
+				}
+				authenticate = func(ctx context.Context, header string) (model.ID, error) {
+					return downstreamauth.AuthenticateBearer(ctx, header, runtime.Store)
+				}
+			}
+			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: trafficRecorder, Authenticate: authenticate, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20)})
 			if err != nil {
 				return Runtime{}, err
 			}

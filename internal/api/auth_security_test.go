@@ -12,7 +12,7 @@ import (
 
 func TestRejectsCrossOriginAndTrailingJSON(t *testing.T) {
 	service, _ := admin.New(&memoryUsers{users: map[string]userRecord{}}, security.DefaultPasswordParams())
-	server, _ := New(service, nil, nil)
+	server, _ := New(service, nil, nil, nil)
 	for _, tc := range []struct {
 		origin, body, contentType string
 		want                      int
@@ -35,7 +35,7 @@ func TestRejectsCrossOriginAndTrailingJSON(t *testing.T) {
 }
 func TestSessionBoundCSRFAndMethodGuards(t *testing.T) {
 	service, _ := admin.New(&memoryUsers{users: map[string]userRecord{}}, security.DefaultPasswordParams())
-	server, _ := New(service, nil, nil)
+	server, _ := New(service, nil, nil, nil)
 	token, _ := service.SetupToken(t.Context())
 	setup := request(server.Handler(), http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake password"}, "")
 	cookies := cookiesFor(setup)
@@ -60,7 +60,7 @@ func TestSessionBoundCSRFAndMethodGuards(t *testing.T) {
 }
 func TestLoginRateLimitAndAssetFallback(t *testing.T) {
 	service, _ := admin.New(&memoryUsers{users: map[string]userRecord{}}, security.DefaultPasswordParams())
-	server, _ := New(service, nil, nil)
+	server, _ := New(service, nil, nil, nil)
 	for i := 0; i < 30; i++ {
 		if w := request(server.Handler(), http.MethodPost, "/api/v1/auth/login", map[string]string{"username": "missing", "password": "not a real password"}, ""); w.Code != 401 {
 			t.Fatal(w.Code)
