@@ -107,9 +107,10 @@ func matchCondition(c Condition, r RequestContext, v Visibility) (MatchState, []
 	}
 	if c.Not != nil {
 		s, t := matchCondition(*c.Not, r, v)
-		if s == Match {
+		switch s {
+		case Match:
 			s = NoMatch
-		} else if s == NoMatch {
+		case NoMatch:
 			s = Match
 		}
 		return s, t
