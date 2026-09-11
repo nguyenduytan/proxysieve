@@ -44,7 +44,10 @@ func runStart(args []string, stdout, stderr io.Writer, home string, env map[stri
 		_, _ = io.WriteString(stderr, "RUNTIME_BUILD_FAILED\n")
 		return 1
 	}
-	_, _ = fmt.Fprintf(stdout, "ProxySieve %s\nHTTP %s\nPolicy: %s\nStatus: ready\n", buildVersion(), runtime.Bind, routeStatus(effective.Config.Security.AllowDirect))
+	_, _ = fmt.Fprintf(stdout, "ProxySieve %s\nHTTP %s\nSOCKS5 %s\nAdmin http://%s\nPolicy: %s\nStatus: ready\n", buildVersion(), runtime.Bind, runtime.SOCKSBind, runtime.AdminBind, routeStatus(effective.Config.Security.AllowDirect))
+	if runtime.SetupToken != "" {
+		_, _ = fmt.Fprintf(stdout, "\nFirst-run setup token (shown once): %s\n", runtime.SetupToken)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err = runtime.Run(ctx); err != nil {
