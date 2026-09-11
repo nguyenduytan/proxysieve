@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 	"time"
 )
 
@@ -74,6 +75,7 @@ type Candidate struct {
 	ActiveConnections uint64
 	HealthScore       uint8
 	Latency           time.Duration
+	Traffic           traffic.Bytes
 }
 type Selector interface {
 	Name() Strategy
