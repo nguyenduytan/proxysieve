@@ -101,6 +101,17 @@ func (m *Manager) Get(id model.ID, now time.Time) (public.Snapshot, error) {
 	}
 	return state, nil
 }
+
+// Eligible returns true for unseen endpoints; unknown health is selectable until
+// actual observations say otherwise. Open circuits transition to half-open after
+// their cooldown and allow the next controlled attempt.
+func (m *Manager) Eligible(id model.ID, now time.Time) bool {
+	state, err := m.Get(id, now)
+	if errors.Is(err, ErrNotFound) {
+		return true
+	}
+	return err == nil && state.State != public.Disabled && state.Circuit != public.CircuitOpen
+}
 func (m *Manager) SetDisabled(id model.ID, disabled bool) (public.Snapshot, error) {
 	if !id.Valid() {
 		return public.Snapshot{}, public.ErrInvalid

@@ -14,6 +14,7 @@ import (
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
 	"github.com/nguyenduytan/proxysieve/internal/api"
+	internalhealth "github.com/nguyenduytan/proxysieve/internal/health"
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
@@ -23,6 +24,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/upstream"
 	"github.com/nguyenduytan/proxysieve/pkg/config"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
+	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
@@ -62,6 +64,7 @@ type router struct {
 	resolver    security.Resolver
 	destination security.DestinationPolicy
 	credentials upstream.CredentialResolver
+	health      *internalhealth.Manager
 }
 
 func (r *router) Evaluate(_ context.Context, request policy.RequestContext, visibility policy.Visibility) (policy.Result, error) {
@@ -140,6 +143,8 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 	}
 	return gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, Transport: transport, Dial: func(ctx context.Context, target string) (net.Conn, error) {
 		return connector.Connect(ctx, endpoint, target)
+	}, Observe: func(success bool, status int) {
+		_, _ = r.health.Observe(endpoint.ID, publichealth.Observation{Success: success, HTTPStatus: status})
 	}}, nil
 }
 func (r *router) selectEndpoint(ctx context.Context, poolID model.ID, request policy.RequestContext) (proxy.Endpoint, error) {
@@ -157,7 +162,7 @@ func (r *router) selectEndpoint(ctx context.Context, poolID model.ID, request po
 		candidates := make([]routing.Candidate, 0, len(pool.EndpointIDs))
 		for _, endpointID := range pool.EndpointIDs {
 			endpoint := r.endpoints[endpointID]
-			if endpoint.Enabled && matchesPool(endpoint, pool) {
+			if endpoint.Enabled && matchesPool(endpoint, pool) && r.health.Eligible(endpoint.ID, time.Now().UTC()) {
 				candidates = append(candidates, routing.Candidate{Endpoint: endpoint, HealthScore: 100})
 			}
 		}
@@ -248,6 +253,10 @@ func Build(c config.Config) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
+	healthManager, err := internalhealth.New(publichealth.Defaults(), nil)
+	if err != nil {
+		return Runtime{}, err
+	}
 	runtime := Runtime{Traffic: trafficRecorder}
 	if c.Admin.Enabled {
 		if c.Storage.Driver != "sqlite" {
@@ -279,7 +288,7 @@ func Build(c config.Config) (Runtime, error) {
 		if listener.Auth != "local" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
-		r := &router{document: documents[model.ID(listener.Policy)], endpoints: endpoints, pools: pools, selectors: selectors, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}}
+		r := &router{document: documents[model.ID(listener.Policy)], endpoints: endpoints, pools: pools, selectors: selectors, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager}
 		switch listener.Type {
 		case "http":
 			if runtime.Server != nil {

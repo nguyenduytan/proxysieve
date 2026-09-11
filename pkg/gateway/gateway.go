@@ -25,6 +25,7 @@ type Route struct {
 	ProxyID   model.ID
 	Transport http.RoundTripper
 	Dial      func(context.Context, string) (net.Conn, error)
+	Observe   func(bool, int)
 }
 
 type Router interface {

@@ -69,3 +69,21 @@ func TestStatusWeightingAndDisable(t *testing.T) {
 		t.Fatal(s)
 	}
 }
+func TestEligibility(t *testing.T) {
+	clock := &fakeClock{now: time.Now().UTC()}
+	config := public.Defaults()
+	config.FailureThreshold = 1
+	config.OpenDuration = time.Minute
+	m, _ := New(config, clock)
+	if !m.Eligible("new", clock.Now()) {
+		t.Fatal("unknown should be eligible")
+	}
+	_, _ = m.Observe("proxy", public.Observation{Success: false})
+	if m.Eligible("proxy", clock.Now()) {
+		t.Fatal("open circuit eligible")
+	}
+	clock.Add(time.Minute)
+	if !m.Eligible("proxy", clock.Now()) {
+		t.Fatal("half-open probe unavailable")
+	}
+}

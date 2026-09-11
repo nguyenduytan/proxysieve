@@ -112,10 +112,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	out.Header.Del("Proxy-Connection")
 	response, err := route.Transport.RoundTrip(out)
 	if err != nil {
+		if route.Observe != nil {
+			route.Observe(false, 0)
+		}
 		http.Error(w, "UPSTREAM_FAILED", http.StatusBadGateway)
 		return
 	}
 	defer func() { _ = response.Body.Close() }()
+	if route.Observe != nil {
+		route.Observe(true, response.StatusCode)
+	}
 	download := &internaltraffic.Reader{Source: response.Body}
 	copyHeader(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
@@ -157,8 +163,14 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	upstream, err := route.Dial(r.Context(), net.JoinHostPort(host, portRaw))
 	if err != nil {
+		if route.Observe != nil {
+			route.Observe(false, 0)
+		}
 		http.Error(w, "UPSTREAM_FAILED", http.StatusBadGateway)
 		return
+	}
+	if route.Observe != nil {
+		route.Observe(true, 0)
 	}
 	defer func() { _ = upstream.Close() }()
 	hijacker, ok := w.(http.Hijacker)
