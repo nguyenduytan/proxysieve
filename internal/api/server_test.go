@@ -194,6 +194,26 @@ func TestOperatorCreatesProxyWithCSRF(t *testing.T) {
 		t.Fatal(stored, err)
 	}
 }
+func TestProxyImportPreviewRequiresOperatorCSRF(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	server, _ := New(service, nil, nil)
+	handler := server.Handler()
+	token, _ := service.SetupToken(context.Background())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+	payload, _ := json.Marshal(map[string]string{"input": "proxy.example.invalid:8080\nbad"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/import/preview", bytes.NewReader(payload))
+	req.Host = "127.0.0.1"
+	req.Header.Set("Cookie", cookies)
+	req.Header.Set("X-CSRF-Token", cookieValueFrom(cookies, csrfCookie))
+	req.Header.Set("Content-Type", "application/json")
+	writer := httptest.NewRecorder()
+	handler.ServeHTTP(writer, req)
+	if writer.Code != http.StatusOK || !bytes.Contains(writer.Body.Bytes(), []byte(`"valid":1`)) || !bytes.Contains(writer.Body.Bytes(), []byte(`"invalid":1`)) {
+		t.Fatal(writer.Code, writer.Body.String())
+	}
+}
 func request(handler http.Handler, method, path string, body any, cookies string) *httptest.ResponseRecorder {
 	var input *bytes.Reader
 	if body == nil {

@@ -19,16 +19,16 @@ const (
 )
 
 type PreviewItem struct {
-	Line   int
-	Result ParseResult
-	Error  string
+	Line   int         `json:"line"`
+	Result ParseResult `json:"result"`
+	Error  string      `json:"error,omitempty"`
 }
 type ImportPreview struct {
-	Items      []PreviewItem
-	Valid      int
-	Invalid    int
-	Duplicates int
-	Protocols  map[Protocol]int
+	Items      []PreviewItem    `json:"items"`
+	Valid      int              `json:"valid"`
+	Invalid    int              `json:"invalid"`
+	Duplicates int              `json:"duplicates"`
+	Protocols  map[Protocol]int `json:"protocols"`
 }
 
 // Preview parses a bounded text import without persisting anything. Lines are

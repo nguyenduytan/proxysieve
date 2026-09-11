@@ -14,8 +14,8 @@ type ParseWarning string
 const WarningLegacyFormat ParseWarning = "legacy_colon_format"
 
 type ParseResult struct {
-	Endpoint Endpoint
-	Warnings []ParseWarning
+	Endpoint Endpoint       `json:"endpoint"`
+	Warnings []ParseWarning `json:"warnings,omitempty"`
 }
 
 // Parse accepts URI forms and the legacy host:port:user:pass form. It never

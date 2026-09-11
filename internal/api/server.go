@@ -77,6 +77,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.createProxy(w, r)
 		}
+	case "/api/v1/proxies/import/preview":
+		s.previewImport(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "The requested API resource was not found.")
 	}
@@ -243,6 +245,22 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"proxy": record, "pending_restart": true})
+	})
+}
+func (s *Server) previewImport(w http.ResponseWriter, r *http.Request) {
+	s.requireMutation(w, r, auth.RoleOperator, func(_ auth.User) {
+		var input struct {
+			Input string `json:"input"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		preview, err := proxy.Preview(input.Input, 100_000)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_IMPORT", "Proxy import text was not accepted.")
+			return
+		}
+		writeJSON(w, http.StatusOK, preview)
 	})
 }
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
