@@ -27,6 +27,26 @@ func (s *Store) CreateUser(ctx context.Context, user auth.User, passwordHash str
 	}
 	return nil
 }
+
+// A single conditional INSERT prevents two processes from winning first-run setup.
+func (s *Store) CreateInitialUser(ctx context.Context, user auth.User, passwordHash string) error {
+	if !user.Validate() || user.Role != auth.RoleAdmin || len(passwordHash) < 32 {
+		return store.ErrInvalid
+	}
+	result, err := s.db.ExecContext(ctx, `INSERT INTO admin_users(id,username,password_hash,role,enabled,created_at,last_login_at)
+		SELECT ?,?,?,?,?,?,NULL WHERE NOT EXISTS (SELECT 1 FROM admin_users)`, string(user.ID), user.Username, passwordHash, string(user.Role), boolInt(user.Enabled), user.CreatedAt.UTC().Unix())
+	if err != nil {
+		return safeError(ctx, err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return safeError(ctx, err)
+	}
+	if count != 1 {
+		return store.ErrConflict
+	}
+	return nil
+}
 func (s *Store) FindUser(ctx context.Context, username string) (auth.User, string, error) {
 	var user auth.User
 	var passwordHash string

@@ -2,15 +2,16 @@
 package api
 
 import (
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
+	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
@@ -27,17 +28,21 @@ const csrfCookie = "proxysieve_csrf"
 const maxBodyBytes = 64 << 10
 
 type Server struct {
-	admin     *admin.Service
-	traffic   *internaltraffic.Memory
-	endpoints store.Endpoints
-	now       func() time.Time
+	admin        *admin.Service
+	traffic      *internaltraffic.Memory
+	endpoints    store.Endpoints
+	now          func() time.Time
+	ui           http.Handler
+	limitMu      sync.Mutex
+	windowStart  time.Time
+	authAttempts int
 }
 
 func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints store.Endpoints) (*Server, error) {
 	if service == nil {
 		return nil, errors.New("admin service is required")
 	}
-	return &Server{admin: service, traffic: traffic, endpoints: endpoints, now: func() time.Time { return time.Now().UTC() }}, nil
+	return &Server{admin: service, traffic: traffic, endpoints: endpoints, ui: dashboardHandler(), now: func() time.Time { return time.Now().UTC() }}, nil
 }
 func (s *Server) Handler() http.Handler { return securityHeaders(http.HandlerFunc(s.handle)) }
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
@@ -45,10 +50,35 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_HOST", "The request host is not allowed.")
 		return
 	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r) {
+		writeError(w, http.StatusForbidden, "ORIGIN_REJECTED", "Cross-origin requests are not allowed.")
+		return
+	}
+	if r.Method == http.MethodPost && (r.URL.Path == "/api/v1/auth/login" || r.URL.Path == "/api/v1/auth/setup") && !s.allowAuthAttempt() {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "AUTH_RATE_LIMIT", "Too many attempts. Try again in one minute.")
+		return
+	}
+	if !strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/health" && r.URL.Path != "/ready" {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
+		s.ui.ServeHTTP(w, r)
+		return
+	}
 	switch r.URL.Path {
 	case "/health":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	case "/ready":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	case "/api/v1/system/info":
 		s.require(w, r, auth.RoleViewer, func(user auth.User) {
@@ -113,7 +143,12 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "SETUP_REJECTED", "Setup token or account details were not accepted.")
 		return
 	}
-	s.createSession(w, user)
+	token, err := s.admin.CreateSession(user)
+	if err != nil {
+		writeError(w, 503, "SESSION_UNAVAILABLE", "Account created. Sign in again to create a session.")
+		return
+	}
+	s.createSessionToken(w, token)
 	writeJSON(w, http.StatusCreated, user)
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -136,14 +171,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.createSessionToken(w, token)
 	writeJSON(w, http.StatusOK, user)
 }
-func (s *Server) createSession(w http.ResponseWriter, user auth.User) {
-	token, err := s.admin.CreateSession(user)
-	if err == nil {
-		s.createSessionToken(w, token)
-	}
-}
 func (s *Server) createSessionToken(w http.ResponseWriter, token string) {
-	csrf := randomToken()
+	csrf := s.admin.CSRFToken(token)
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 12 * 60 * 60, Secure: false})
 	http.SetCookie(w, &http.Cookie{Name: csrfCookie, Value: csrf, Path: "/", HttpOnly: false, SameSite: http.SameSiteStrictMode, MaxAge: 12 * 60 * 60, Secure: false})
 }
@@ -164,11 +193,11 @@ func (s *Server) require(w http.ResponseWriter, r *http.Request, role auth.Role,
 	next(user)
 }
 func (s *Server) requireMutation(w http.ResponseWriter, r *http.Request, role auth.Role, next func(auth.User)) {
-	if r.Method != http.MethodPost && r.Method != http.MethodPatch && r.Method != http.MethodDelete {
+	if r.Method != http.MethodPost {
 		methodNotAllowed(w)
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(cookieValue(r, csrfCookie)), []byte(r.Header.Get("X-CSRF-Token"))) != 1 || cookieValue(r, csrfCookie) == "" {
+	if !s.admin.ValidCSRF(cookieValue(r, sessionCookie), r.Header.Get("X-CSRF-Token")) {
 		writeError(w, http.StatusForbidden, "CSRF_REJECTED", "CSRF token validation failed.")
 		return
 	}
@@ -244,7 +273,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy metadata could not be stored.")
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"proxy": record, "pending_restart": true})
+		writeJSON(w, http.StatusCreated, map[string]any{"proxy": record, "runtime_active": false, "activation": "inventory_only"})
 	})
 }
 func (s *Server) previewImport(w http.ResponseWriter, r *http.Request) {
@@ -264,10 +293,15 @@ func (s *Server) previewImport(w http.ResponseWriter, r *http.Request) {
 	})
 }
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeError(w, 415, "JSON_REQUIRED", "Use application/json for this request.")
+		return false
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(target) != nil {
+	if decoder.Decode(target) != nil || !errors.Is(decoder.Decode(new(any)), io.EOF) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Request body was not accepted.")
 		return false
 	}
@@ -294,13 +328,6 @@ func cookieValue(r *http.Request, name string) string {
 func clearCookie(w http.ResponseWriter, name string) {
 	http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, HttpOnly: name == sessionCookie, SameSite: http.SameSiteStrictMode})
 }
-func randomToken() string {
-	raw := make([]byte, 24)
-	if _, err := rand.Read(raw); err != nil {
-		return ""
-	}
-	return base64.RawURLEncoding.EncodeToString(raw)
-}
 func safeHost(value string) bool {
 	host, _, err := net.SplitHostPort(value)
 	if err != nil {
@@ -308,6 +335,36 @@ func safeHost(value string) bool {
 	}
 	host = strings.Trim(host, "[]")
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+func sameOrigin(r *http.Request) bool {
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+		return false
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	} // Non-browser clients must still present JSON and session-bound CSRF.
+	u, err := url.Parse(origin)
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return err == nil && u.Scheme == scheme && strings.EqualFold(u.Host, r.Host) && u.User == nil && u.Path == "" && u.RawQuery == "" && u.Fragment == ""
+}
+func (s *Server) allowAuthAttempt() bool {
+	s.limitMu.Lock()
+	defer s.limitMu.Unlock()
+	now := s.now()
+	if s.windowStart.IsZero() || now.Sub(s.windowStart) >= time.Minute {
+		s.windowStart = now
+		s.authAttempts = 0
+	}
+	if s.authAttempts >= 30 {
+		return false
+	}
+	s.authAttempts++
+	return true
 }
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

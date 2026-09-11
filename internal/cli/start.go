@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/nguyenduytan/proxysieve/internal/app"
+	"github.com/nguyenduytan/proxysieve/internal/buildinfo"
 	"github.com/nguyenduytan/proxysieve/internal/configload"
 	"io"
 	"os"
@@ -44,22 +45,33 @@ func runStart(args []string, stdout, stderr io.Writer, home string, env map[stri
 		_, _ = io.WriteString(stderr, "RUNTIME_BUILD_FAILED\n")
 		return 1
 	}
-	_, _ = fmt.Fprintf(stdout, "ProxySieve %s\nHTTP %s\nSOCKS5 %s\nAdmin http://%s\nPolicy: %s\nStatus: ready\n", buildVersion(), runtime.Bind, runtime.SOCKSBind, runtime.AdminBind, routeStatus(effective.Config.Security.AllowDirect))
-	if runtime.SetupToken != "" {
-		_, _ = fmt.Fprintf(stdout, "\nFirst-run setup token (shown once): %s\n", runtime.SetupToken)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err = runtime.Run(ctx); err != nil {
+	ready := func() error {
+		if _, err := fmt.Fprintf(stdout, "ProxySieve %s — Tony Nguyen\nHTTP %s\nSOCKS5 %s\nAdmin %s\nRouting: configured policies; no implicit DIRECT\nStatus: ready\n", buildinfo.Current().Version, displayBind(runtime.Bind), displayBind(runtime.SOCKSBind), displayAdmin(runtime.AdminBind)); err != nil {
+			return err
+		}
+		if runtime.SetupToken != "" {
+			_, err := fmt.Fprintf(stdout, "\nFirst-run setup token (expires in 10 minutes): %s\n", runtime.SetupToken)
+			return err
+		}
+		return nil
+	}
+	if err = runtime.RunReady(ctx, ready); err != nil {
 		_, _ = io.WriteString(stderr, "GATEWAY_FAILED\n")
 		return 1
 	}
 	return 0
 }
-func buildVersion() string { return "foundation" }
-func routeStatus(allow bool) string {
-	if allow {
-		return "explicit DIRECT allowlist only"
+func displayBind(value string) string {
+	if value == "" {
+		return "disabled"
 	}
-	return "fail closed"
+	return value
+}
+func displayAdmin(value string) string {
+	if value == "" {
+		return "disabled"
+	}
+	return "http://" + value
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -57,14 +58,15 @@ func (resolver) LookupNetIP(ctx context.Context, host string) ([]netip.Addr, err
 }
 
 type router struct {
-	document    policy.Policy
-	endpoints   map[model.ID]proxy.Endpoint
-	pools       map[model.ID]routing.Pool
-	selectors   map[routing.Strategy]*routing.BuiltIn
-	resolver    security.Resolver
-	destination security.DestinationPolicy
-	credentials upstream.CredentialResolver
-	health      *internalhealth.Manager
+	document     policy.Policy
+	endpoints    map[model.ID]proxy.Endpoint
+	pools        map[model.ID]routing.Pool
+	selectors    map[routing.Strategy]*routing.BuiltIn
+	resolver     security.Resolver
+	destination  security.DestinationPolicy
+	credentials  upstream.CredentialResolver
+	health       *internalhealth.Manager
+	directPolicy config.Security
 }
 
 func (r *router) Evaluate(_ context.Context, request policy.RequestContext, visibility policy.Visibility) (policy.Result, error) {
@@ -74,6 +76,18 @@ func (r *router) Route(ctx context.Context, request policy.RequestContext, resul
 	action := terminal(result.Actions)
 	switch action.Type {
 	case "direct":
+		allowed := false
+		if r.directPolicy.AllowDirect {
+			for _, pattern := range r.directPolicy.DirectAllowlist {
+				if match, err := path.Match(strings.ToLower(pattern), strings.ToLower(request.Host)); err == nil && match {
+					allowed = true
+					break
+				}
+			}
+		}
+		if !allowed {
+			return gateway.Route{}, gateway.ErrDenied
+		}
 		return r.direct(ctx, request)
 	case "proxy":
 		return r.proxy(ctx, request, action.PoolID)
@@ -226,6 +240,16 @@ func Build(c config.Config) (Runtime, error) {
 	if c.Admin.Enabled && c.Admin.TLS {
 		return Runtime{}, ErrUnsupportedAdminTLS
 	}
+	types := map[string]bool{}
+	for _, listener := range c.Listeners {
+		if listener.Auth != "local" {
+			return Runtime{}, ErrUnsupportedAuthentication
+		}
+		if types[listener.Type] {
+			return Runtime{}, config.ErrInvalid
+		}
+		types[listener.Type] = true
+	}
 	if err := os.MkdirAll(c.Server.DataDir, 0700); err != nil {
 		return Runtime{}, err
 	}
@@ -288,7 +312,7 @@ func Build(c config.Config) (Runtime, error) {
 		if listener.Auth != "local" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
-		r := &router{document: documents[model.ID(listener.Policy)], endpoints: endpoints, pools: pools, selectors: selectors, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager}
+		r := &router{document: documents[model.ID(listener.Policy)], endpoints: endpoints, pools: pools, selectors: selectors, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security}
 		switch listener.Type {
 		case "http":
 			if runtime.Server != nil {
@@ -322,8 +346,16 @@ func Build(c config.Config) (Runtime, error) {
 	return runtime, nil
 }
 func (r Runtime) Run(ctx context.Context) error {
+	return r.RunReady(ctx, nil)
+}
+
+// RunReady reports readiness only after all requested ports have been bound.
+func (r Runtime) RunReady(ctx context.Context, ready func() error) error {
 	if r.Store != nil {
 		defer func() { _ = r.Store.Close() }()
+	}
+	if ctx.Err() != nil {
+		return nil
 	}
 	listeners := make([]net.Listener, 0, 3)
 	closeAll := func() {
@@ -370,6 +402,12 @@ func (r Runtime) Run(ctx context.Context) error {
 			return err
 		}
 		listeners = append(listeners, listener)
+	}
+	if ready != nil {
+		if err := ready(); err != nil {
+			closeAll()
+			return err
+		}
 	}
 	done := make(chan error, len(listeners))
 	if r.Server != nil {

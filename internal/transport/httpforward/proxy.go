@@ -16,6 +16,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
@@ -61,7 +62,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.connect(w, r)
 		return
 	}
-	if r.URL == nil || !r.URL.IsAbs() || r.URL.Host == "" || r.URL.User != nil || r.Host == "" {
+	if r.URL == nil || !r.URL.IsAbs() || r.URL.Host == "" || r.URL.User != nil || r.Host == "" || defaultPort(r.URL.Scheme) == 0 {
 		http.Error(w, "INVALID_PROXY_REQUEST", http.StatusBadRequest)
 		return
 	}
@@ -71,10 +72,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	host := r.URL.Hostname()
 	port := uint16(defaultPort(r.URL.Scheme))
-	if p, err := strconv.ParseUint(r.URL.Port(), 10, 16); err == nil && p > 0 {
+	if raw := r.URL.Port(); raw != "" {
+		p, err := strconv.ParseUint(raw, 10, 16)
+		if err != nil || p == 0 {
+			http.Error(w, "INVALID_DESTINATION", 400)
+			return
+		}
 		port = uint16(p)
 	}
-	if host == "" || port == 0 {
+	if !proxy.ValidHost(host) || port == 0 || strings.HasSuffix(r.URL.Host, ":") {
 		http.Error(w, "INVALID_DESTINATION", http.StatusBadRequest)
 		return
 	}
@@ -103,7 +109,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	upload := &internaltraffic.Reader{Source: body}
 	out := r.Clone(r.Context())
-	out.Body = io.NopCloser(upload)
+	out.Body = &countedBody{Reader: upload, Closer: body}
+	if body == http.NoBody {
+		out.Body = http.NoBody
+	}
 	out.RequestURI = ""
 	out.Host = r.URL.Host
 	out.Header = cloneHeader(r.Header)
@@ -123,21 +132,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		route.Observe(true, response.StatusCode)
 	}
 	download := &internaltraffic.Reader{Source: response.Body}
-	copyHeader(w.Header(), response.Header)
+	responseHeaders := response.Header.Clone()
+	stripHopByHop(responseHeaders)
+	copyHeader(w.Header(), responseHeaders)
 	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, download)
+	delivered := &internaltraffic.Writer{Destination: w}
+	_, copyErr := io.Copy(delivered, download)
 	if h.recorder != nil {
 		direct := trafficpkg.Bytes(0)
-		if route.Action == "direct" {
+		proxyUpload, proxyDownload := trafficpkg.Bytes(0), trafficpkg.Bytes(0)
+		switch route.Action {
+		case "direct":
 			direct = upload.Bytes() + download.Bytes()
+		case "proxy":
+			proxyUpload, proxyDownload = upload.Bytes(), download.Bytes()
 		}
-		_ = h.recorder.Record(r.Context(), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: route.Action, StatusCode: response.StatusCode, ClientUpload: upload.Bytes(), ClientDownload: download.Bytes(), UpstreamUpload: upload.Bytes(), UpstreamDownload: download.Bytes(), Direct: direct})
+		_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: route.Action, StatusCode: response.StatusCode, ClientUpload: upload.Bytes(), ClientDownload: delivered.Bytes(), UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct})
+	}
+	if copyErr != nil {
+		panic(http.ErrAbortHandler)
 	}
 }
 
 func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 	host, portRaw, err := net.SplitHostPort(r.Host)
-	if err != nil || host == "" {
+	if err != nil || !proxy.ValidHost(host) {
 		http.Error(w, "INVALID_CONNECT_TARGET", http.StatusBadRequest)
 		return
 	}
@@ -193,7 +212,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 	copies.Add(2)
 	go func() {
 		defer copies.Done()
-		_, _ = io.Copy(upstream, client)
+		_, _ = io.Copy(upstream, buffer.Reader)
 		if closeWriter, ok := upstream.(interface{ CloseWrite() error }); ok {
 			_ = closeWriter.CloseWrite()
 		}
@@ -231,10 +250,24 @@ func copyHeader(dst, src http.Header) {
 	}
 }
 func stripHopByHop(h http.Header) {
-	for _, key := range append(h.Values("Connection"), "Connection", "Proxy-Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "TE", "Trailer", "Transfer-Encoding", "Upgrade") {
-		h.Del(strings.TrimSpace(key))
+	for _, line := range h.Values("Connection") {
+		for _, key := range strings.Split(line, ",") {
+			h.Del(strings.TrimSpace(key))
+		}
+	}
+	for _, key := range []string{"Connection", "Proxy-Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "TE", "Trailer", "Transfer-Encoding", "Upgrade"} {
+		h.Del(key)
+	}
+	for key := range h {
+		if strings.HasPrefix(strings.ToLower(key), "x-proxysieve-") {
+			h.Del(key)
+		}
 	}
 }
 
+type countedBody struct {
+	io.Reader
+	io.Closer
+}
+
 var _ http.Handler = (*Handler)(nil)
-var _ = net.IPv4len

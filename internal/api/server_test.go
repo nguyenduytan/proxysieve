@@ -45,6 +45,18 @@ func (m *memoryUsers) CreateUser(_ context.Context, user auth.User, hash string)
 	m.users[user.Username] = userRecord{user, hash}
 	return nil
 }
+func (m *memoryUsers) CreateInitialUser(ctx context.Context, user auth.User, hash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.users) != 0 {
+		return store.ErrConflict
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.users[user.Username] = userRecord{user, hash}
+	return nil
+}
 func (m *memoryUsers) FindUser(_ context.Context, username string) (auth.User, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -135,6 +147,19 @@ func TestAPIValidationAndSecurityHeaders(t *testing.T) {
 		t.Fatal(writer.Code)
 	}
 }
+func TestDashboardAssetsAreServedWithoutBypassingAPIAuth(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	server, _ := New(service, nil, nil)
+	page := request(server.Handler(), http.MethodGet, "/", nil, "")
+	if page.Code != http.StatusOK || !bytes.Contains(page.Body.Bytes(), []byte(`<div id="root"></div>`)) {
+		t.Fatal(page.Code, page.Body.String())
+	}
+	api := request(server.Handler(), http.MethodGet, "/api/v1/auth/me", nil, "")
+	if api.Code != http.StatusUnauthorized {
+		t.Fatal(api.Code, api.Body.String())
+	}
+}
 func TestProxyInventoryRequiresSessionAndPaginates(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())
@@ -186,7 +211,7 @@ func TestOperatorCreatesProxyWithCSRF(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	writer := httptest.NewRecorder()
 	handler.ServeHTTP(writer, req)
-	if writer.Code != http.StatusCreated || !bytes.Contains(writer.Body.Bytes(), []byte(`"pending_restart":true`)) {
+	if writer.Code != http.StatusCreated || !bytes.Contains(writer.Body.Bytes(), []byte(`"runtime_active":false`)) {
 		t.Fatal(writer.Code, writer.Body.String())
 	}
 	stored, err := endpoints.Get(context.Background(), "proxy")

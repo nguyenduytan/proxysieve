@@ -80,7 +80,7 @@ func TestRecordsActualHTTPStreamBytes(t *testing.T) {
 		t.Fatal(events, dropped)
 	}
 	event := events[0]
-	if event.ClientUpload != 5 || event.UpstreamUpload != 5 || event.ClientDownload != 11 || event.UpstreamDownload != 11 || event.Direct != 16 {
+	if event.ClientUpload != 5 || event.UpstreamUpload != 0 || event.ClientDownload != 11 || event.UpstreamDownload != 0 || event.Direct != 16 {
 		t.Fatal(event)
 	}
 }

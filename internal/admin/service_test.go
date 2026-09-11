@@ -37,6 +37,21 @@ func (m *memoryStore) CreateUser(_ context.Context, u auth.User, h string) error
 	}{u, h}
 	return nil
 }
+func (m *memoryStore) CreateInitialUser(ctx context.Context, u auth.User, h string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.users) != 0 {
+		return store.ErrConflict
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.users[u.Username] = struct {
+		user auth.User
+		hash string
+	}{u, h}
+	return nil
+}
 func (m *memoryStore) FindUser(_ context.Context, name string) (auth.User, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
