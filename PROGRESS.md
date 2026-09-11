@@ -10,7 +10,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-11.
 - [ ] M3 — HTTP forward and CONNECT gateway (guarded DIRECT HTTP/CONNECT adapter locally implemented; listener wiring/upstreams/accounting pending)
 - [ ] M4 — SOCKS5 downstream and multi-listener support
 - [ ] M5 — Deterministic policies and routing actions (evaluator locally implemented; runtime/API simulator pending)
-- [ ] M6 — Pools, selectors, sessions, chaining
+- [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors locally implemented; pool/session services and chaining pending)
 - [ ] M7 — Health, circuit breaker, safe retries
 - [ ] M8 — Traffic, cost, budgets, retention
 - [ ] M9 — Cache and advanced visible-HTTP actions
