@@ -23,3 +23,9 @@ logging and allowlisted structured event fields remain the default runtime desig
 SQLite stores endpoint metadata, not raw secret material. Local file permissions
 alone are not claimed to protect credentials on Windows. Do not use production
 credentials in this foundation build or commit them in tests.
+
+The admin foundation stores only an Argon2id password hash, identity metadata and
+last-login timestamp in SQLite. Its setup token is memory-only/console-only. Session
+tokens are hashed before memory lookup and are not persisted. Admin TLS, API keys,
+encrypted persistent secret storage, role-managed user CRUD and audit retention are
+remaining control-plane work, not properties of the current foundation.

@@ -6,14 +6,16 @@ Created and maintained by **Tony Nguyen** · [@nguyenduytan](https://github.com/
 
 Stop paying for bytes you don't need. Route smarter, filter earlier, measure everything.
 
-## Current status: local gateway foundation (M4 in progress)
+## Current status: local gateway and control-plane foundation
 
 This repository is under active development and is **not production-ready**. It
-now has local HTTP forward, HTTPS CONNECT, and SOCKS5 CONNECT listener foundations,
+now has local HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, SQLite-backed first-run
+admin setup and a protected versioned control-plane foundation,
 but its default policy fails closed until a route is configured. The CLI provides
 help, build/version metadata, configuration validation and effective-config inspection.
-Dashboard, authentication, health, budgets, traffic analytics, cache, browser
-filtering and optional HTTPS inspection have not shipped.
+but it is not production-ready. Dashboard/API integration, full RBAC resource APIs,
+health wiring, budgets, cache, browser filtering and optional HTTPS inspection have
+not shipped.
 
 See [milestone progress](PROGRESS.md), [the implementation contract](PLAN.md), and
 [engineering refinements](docs/plan-refinements.md) for planned work and verification.
@@ -61,6 +63,11 @@ not an application. React 19.3 and Vite 8.1 are pinned for the planned dashboard
 Go dependencies and their checksums are pinned in go.mod/go.sum. YAML decoding and
 SQLite remain internal adapters; public domain contracts use the standard library.
 See [configuration](docs/configuration.md) and [security foundation](docs/security-foundation.md).
+
+On the first local start with admin enabled, ProxySieve prints a one-time setup
+token to the terminal. Do not paste it in issues, shells with shared history, or
+logs. The admin server exposes local `/health`, `/ready`, `/api/v1/auth/setup-status`
+and protected `/api/v1` routes. Full dashboard serving is a later milestone.
 
 ### Container scaffold
 

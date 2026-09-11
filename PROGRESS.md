@@ -15,7 +15,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-11.
 - [ ] M8 — Traffic, cost, budgets, retention (exact HTTP application-stream counters and bounded in-memory events locally implemented; tunnel accounting/rollups/budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
-- [ ] M11 — API, authentication, RBAC, audit
+- [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API and SQLite user migration locally implemented; resource CRUD/API keys/audit/SSE pending)
 - [ ] M12 — Admin dashboard and first-run UX
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect

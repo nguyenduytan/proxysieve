@@ -7,12 +7,16 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/nguyenduytan/proxysieve/internal/admin"
+	"github.com/nguyenduytan/proxysieve/internal/api"
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
+	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/internal/transport/httpforward"
 	"github.com/nguyenduytan/proxysieve/internal/transport/socks5"
@@ -28,13 +32,18 @@ import (
 var ErrUnsupportedListener = errors.New("configured listener type is not implemented")
 var ErrUnsupportedAuthentication = errors.New("configured listener authentication is not implemented")
 var ErrPoolUnavailable = errors.New("no usable proxy route")
+var ErrUnsupportedAdminTLS = errors.New("admin TLS serving is not implemented")
 
 type Runtime struct {
-	Server    *http.Server
-	Bind      string
-	SOCKS     *socks5.Server
-	SOCKSBind string
-	Traffic   *internaltraffic.Memory
+	Server     *http.Server
+	Bind       string
+	SOCKS      *socks5.Server
+	SOCKSBind  string
+	Traffic    *internaltraffic.Memory
+	Admin      *http.Server
+	AdminBind  string
+	SetupToken string
+	Store      *sqlite.Store
 }
 type resolver struct{}
 
@@ -206,6 +215,12 @@ func Build(c config.Config) (Runtime, error) {
 	if c.Validate() != nil {
 		return Runtime{}, config.ErrInvalid
 	}
+	if c.Admin.Enabled && c.Admin.TLS {
+		return Runtime{}, ErrUnsupportedAdminTLS
+	}
+	if err := os.MkdirAll(c.Server.DataDir, 0700); err != nil {
+		return Runtime{}, err
+	}
 	documents := map[model.ID]policy.Policy{}
 	for _, document := range c.Policies {
 		documents[document.ID] = document.Clone()
@@ -231,6 +246,31 @@ func Build(c config.Config) (Runtime, error) {
 		return Runtime{}, err
 	}
 	runtime := Runtime{Traffic: trafficRecorder}
+	if c.Admin.Enabled {
+		if c.Storage.Driver != "sqlite" {
+			return Runtime{}, ErrUnsupportedListener
+		}
+		controlStore, err := sqlite.Open(context.Background(), c.Storage.Path)
+		if err != nil {
+			return Runtime{}, err
+		}
+		service, err := admin.New(controlStore, security.DefaultPasswordParams())
+		if err != nil {
+			_ = controlStore.Close()
+			return Runtime{}, err
+		}
+		server, err := api.New(service, trafficRecorder)
+		if err != nil {
+			_ = controlStore.Close()
+			return Runtime{}, err
+		}
+		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}
+		runtime.AdminBind = c.Admin.Bind
+		runtime.Store = controlStore
+		if token, err := service.SetupToken(context.Background()); err == nil {
+			runtime.SetupToken = token
+		}
+	}
 	for _, listener := range c.Listeners {
 		if listener.Auth != "local" {
 			return Runtime{}, ErrUnsupportedAuthentication
@@ -267,7 +307,10 @@ func Build(c config.Config) (Runtime, error) {
 	return runtime, nil
 }
 func (r Runtime) Run(ctx context.Context) error {
-	listeners := make([]net.Listener, 0, 2)
+	if r.Store != nil {
+		defer func() { _ = r.Store.Close() }()
+	}
+	listeners := make([]net.Listener, 0, 3)
 	closeAll := func() {
 		for _, listener := range listeners {
 			_ = listener.Close()
@@ -288,6 +331,14 @@ func (r Runtime) Run(ctx context.Context) error {
 		}
 		listeners = append(listeners, listener)
 	}
+	if r.Admin != nil {
+		listener, err := net.Listen("tcp", r.AdminBind)
+		if err != nil {
+			closeAll()
+			return err
+		}
+		listeners = append(listeners, listener)
+	}
 	done := make(chan error, len(listeners))
 	if r.Server != nil {
 		listener := listeners[0]
@@ -301,12 +352,26 @@ func (r Runtime) Run(ctx context.Context) error {
 		listener := listeners[index]
 		go func() { done <- r.serveSOCKS(ctx, listener) }()
 	}
+	if r.Admin != nil {
+		index := 0
+		if r.Server != nil {
+			index++
+		}
+		if r.SOCKS != nil {
+			index++
+		}
+		listener := listeners[index]
+		go func() { done <- r.Admin.Serve(listener) }()
+	}
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		if r.Server != nil {
 			_ = r.Server.Shutdown(shutdownCtx)
+		}
+		if r.Admin != nil {
+			_ = r.Admin.Shutdown(shutdownCtx)
 		}
 		closeAll()
 		for range cap(done) {

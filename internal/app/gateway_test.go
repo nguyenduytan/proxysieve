@@ -22,6 +22,8 @@ import (
 func TestBuildSafety(t *testing.T) {
 	c := config.Defaults(t.TempDir())
 	c.Listeners = c.Listeners[:1]
+	c.Admin.Enabled = false
+	c.Admin.Enabled = false
 	r, err := Build(c)
 	if err != nil || r.Bind != "127.0.0.1:8080" {
 		t.Fatal(r, err)
@@ -38,15 +40,24 @@ func TestBuildSafety(t *testing.T) {
 	}
 	c = config.Defaults(t.TempDir())
 	c.Listeners = c.Listeners[:1]
+	c.Admin.Enabled = false
 	c.Security.AllowDirect = true
 	c.Security.DirectAllowlist = []string{"*.example.invalid"}
 	if _, err = Build(c); err != nil {
+		t.Fatal(err)
+	}
+	c.Admin.Enabled = true
+	c.Admin.TLS = true
+	c.Admin.CertFile = "certificate.pem"
+	c.Admin.KeyRef = "secret://admin/key"
+	if _, err = Build(c); !errors.Is(err, ErrUnsupportedAdminTLS) {
 		t.Fatal(err)
 	}
 }
 func TestRunCancelled(t *testing.T) {
 	c := config.Defaults(t.TempDir())
 	c.Listeners = c.Listeners[:1]
+	c.Admin.Enabled = false
 	c.Listeners[0].Bind = freeBind(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -97,6 +108,7 @@ func TestProxyPoolRoutesToUpstream(t *testing.T) {
 	port := parsePort(t, portRaw)
 	c := config.Defaults(t.TempDir())
 	c.Listeners = c.Listeners[:1]
+	c.Admin.Enabled = false
 	c.Proxies = []proxy.Endpoint{{ID: "upstream", Name: "upstream", Protocol: proxy.HTTP, Host: host, Port: port, Enabled: true, TrustedRemoteDNS: true}}
 	c.Pools = []routing.Pool{{ID: "pool", Name: "pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"upstream"}, Enabled: true}}
 	c.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "default", Rules: []policy.Rule{{ID: "route", Name: "route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}}}}
