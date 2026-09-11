@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/buildinfo"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
+	"github.com/nguyenduytan/proxysieve/pkg/model"
+	"github.com/nguyenduytan/proxysieve/pkg/store"
 )
 
 const sessionCookie = "proxysieve_session"
@@ -23,16 +26,17 @@ const csrfCookie = "proxysieve_csrf"
 const maxBodyBytes = 64 << 10
 
 type Server struct {
-	admin   *admin.Service
-	traffic *internaltraffic.Memory
-	now     func() time.Time
+	admin     *admin.Service
+	traffic   *internaltraffic.Memory
+	endpoints store.Endpoints
+	now       func() time.Time
 }
 
-func New(service *admin.Service, traffic *internaltraffic.Memory) (*Server, error) {
+func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints store.Endpoints) (*Server, error) {
 	if service == nil {
 		return nil, errors.New("admin service is required")
 	}
-	return &Server{admin: service, traffic: traffic, now: func() time.Time { return time.Now().UTC() }}, nil
+	return &Server{admin: service, traffic: traffic, endpoints: endpoints, now: func() time.Time { return time.Now().UTC() }}, nil
 }
 func (s *Server) Handler() http.Handler { return securityHeaders(http.HandlerFunc(s.handle)) }
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +70,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(user auth.User) { writeJSON(w, http.StatusOK, user) })
 	case "/api/v1/traffic/live":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.liveTraffic(w) })
+	case "/api/v1/proxies":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.listProxies(w, r) })
 	default:
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "The requested API resource was not found.")
 	}
@@ -177,6 +183,31 @@ func (s *Server) liveTraffic(w http.ResponseWriter) {
 	}
 	events, dropped := s.traffic.Snapshot()
 	writeJSON(w, http.StatusOK, map[string]any{"events": events, "dropped": dropped})
+}
+func (s *Server) listProxies(w http.ResponseWriter, r *http.Request) {
+	if s.endpoints == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "next_after": ""})
+		return
+	}
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 1000 {
+			writeError(w, http.StatusBadRequest, "INVALID_PAGE", "Pagination values were not accepted.")
+			return
+		}
+		limit = value
+	}
+	records, err := s.endpoints.List(r.Context(), store.Page{After: model.ID(r.URL.Query().Get("after")), Limit: limit})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_PAGE", "Pagination values were not accepted.")
+		return
+	}
+	next := ""
+	if len(records) == limit {
+		next = string(records[len(records)-1].Endpoint.ID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": records, "next_after": next})
 }
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)

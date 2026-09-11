@@ -37,11 +37,14 @@ var ErrUnsupportedAdminTLS = errors.New("admin TLS serving is not implemented")
 type Runtime struct {
 	Server     *http.Server
 	Bind       string
+	HTTPMax    int
 	SOCKS      *socks5.Server
 	SOCKSBind  string
+	SOCKSMax   int
 	Traffic    *internaltraffic.Memory
 	Admin      *http.Server
 	AdminBind  string
+	AdminMax   int
 	SetupToken string
 	Store      *sqlite.Store
 }
@@ -259,13 +262,14 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
-		server, err := api.New(service, trafficRecorder)
+		server, err := api.New(service, trafficRecorder, controlStore)
 		if err != nil {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
 		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}
 		runtime.AdminBind = c.Admin.Bind
+		runtime.AdminMax = 32
 		runtime.Store = controlStore
 		if token, err := service.SetupToken(context.Background()); err == nil {
 			runtime.SetupToken = token
@@ -287,6 +291,7 @@ func Build(c config.Config) (Runtime, error) {
 			}
 			runtime.Server = &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Duration(listener.IdleTimeout), MaxHeaderBytes: 32 << 10}
 			runtime.Bind = listener.Bind
+			runtime.HTTPMax = listener.MaxConnections
 		case "socks5":
 			if runtime.SOCKS != nil {
 				return Runtime{}, config.ErrInvalid
@@ -297,6 +302,7 @@ func Build(c config.Config) (Runtime, error) {
 			}
 			runtime.SOCKS = server
 			runtime.SOCKSBind = listener.Bind
+			runtime.SOCKSMax = listener.MaxConnections
 		default:
 			return Runtime{}, ErrUnsupportedListener
 		}
@@ -317,23 +323,40 @@ func (r Runtime) Run(ctx context.Context) error {
 		}
 	}
 	if r.Server != nil {
-		listener, err := net.Listen("tcp", r.Bind)
+		base, err := net.Listen("tcp", r.Bind)
 		if err != nil {
+			return err
+		}
+		listener, err := security.NewLimitedListener(base, r.HTTPMax)
+		if err != nil {
+			_ = base.Close()
 			return err
 		}
 		listeners = append(listeners, listener)
 	}
 	if r.SOCKS != nil {
-		listener, err := net.Listen("tcp", r.SOCKSBind)
+		base, err := net.Listen("tcp", r.SOCKSBind)
 		if err != nil {
+			closeAll()
+			return err
+		}
+		listener, err := security.NewLimitedListener(base, r.SOCKSMax)
+		if err != nil {
+			_ = base.Close()
 			closeAll()
 			return err
 		}
 		listeners = append(listeners, listener)
 	}
 	if r.Admin != nil {
-		listener, err := net.Listen("tcp", r.AdminBind)
+		base, err := net.Listen("tcp", r.AdminBind)
 		if err != nil {
+			closeAll()
+			return err
+		}
+		listener, err := security.NewLimitedListener(base, r.AdminMax)
+		if err != nil {
+			_ = base.Close()
 			closeAll()
 			return err
 		}

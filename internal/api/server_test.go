@@ -12,9 +12,12 @@ import (
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
 	"github.com/nguyenduytan/proxysieve/internal/security"
+	"github.com/nguyenduytan/proxysieve/internal/storage/contract"
+	"github.com/nguyenduytan/proxysieve/internal/storage/memory"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
+	"github.com/nguyenduytan/proxysieve/pkg/secret"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 	publictraffic "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
@@ -72,7 +75,7 @@ func TestSetupAndAuthenticatedAPI(t *testing.T) {
 	}
 	recorder, _ := internaltraffic.NewMemory(2)
 	_ = recorder.Record(context.Background(), publictraffic.Event{Host: "example.invalid", Action: "block"})
-	server, err := New(adminService, recorder)
+	server, err := New(adminService, recorder, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +122,7 @@ func TestSetupAndAuthenticatedAPI(t *testing.T) {
 func TestAPIValidationAndSecurityHeaders(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())
-	server, _ := New(service, nil)
+	server, _ := New(service, nil, nil)
 	response := request(server.Handler(), http.MethodPost, "/api/v1/auth/login", map[string]string{"username": "x", "password": "y", "unexpected": "z"}, "")
 	if response.Code != http.StatusBadRequest || response.Header().Get("X-Content-Type-Options") != "nosniff" || response.Header().Get("Content-Security-Policy") == "" {
 		t.Fatal(response.Code, response.Header())
@@ -130,6 +133,35 @@ func TestAPIValidationAndSecurityHeaders(t *testing.T) {
 	server.Handler().ServeHTTP(writer, badHost)
 	if writer.Code != http.StatusBadRequest {
 		t.Fatal(writer.Code)
+	}
+}
+func TestProxyInventoryRequiresSessionAndPaginates(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	endpoints, err := memory.NewEndpoints(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := contract.Endpoint("proxy")
+	endpoint.CredentialRef = secret.Ref("secret://upstream/auth")
+	if _, err = endpoints.Put(context.Background(), endpoint, 0); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := New(service, nil, endpoints)
+	handler := server.Handler()
+	unauth := request(handler, http.MethodGet, "/api/v1/proxies", nil, "")
+	if unauth.Code != http.StatusUnauthorized {
+		t.Fatal(unauth.Code)
+	}
+	token, _ := service.SetupToken(context.Background())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	response := request(handler, http.MethodGet, "/api/v1/proxies?limit=1", nil, cookiesFor(setup))
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"id":"proxy"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"credential_ref":"secret://upstream/auth"`)) || bytes.Contains(response.Body.Bytes(), []byte("fake-password")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	invalid := request(handler, http.MethodGet, "/api/v1/proxies?limit=1001", nil, cookiesFor(setup))
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatal(invalid.Code, invalid.Body.String())
 	}
 }
 func request(handler http.Handler, method, path string, body any, cookies string) *httptest.ResponseRecorder {
