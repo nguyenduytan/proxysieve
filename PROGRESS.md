@@ -5,7 +5,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-11.
 ## Status
 
 - [ ] M0 — Repository bootstrap (local checks passed; hosted acceptance pending)
-- [ ] M1 — Domain, config, storage, secret foundations (local implementation in progress)
+- [ ] M1 — Domain, config, storage, secret foundations (implemented locally; acceptance review pending)
 - [ ] M2 — Proxy normalization, sources, endpoint management
 - [ ] M3 — HTTP forward and CONNECT gateway
 - [ ] M4 — SOCKS5 downstream and multi-listener support
