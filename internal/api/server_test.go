@@ -164,6 +164,36 @@ func TestProxyInventoryRequiresSessionAndPaginates(t *testing.T) {
 		t.Fatal(invalid.Code, invalid.Body.String())
 	}
 }
+func TestOperatorCreatesProxyWithCSRF(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	endpoints, _ := memory.NewEndpoints(10)
+	server, _ := New(service, nil, endpoints)
+	handler := server.Handler()
+	token, _ := service.SetupToken(context.Background())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+	input := map[string]any{"endpoint": map[string]any{"id": "proxy", "name": "Proxy", "protocol": "http", "host": "proxy.example.invalid", "port": 8080, "enabled": true, "credential_ref": "secret://upstream/auth"}}
+	missingCSRF := request(handler, http.MethodPost, "/api/v1/proxies", input, cookies)
+	if missingCSRF.Code != http.StatusForbidden {
+		t.Fatal(missingCSRF.Code, missingCSRF.Body.String())
+	}
+	encoded, _ := json.Marshal(input)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies", bytes.NewReader(encoded))
+	req.Host = "127.0.0.1"
+	req.Header.Set("Cookie", cookies)
+	req.Header.Set("X-CSRF-Token", cookieValueFrom(cookies, csrfCookie))
+	req.Header.Set("Content-Type", "application/json")
+	writer := httptest.NewRecorder()
+	handler.ServeHTTP(writer, req)
+	if writer.Code != http.StatusCreated || !bytes.Contains(writer.Body.Bytes(), []byte(`"pending_restart":true`)) {
+		t.Fatal(writer.Code, writer.Body.String())
+	}
+	stored, err := endpoints.Get(context.Background(), "proxy")
+	if err != nil || stored.Endpoint.CredentialRef != "secret://upstream/auth" {
+		t.Fatal(stored, err)
+	}
+}
 func request(handler http.Handler, method, path string, body any, cookies string) *httptest.ResponseRecorder {
 	var input *bytes.Reader
 	if body == nil {

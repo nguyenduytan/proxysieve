@@ -18,6 +18,7 @@ import (
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 )
 
@@ -71,7 +72,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	case "/api/v1/traffic/live":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.liveTraffic(w) })
 	case "/api/v1/proxies":
-		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.listProxies(w, r) })
+		if r.Method == http.MethodGet {
+			s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.listProxies(w, r) })
+		} else {
+			s.createProxy(w, r)
+		}
 	default:
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "The requested API resource was not found.")
 	}
@@ -208,6 +213,37 @@ func (s *Server) listProxies(w http.ResponseWriter, r *http.Request) {
 		next = string(records[len(records)-1].Endpoint.ID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": records, "next_after": next})
+}
+func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
+	s.requireMutation(w, r, auth.RoleOperator, func(_ auth.User) {
+		if s.endpoints == nil {
+			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy storage is unavailable.")
+			return
+		}
+		var input struct {
+			Endpoint proxy.Endpoint `json:"endpoint"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		if input.Endpoint.ID == "" {
+			input.Endpoint.ID = model.NewID()
+		}
+		if input.Endpoint.Validate() != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_PROXY", "Proxy metadata was not accepted.")
+			return
+		}
+		record, err := s.endpoints.Put(r.Context(), input.Endpoint, 0)
+		if errors.Is(err, store.ErrConflict) {
+			writeError(w, http.StatusConflict, "PROXY_EXISTS", "A proxy with this ID already exists.")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy metadata could not be stored.")
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"proxy": record, "pending_restart": true})
+	})
 }
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
