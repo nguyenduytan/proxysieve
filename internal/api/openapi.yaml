@@ -155,6 +155,46 @@ paths:
       responses:
         '200': {description: Parsed proxy import preview}
         '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/proxies/{proxyId}:
+    parameters: [{name: proxyId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Proxies]
+      responses:
+        '200': {description: Proxy inventory record}
+        '404': {description: Proxy not found}
+    patch:
+      tags: [Proxies]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint, revision]
+              properties:
+                endpoint: {$ref: '#/components/schemas/ProxyEndpoint'}
+                revision: {type: integer, minimum: 1}
+      responses:
+        '200': {description: Proxy inventory record updated}
+        '409': {description: Stale proxy revision}
+        '404': {description: Proxy not found}
+    delete:
+      tags: [Proxies]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: {type: integer, minimum: 1}
+      responses:
+        '204': {description: Proxy inventory record deleted}
+        '409': {description: Stale proxy revision}
+        '404': {description: Proxy not found}
   /api/v1/clients:
     get:
       tags: [Clients]
@@ -247,3 +287,24 @@ components:
         prefix: {type: string}
         created_at: {type: string, format: date-time}
         revoked_at: {type: string, format: date-time}
+    ProxyEndpoint:
+      type: object
+      required: [id, name, protocol, host, port, enabled]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        protocol: {type: string, enum: [http, https, socks5, socks5h]}
+        host: {type: string}
+        port: {type: integer, minimum: 1, maximum: 65535}
+        credential_ref: {type: string}
+        provider_id: {type: string}
+        source_id: {type: string}
+        tags: {type: array, items: {type: string}}
+        country: {type: string}
+        weight: {type: integer, minimum: 0}
+        priority: {type: integer}
+        enabled: {type: boolean}
+        trusted_remote_dns: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        metadata: {type: object, additionalProperties: {type: string}}

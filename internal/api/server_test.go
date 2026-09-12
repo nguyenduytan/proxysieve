@@ -242,6 +242,49 @@ func TestOperatorCreatesProxyWithCSRF(t *testing.T) {
 		t.Fatal(stored, err)
 	}
 }
+
+func TestProxyLifecycleUsesOptimisticRevision(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	endpoints, _ := memory.NewEndpoints(10)
+	endpoint := contract.Endpoint("proxy")
+	if _, err := endpoints.Put(t.Context(), endpoint, 0); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := New(service, nil, endpoints, nil)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+
+	got := request(handler, http.MethodGet, "/api/v1/proxies/proxy", nil, cookies)
+	if got.Code != http.StatusOK || !bytes.Contains(got.Body.Bytes(), []byte(`"revision":1`)) {
+		t.Fatal(got.Code, got.Body.String())
+	}
+	updated := endpoint
+	updated.Name = "Updated proxy"
+	patch := mutationRequest(handler, http.MethodPatch, "/api/v1/proxies/proxy", map[string]any{"endpoint": updated, "revision": 1}, cookies)
+	if patch.Code != http.StatusOK || !bytes.Contains(patch.Body.Bytes(), []byte(`"revision":2`)) {
+		t.Fatal(patch.Code, patch.Body.String())
+	}
+	stale := mutationRequest(handler, http.MethodPatch, "/api/v1/proxies/proxy", map[string]any{"endpoint": updated, "revision": 1}, cookies)
+	if stale.Code != http.StatusConflict || !bytes.Contains(stale.Body.Bytes(), []byte(`"PROXY_CONFLICT"`)) {
+		t.Fatal(stale.Code, stale.Body.String())
+	}
+	staleDelete := mutationRequest(handler, http.MethodDelete, "/api/v1/proxies/proxy", map[string]any{"revision": 1}, cookies)
+	if staleDelete.Code != http.StatusConflict {
+		t.Fatal(staleDelete.Code, staleDelete.Body.String())
+	}
+	deleted := mutationRequest(handler, http.MethodDelete, "/api/v1/proxies/proxy", map[string]any{"revision": 2}, cookies)
+	if deleted.Code != http.StatusNoContent {
+		t.Fatal(deleted.Code, deleted.Body.String())
+	}
+	missing := request(handler, http.MethodGet, "/api/v1/proxies/proxy", nil, cookies)
+	if missing.Code != http.StatusNotFound {
+		t.Fatal(missing.Code, missing.Body.String())
+	}
+}
+
 func TestProxyImportPreviewRequiresOperatorCSRF(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())

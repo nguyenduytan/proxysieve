@@ -13,6 +13,8 @@
   revoke operations, plus an embedded OpenAPI contract at `/api/v1/openapi.yaml`.
 - Added `proxysieve doctor` with text/JSON diagnostics for configuration, data
   directory, SQLite schema and listener-bind readiness.
+- Added authenticated proxy inventory GET/PATCH/DELETE lifecycle endpoints with
+  optimistic revision conflicts and audit events.
 - M1 domain contracts, bounded YAML configuration with provenance and CLI inspection.
 - SQLite migrations and endpoint repositories with revision-based concurrency,
   transaction rollback, keyset pagination and matching in-memory behavior.

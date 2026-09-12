@@ -198,6 +198,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.revokeAPIKey(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/proxies/") {
+			s.proxyByID(w, r)
 		} else {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "The requested API resource was not found.")
 		}
@@ -599,6 +601,101 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusCreated, map[string]any{"proxy": record, "runtime_active": false, "activation": "inventory_only"})
 	})
 }
+
+func (s *Server) proxyByID(w http.ResponseWriter, r *http.Request) {
+	id := model.ID(strings.TrimPrefix(r.URL.Path, "/api/v1/proxies/"))
+	if !id.Valid() {
+		writeError(w, http.StatusBadRequest, "INVALID_PROXY", "Proxy ID was not accepted.")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.getProxy(w, r, id) })
+	case http.MethodPatch:
+		s.requireMutation(w, r, auth.RoleOperator, func(user auth.User) { s.updateProxy(w, r, id, user) })
+	case http.MethodDelete:
+		s.requireMutation(w, r, auth.RoleOperator, func(user auth.User) { s.deleteProxy(w, r, id, user) })
+	default:
+		methodNotAllowed(w)
+	}
+}
+
+func (s *Server) getProxy(w http.ResponseWriter, r *http.Request, id model.ID) {
+	if s.endpoints == nil {
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy storage is unavailable.")
+		return
+	}
+	record, err := s.endpoints.Get(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "PROXY_NOT_FOUND", "The proxy was not found.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy metadata could not be read.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"proxy": record})
+}
+
+func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request, id model.ID, user auth.User) {
+	if s.endpoints == nil {
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy storage is unavailable.")
+		return
+	}
+	var input struct {
+		Endpoint proxy.Endpoint `json:"endpoint"`
+		Revision int64          `json:"revision"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.Endpoint.ID != id || input.Revision < 1 || input.Endpoint.Validate() != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_PROXY", "Proxy metadata or revision was not accepted.")
+		return
+	}
+	record, err := s.endpoints.Put(r.Context(), input.Endpoint, input.Revision)
+	switch {
+	case err == nil:
+		s.record(r.Context(), user, "proxy.updated", "proxy", string(id))
+		writeJSON(w, http.StatusOK, map[string]any{"proxy": record, "runtime_active": false, "activation": "inventory_only"})
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "PROXY_NOT_FOUND", "The proxy was not found.")
+	case errors.Is(err, store.ErrConflict):
+		writeError(w, http.StatusConflict, "PROXY_CONFLICT", "The proxy revision is stale.")
+	default:
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy metadata could not be stored.")
+	}
+}
+
+func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request, id model.ID, user auth.User) {
+	if s.endpoints == nil {
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy storage is unavailable.")
+		return
+	}
+	var input struct {
+		Revision int64 `json:"revision"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.Revision < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_REVISION", "Proxy revision was not accepted.")
+		return
+	}
+	err := s.endpoints.Delete(r.Context(), id, input.Revision)
+	switch {
+	case err == nil:
+		s.record(r.Context(), user, "proxy.deleted", "proxy", string(id))
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "PROXY_NOT_FOUND", "The proxy was not found.")
+	case errors.Is(err, store.ErrConflict):
+		writeError(w, http.StatusConflict, "PROXY_CONFLICT", "The proxy revision is stale.")
+	default:
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy metadata could not be deleted.")
+	}
+}
+
 func (s *Server) previewImport(w http.ResponseWriter, r *http.Request) {
 	s.requireMutation(w, r, auth.RoleOperator, func(_ auth.User) {
 		var input struct {

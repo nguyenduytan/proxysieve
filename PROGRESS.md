@@ -22,6 +22,14 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 - [ ] M15 — Backup, restore, import/export, operations (doctor command now checks effective config, data directory, SQLite schema and listener availability; backup/restore/import/export still pending)
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
 
+### Latest local continuation — proxy inventory lifecycle (2026-09-12)
+
+- Added authenticated `GET`, optimistic-revision `PATCH` and `DELETE` endpoints
+  for `/api/v1/proxies/{id}` with operator CSRF protection, audit events and
+  stale-write conflict responses.
+- Updated the embedded OpenAPI contract and API foundation documentation. Source
+  CRUD/refresh, pools, policies and runtime activation remain pending.
+
 ## M0 verification
 
 Verified locally on Windows amd64, Go 1.27.1 / Node 24.19.0 / pnpm 11.19.0:

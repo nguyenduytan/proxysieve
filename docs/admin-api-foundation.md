@@ -23,6 +23,9 @@ GET  /api/v1/audit
 GET  /api/v1/proxies
 POST /api/v1/proxies
 POST /api/v1/proxies/import/preview
+GET  /api/v1/proxies/{id}
+PATCH /api/v1/proxies/{id}
+DELETE /api/v1/proxies/{id}
 GET  /api/v1/clients
 POST /api/v1/clients
 GET  /api/v1/clients/{id}/api-keys
@@ -65,6 +68,11 @@ The embedded Admin Panel deliberately lists only API-backed destinations:
 Overview, Traffic, Proxies and System. Planned workspaces such as Alerts are not
 rendered as disabled navigation. This avoids duplicate or inert menu surfaces
 while features are still under development.
+
+Proxy inventory updates and deletes use an optimistic `revision` precondition. Send
+the complete endpoint document with its current revision to `PATCH`, or the current
+revision alone to `DELETE`; stale revisions return `409 PROXY_CONFLICT`. These
+mutations remain inventory-only and require an operator session plus CSRF token.
 
 ## Client API Keys
 
