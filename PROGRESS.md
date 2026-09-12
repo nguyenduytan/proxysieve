@@ -16,7 +16,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned client/API-key lifecycle endpoints and embedded OpenAPI contract locally implemented; broader resource APIs and SSE pending)
-- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, Overview/Traffic/Proxies/Sources/Clients/System and first-run setup locally implemented; remaining resource workflows and release UX pending)
+- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, Overview/Traffic/Proxies/Sources/Clients/Audit/System and first-run setup locally implemented; remaining resource workflows and release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect
 - [ ] M15 — Backup, restore, import/export, operations (doctor command now checks effective config, data directory, SQLite schema and listener availability; backup/restore/import/export still pending)
