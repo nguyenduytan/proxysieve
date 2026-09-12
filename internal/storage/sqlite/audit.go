@@ -27,8 +27,14 @@ func (s *Store) ListAudit(ctx context.Context, page audit.Page) ([]audit.Event, 
 	args := []any{}
 	query := "SELECT id,at,actor_id,action,target_type,target_id,request_id FROM audit_log"
 	if !page.Before.IsZero() {
-		query += " WHERE at < ?"
-		args = append(args, page.Before.UTC().UnixNano())
+		if page.BeforeID == "" {
+			query += " WHERE at < ?"
+			args = append(args, page.Before.UTC().UnixNano())
+		} else {
+			query += " WHERE (at < ? OR (at = ? AND id < ?))"
+			before := page.Before.UTC().UnixNano()
+			args = append(args, before, before, string(page.BeforeID))
+		}
 	}
 	query += " ORDER BY at DESC,id DESC LIMIT ?"
 	args = append(args, page.Limit)

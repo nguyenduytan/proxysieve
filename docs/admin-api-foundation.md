@@ -124,6 +124,6 @@ The SQLite audit trail records actor, action, target, request ID and timestamp f
 setup, login, logout and proxy/source/client/key mutations. It intentionally excludes raw
 passwords, setup tokens, cookies, API keys and request/response bodies. `/api/v1/audit`
 is administrator-only. The embedded administrator-only Audit workspace presents
-the latest 100 entries as read-only metadata with a manual refresh control. It
-does not expose secrets, request bodies or mutation controls; retention and
-export remain pending.
+the latest 100 entries as read-only metadata with manual refresh and stable
+cursor-based loading for older entries. It does not expose secrets, request
+bodies or mutation controls; retention and export remain pending.

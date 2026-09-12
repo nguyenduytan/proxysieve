@@ -987,12 +987,34 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = value
 	}
-	events, err := reader.ListAudit(r.Context(), audit.Page{Limit: limit})
+	page := audit.Page{Limit: limit}
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		before, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_PAGE", "Pagination values were not accepted.")
+			return
+		}
+		page.Before = before
+		page.BeforeID = model.ID(r.URL.Query().Get("before_id"))
+		if !page.Valid() {
+			writeError(w, http.StatusBadRequest, "INVALID_PAGE", "Pagination values were not accepted.")
+			return
+		}
+	} else if r.URL.Query().Get("before_id") != "" {
+		writeError(w, http.StatusBadRequest, "INVALID_PAGE", "Pagination values were not accepted.")
+		return
+	}
+	events, err := reader.ListAudit(r.Context(), page)
 	if err != nil {
 		writeError(w, 503, "AUDIT_UNAVAILABLE", "Audit storage is unavailable.")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": events})
+	nextBefore, nextBeforeID := "", ""
+	if len(events) == limit {
+		last := events[len(events)-1]
+		nextBefore, nextBeforeID = last.At.Format(time.RFC3339Nano), string(last.ID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": events, "next_before": nextBefore, "next_before_id": nextBeforeID})
 }
 func (s *Server) record(ctx context.Context, user auth.User, action, targetType, targetID string) {
 	if s.audit == nil {

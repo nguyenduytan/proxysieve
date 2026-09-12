@@ -126,9 +126,9 @@ paths:
   /api/v1/audit:
     get:
       tags: [Audit]
-      parameters: [{$ref: '#/components/parameters/Limit'}]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {name: before, in: query, schema: {type: string, format: date-time}}, {name: before_id, in: query, schema: {type: string}}]
       responses:
-        '200': {description: Sanitized administrator audit events}
+        '200': {description: Sanitized administrator audit events with a stable timestamp/id cursor}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/proxies:
     get:

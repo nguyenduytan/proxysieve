@@ -517,6 +517,31 @@ func TestAuditTrailIsAdminOnlyAndSanitized(t *testing.T) {
 	if result.Code != http.StatusOK || !bytes.Contains(result.Body.Bytes(), []byte(`"action":"admin.setup"`)) || bytes.Contains(result.Body.Bytes(), []byte("fake admin password")) {
 		t.Fatal(result.Code, result.Body.String())
 	}
+	for _, id := range []model.ID{"first", "second"} {
+		if err := audits.Record(t.Context(), audit.Event{ID: id, At: time.Unix(10, 0).UTC(), Action: "proxy.created", TargetType: "proxy"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var page struct {
+		Items        []audit.Event `json:"items"`
+		NextBefore   string        `json:"next_before"`
+		NextBeforeID string        `json:"next_before_id"`
+	}
+	result = request(handler, http.MethodGet, "/api/v1/audit?limit=1", nil, cookiesFor(setup))
+	if result.Code != http.StatusOK || json.Unmarshal(result.Body.Bytes(), &page) != nil || len(page.Items) != 1 || page.NextBefore == "" || page.NextBeforeID == "" {
+		t.Fatal(result.Code, result.Body.String())
+	}
+	result = request(handler, http.MethodGet, "/api/v1/audit?limit=1&before="+page.NextBefore+"&before_id="+page.NextBeforeID, nil, cookiesFor(setup))
+	if result.Code != http.StatusOK || !bytes.Contains(result.Body.Bytes(), []byte(`"id":"second"`)) {
+		t.Fatal(result.Code, result.Body.String())
+	}
+	if err := json.Unmarshal(result.Body.Bytes(), &page); err != nil || len(page.Items) != 1 || page.NextBefore == "" || page.NextBeforeID == "" {
+		t.Fatal(result.Code, result.Body.String())
+	}
+	result = request(handler, http.MethodGet, "/api/v1/audit?limit=1&before="+page.NextBefore+"&before_id="+page.NextBeforeID, nil, cookiesFor(setup))
+	if result.Code != http.StatusOK || !bytes.Contains(result.Body.Bytes(), []byte(`"id":"first"`)) {
+		t.Fatal(result.Code, result.Body.String())
+	}
 }
 func TestClientAndAPIKeyAreCreatedWithoutPersistingToken(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}

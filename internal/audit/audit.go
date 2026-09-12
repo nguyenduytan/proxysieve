@@ -29,11 +29,15 @@ func (e Event) Validate() bool {
 }
 
 type Page struct {
-	Before time.Time
-	Limit  int
+	Before   time.Time
+	BeforeID model.ID
+	Limit    int
 }
 
-func (p Page) Valid() bool { return p.Limit >= 1 && p.Limit <= 1000 }
+func (p Page) Valid() bool {
+	return p.Limit >= 1 && p.Limit <= 1000 &&
+		(p.BeforeID == "" || (!p.Before.IsZero() && p.BeforeID.Valid()))
+}
 
 type Writer interface {
 	Record(context.Context, Event) error

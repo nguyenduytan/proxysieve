@@ -45,11 +45,23 @@ func (m *Memory) ListAudit(ctx context.Context, page Page) ([]Event, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	events := append([]Event(nil), m.events...)
-	sort.Slice(events, func(i, j int) bool { return events[i].At.After(events[j].At) })
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].At.Equal(events[j].At) {
+			return events[i].ID > events[j].ID
+		}
+		return events[i].At.After(events[j].At)
+	})
 	out := make([]Event, 0, page.Limit)
 	for _, event := range events {
-		if !page.Before.IsZero() && !event.At.Before(page.Before) {
-			continue
+		if !page.Before.IsZero() {
+			if event.At.After(page.Before) {
+				continue
+			}
+			if event.At.Equal(page.Before) {
+				if page.BeforeID == "" || event.ID >= page.BeforeID {
+					continue
+				}
+			}
 		}
 		out = append(out, event)
 		if len(out) == page.Limit {

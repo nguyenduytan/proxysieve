@@ -3,23 +3,41 @@ import { RefreshCw, ScrollText } from "lucide-react";
 import { ApiError, api, errorMessage } from "./api";
 import type { AuditEvent, AuditPage } from "./api";
 
+interface AuditCursor {
+  before: string;
+  beforeID: string;
+}
+
 export function AuditLog({ onExpired }: { onExpired: () => void }) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [next, setNext] = useState<AuditCursor | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updated, setUpdated] = useState<Date | null>(null);
 
   const load = useCallback(
-    async (signal?: AbortSignal) => {
+    async (cursor?: AuditCursor, signal?: AbortSignal) => {
       setLoading(true);
       setError("");
       try {
+        const query = new URLSearchParams({ limit: "100" });
+        if (cursor) {
+          query.set("before", cursor.before);
+          query.set("before_id", cursor.beforeID);
+        }
         const page = await api<AuditPage>(
-          "/api/v1/audit?limit=100",
+          `/api/v1/audit?${query.toString()}`,
           signal ? { signal } : {},
         );
         if (signal?.aborted) return;
-        setEvents(page.items);
+        setEvents((current) =>
+          cursor ? [...current, ...page.items] : page.items,
+        );
+        setNext(
+          page.next_before && page.next_before_id
+            ? { before: page.next_before, beforeID: page.next_before_id }
+            : null,
+        );
         setUpdated(new Date());
       } catch (caught) {
         if (signal?.aborted) return;
@@ -34,7 +52,7 @@ export function AuditLog({ onExpired }: { onExpired: () => void }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
+    void load(undefined, controller.signal);
     return () => controller.abort();
   }, [load]);
 
@@ -138,6 +156,17 @@ export function AuditLog({ onExpired }: { onExpired: () => void }) {
             </table>
           </div>
         )}
+        {next ? (
+          <div className="section-header audit-more">
+            <button
+              className="pause-button"
+              disabled={loading}
+              onClick={() => void load(next)}
+            >
+              {loading ? "Loading…" : "Load more"}
+            </button>
+          </div>
+        ) : null}
       </section>
     </div>
   );

@@ -129,9 +129,22 @@ func TestSourceJobContinuesAfterRecordedFailure(t *testing.T) {
 		t.Fatal(endpoints, err)
 	}
 	events, err := audits.ListAudit(t.Context(), audit.Page{Limit: 20})
-	if err != nil || len(events) != 2 || events[0].Action != "source.refresh_failed" || events[1].Action != "source.refreshed" {
+	if err != nil || len(events) != 2 || !hasAuditActions(events, "source.refresh_failed", "source.refreshed") {
 		t.Fatal(events, err)
 	}
+}
+
+func hasAuditActions(events []audit.Event, want ...string) bool {
+	seen := make(map[string]bool, len(events))
+	for _, event := range events {
+		seen[event.Action] = true
+	}
+	for _, action := range want {
+		if !seen[action] {
+			return false
+		}
+	}
+	return true
 }
 
 func schedulerStore(t *testing.T) *sqlite.Store {

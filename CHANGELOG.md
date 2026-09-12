@@ -27,6 +27,7 @@
   destructive client confirmation.
 - Added an admin-only read-only Audit workspace backed by sanitized audit events,
   with refresh state, empty/error handling and responsive mobile cards.
+- Added stable timestamp/id cursor pagination to the Audit API and Load more UI.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe

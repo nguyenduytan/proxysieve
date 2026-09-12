@@ -98,6 +98,8 @@ export interface AuditEvent {
 }
 export interface AuditPage {
   items: AuditEvent[];
+  next_before: string;
+  next_before_id: string;
 }
 export interface APIKeyCreation {
   api_key: APIKeyRecord;
