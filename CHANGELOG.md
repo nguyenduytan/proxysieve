@@ -16,6 +16,8 @@
 - Added authenticated proxy inventory GET/PATCH/DELETE lifecycle endpoints with
   optimistic revision conflicts and audit events.
 - Added atomic proxy inventory imports with bounded parsing and duplicate modes.
+- Connected Admin proxy import commits and responsive, revision-safe
+  enable/disable controls.
 - M1 domain contracts, bounded YAML configuration with provenance and CLI inspection.
 - SQLite migrations and endpoint repositories with revision-based concurrency,
   transaction rollback, keyset pagination and matching in-memory behavior.

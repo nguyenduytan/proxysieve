@@ -125,6 +125,13 @@ export interface Preview {
   duplicates: number;
   items: { line: number; error?: string; result: { endpoint: Endpoint } }[];
 }
+export interface ProxyImportResult {
+  items: EndpointRecord[];
+  created: number;
+  updated: number;
+  skipped: number;
+  mode: "skip" | "update" | "create";
+}
 export class ApiError extends Error {
   constructor(
     public status: number,

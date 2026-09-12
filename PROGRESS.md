@@ -29,6 +29,9 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
   stale-write conflict responses.
 - Added atomic `POST /api/v1/proxies/import` commits with bounded parsing and
   `skip`/`update`/`create` duplicate modes; embedded credentials remain stripped.
+- Connected the Admin Proxies workspace to atomic import commits and
+  optimistic-revision enable/disable controls, including viewer-only behavior and
+  conflict refresh feedback. Mobile inventory rows now use action-visible cards.
 - Updated the embedded OpenAPI contract and API foundation documentation. Source
   CRUD/refresh, pools, policies and runtime activation remain pending.
 

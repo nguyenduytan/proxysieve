@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Globe2, Plus, RefreshCw } from "lucide-react";
+import { Globe2, Plus, Power, RefreshCw } from "lucide-react";
 import { api, ApiError, errorMessage } from "./api";
-import type { EndpointRecord, ProxyPage, Role, Preview } from "./api";
+import type {
+  EndpointRecord,
+  ProxyImportResult,
+  ProxyPage,
+  Role,
+  Preview,
+} from "./api";
 
 export function ProxyInventory({
   role,
@@ -17,6 +23,7 @@ export function ProxyInventory({
   const [error, setError] = useState("");
   const [form, setForm] = useState<"none" | "create" | "preview">("none");
   const [notice, setNotice] = useState("");
+  const [toggling, setToggling] = useState("");
   const load = useCallback(
     async (after = "", signal?: AbortSignal) => {
       setLoading(true);
@@ -48,6 +55,39 @@ export function ProxyInventory({
     return () => controller.abort();
   }, [load]);
   const mutable = role !== "viewer";
+  async function toggle(record: EndpointRecord) {
+    setToggling(record.endpoint.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await api<{ proxy: EndpointRecord }>(
+        `/api/v1/proxies/${encodeURIComponent(record.endpoint.id)}`,
+        {
+          method: "PATCH",
+          body: {
+            endpoint: { ...record.endpoint, enabled: !record.endpoint.enabled },
+            revision: record.revision,
+          },
+        },
+      );
+      setRecords((previous) =>
+        previous.map((current) =>
+          current.endpoint.id === record.endpoint.id ? response.proxy : current,
+        ),
+      );
+      setNotice(
+        `${record.endpoint.name} ${response.proxy.endpoint.enabled ? "enabled" : "disabled"}. Runtime routing still uses configured pools and policies.`,
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) onExpired();
+      else if (error instanceof ApiError && error.status === 409) {
+        setError("This endpoint changed elsewhere. Inventory was refreshed.");
+        void load();
+      } else setError(errorMessage(error));
+    } finally {
+      setToggling("");
+    }
+  }
   return (
     <div className="content">
       <header className="page-heading overview-heading">
@@ -116,7 +156,17 @@ export function ProxyInventory({
         />
       )}
       {form === "preview" && (
-        <ImportPreview onCancel={() => setForm("none")} onExpired={onExpired} />
+        <ImportPreview
+          onImported={(result) => {
+            setForm("none");
+            setNotice(
+              `Import complete: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped. Runtime routing has not changed.`,
+            );
+            void load();
+          }}
+          onCancel={() => setForm("none")}
+          onExpired={onExpired}
+        />
       )}
       <section className="table-panel">
         <div className="section-header">
@@ -139,7 +189,7 @@ export function ProxyInventory({
           </div>
         ) : (
           <div className="table-scroll">
-            <table>
+            <table className="proxy-inventory-table">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -148,21 +198,57 @@ export function ProxyInventory({
                   <th>Credential reference</th>
                   <th>Enabled metadata</th>
                   <th>Revision</th>
+                  {mutable && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {records.map(({ endpoint, revision }) => (
-                  <tr key={endpoint.id}>
-                    <td className="host-cell">{endpoint.name}</td>
-                    <td>{endpoint.protocol.toUpperCase()}</td>
-                    <td className="mono">
-                      {endpoint.host}:{endpoint.port}
-                    </td>
-                    <td>{endpoint.credential_ref || "None"}</td>
-                    <td>{endpoint.enabled ? "Yes" : "No"}</td>
-                    <td>{revision}</td>
-                  </tr>
-                ))}
+                {records.map((record) => {
+                  const { endpoint, revision } = record;
+                  return (
+                    <tr key={endpoint.id}>
+                      <td className="host-cell" data-label="Name">
+                        {endpoint.name}
+                      </td>
+                      <td data-label="Protocol">
+                        {endpoint.protocol.toUpperCase()}
+                      </td>
+                      <td className="mono" data-label="Endpoint">
+                        {endpoint.host}:{endpoint.port}
+                      </td>
+                      <td data-label="Credential">
+                        {endpoint.credential_ref || "None"}
+                      </td>
+                      <td data-label="Enabled">
+                        {endpoint.enabled ? "Yes" : "No"}
+                      </td>
+                      <td data-label="Revision">{revision}</td>
+                      {mutable && (
+                        <td className="proxy-action-cell">
+                          <button
+                            className="icon-button proxy-toggle-button"
+                            title={
+                              endpoint.enabled
+                                ? "Disable endpoint"
+                                : "Enable endpoint"
+                            }
+                            aria-label={`${endpoint.enabled ? "Disable" : "Enable"} ${endpoint.name}`}
+                            disabled={toggling === endpoint.id}
+                            onClick={() => void toggle(record)}
+                          >
+                            <Power size={15} />
+                            <span className="proxy-toggle-label">
+                              {toggling === endpoint.id
+                                ? "Updating…"
+                                : endpoint.enabled
+                                  ? "Disable endpoint"
+                                  : "Enable endpoint"}
+                            </span>
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -303,20 +389,24 @@ function CreateProxy({
   );
 }
 function ImportPreview({
+  onImported,
   onCancel,
   onExpired,
 }: {
+  onImported: (result: ProxyImportResult) => void;
   onCancel: () => void;
   onExpired: () => void;
 }) {
   const [input, setInput] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [result, setResult] = useState<Preview | null>(null);
+    [result, setResult] = useState<Preview | null>(null),
+    [mode, setMode] = useState<ProxyImportResult["mode"]>("skip");
   async function preview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setResult(null);
     try {
       setResult(
         await api<Preview>("/api/v1/proxies/import/preview", {
@@ -324,7 +414,6 @@ function ImportPreview({
           body: { input },
         }),
       );
-      setInput("");
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) onExpired();
       else setError(errorMessage(error));
@@ -332,13 +421,29 @@ function ImportPreview({
       setBusy(false);
     }
   }
+  async function commit() {
+    setBusy(true);
+    setError("");
+    try {
+      onImported(
+        await api<ProxyImportResult>("/api/v1/proxies/import", {
+          method: "POST",
+          body: { input, mode },
+        }),
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) onExpired();
+      else setError(errorMessage(error));
+      setBusy(false);
+    }
+  }
   return (
     <form className="resource-form" onSubmit={preview}>
       <h2>Preview proxy input</h2>
       <p className="field-help">
-        Preview only. Nothing is saved. Current deduplication compares
-        addresses, not credential identities. Credential import is not
-        implemented; use test input only.
+        Preview first, then commit the same validated input. Deduplication
+        compares addresses, not credential identities. Embedded credentials are
+        never saved.
       </p>
       <label>
         Proxy list
@@ -348,7 +453,10 @@ function ImportPreview({
           maxLength={48_000}
           placeholder="http://proxy.example.invalid:8080"
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={(event) => {
+            setInput(event.target.value);
+            setResult(null);
+          }}
         />
       </label>
       {error && (
@@ -382,6 +490,29 @@ function ImportPreview({
                 : `${item.result.endpoint.protocol}://${item.result.endpoint.host}:${item.result.endpoint.port}`}
             </p>
           ))}
+          <div className="import-commit">
+            <label>
+              Duplicate handling
+              <select
+                value={mode}
+                onChange={(event) =>
+                  setMode(event.target.value as ProxyImportResult["mode"])
+                }
+              >
+                <option value="skip">Skip existing addresses</option>
+                <option value="update">Update existing addresses</option>
+                <option value="create">Create duplicates</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              className="command-button"
+              disabled={busy || result.valid === 0}
+              onClick={() => void commit()}
+            >
+              {busy ? "Importing…" : "Import to inventory"}
+            </button>
+          </div>
         </div>
       )}
     </form>

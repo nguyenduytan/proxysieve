@@ -111,6 +111,18 @@
 .preview-result h3 {
   font-size: 13px;
 }
+.import-commit {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.proxy-toggle-label {
+  display: none;
+}
 .system-list {
   margin: 0;
   padding: 8px 20px;
@@ -170,6 +182,76 @@ textarea:focus-visible {
   }
   .resource-form {
     padding: 18px;
+  }
+  .import-commit {
+    grid-template-columns: 1fr;
+  }
+  .import-commit .command-button {
+    width: 100%;
+    justify-content: center;
+  }
+  .proxy-inventory-table {
+    min-width: 0;
+  }
+  .proxy-inventory-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .proxy-inventory-table tbody {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+  }
+  .proxy-inventory-table tr {
+    display: grid;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+  }
+  .proxy-inventory-table td {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .proxy-inventory-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .proxy-inventory-table .host-cell {
+    display: block;
+    padding: 2px 0 12px;
+    font-size: 14px;
+  }
+  .proxy-inventory-table .host-cell::before,
+  .proxy-inventory-table .proxy-action-cell::before {
+    content: none;
+  }
+  .proxy-inventory-table .proxy-action-cell {
+    display: block;
+    padding: 12px 0 0;
+    border-bottom: 0;
+  }
+  .proxy-inventory-table .proxy-toggle-button {
+    display: flex;
+    width: 100%;
+    height: 38px;
+    gap: 7px;
+    justify-content: center;
+  }
+  .proxy-toggle-label {
+    display: inline;
   }
   .system-list div {
     grid-template-columns: 100px minmax(0, 1fr);
