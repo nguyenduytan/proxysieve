@@ -132,12 +132,12 @@ export function ProxyInventory({
         an endpoint now, define its proxy, pool membership and policy in your
         configuration file.
       </p>
-      {error && (
+      {form === "none" && error && (
         <div role="alert" className="auth-error">
           {error}
         </div>
       )}
-      {notice && (
+      {form === "none" && notice && (
         <div role="status" className="success-notice">
           {notice}
         </div>

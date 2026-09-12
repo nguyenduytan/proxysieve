@@ -208,12 +208,12 @@ export function SourceInventory({
         Source refreshes add or associate matching endpoints; they never remove
         existing endpoint records just because a feed changes or fails.
       </p>
-      {error ? (
+      {!editor && error ? (
         <div role="alert" className="auth-error">
           {error}
         </div>
       ) : null}
-      {notice ? (
+      {!editor && notice ? (
         <div role="status" className="success-notice">
           {notice}
         </div>

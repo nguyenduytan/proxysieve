@@ -292,12 +292,12 @@ export function ClientAccess({ onExpired }: { onExpired: () => void }) {
         plaintext. Revoking or deleting access takes effect for new
         authentications immediately.
       </p>
-      {error ? (
+      {!editor && error ? (
         <div role="alert" className="auth-error">
           {error}
         </div>
       ) : null}
-      {notice ? (
+      {!editor && notice ? (
         <div role="status" className="success-notice">
           {notice}
         </div>
