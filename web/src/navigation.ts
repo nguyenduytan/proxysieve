@@ -5,12 +5,19 @@ import {
   Globe2,
   KeyRound,
   LayoutDashboard,
+  ScrollText,
   Settings,
 } from "lucide-react";
 import type { Role } from "./api";
 
 export type Page =
-  "Overview" | "Traffic" | "Proxies" | "Sources" | "Clients" | "System";
+  | "Overview"
+  | "Traffic"
+  | "Proxies"
+  | "Sources"
+  | "Clients"
+  | "Audit"
+  | "System";
 
 export interface NavigationItem {
   page: Page;
@@ -52,6 +59,13 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Clients",
     description: "Downstream clients and API keys",
     icon: KeyRound,
+    roles: ["admin"],
+  },
+  {
+    page: "Audit",
+    label: "Audit",
+    description: "Administrative activity history",
+    icon: ScrollText,
     roles: ["admin"],
   },
   {

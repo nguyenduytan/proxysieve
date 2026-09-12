@@ -13,6 +13,7 @@ describe("admin navigation", () => {
       "Proxies",
       "Sources",
       "Clients",
+      "Audit",
       "System",
     ]);
     expect(labels).not.toContain("Alerts");
@@ -22,11 +23,20 @@ describe("admin navigation", () => {
     expect(navigationForRole("admin").map((item) => item.page)).toContain(
       "Clients",
     );
+    expect(navigationForRole("admin").map((item) => item.page)).toContain(
+      "Audit",
+    );
     expect(
       navigationForRole("operator").map((item) => item.page),
     ).not.toContain("Clients");
+    expect(
+      navigationForRole("operator").map((item) => item.page),
+    ).not.toContain("Audit");
     expect(navigationForRole("viewer").map((item) => item.page)).not.toContain(
       "Clients",
+    );
+    expect(navigationForRole("viewer").map((item) => item.page)).not.toContain(
+      "Audit",
     );
   });
 });

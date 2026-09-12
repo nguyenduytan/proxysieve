@@ -445,6 +445,17 @@
   background: #f0eafe;
   color: #68469d;
 }
+.audit-action {
+  background: #edf2fb;
+  color: #355d91;
+}
+.audit-table {
+  min-width: 900px;
+}
+.audit-table td,
+.audit-table th {
+  vertical-align: middle;
+}
 button:disabled {
   cursor: not-allowed;
 }
@@ -669,6 +680,45 @@ textarea:focus-visible {
   }
   .system-list div {
     grid-template-columns: 100px minmax(0, 1fr);
+  }
+  .audit-table {
+    min-width: 0;
+  }
+  .audit-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .audit-table tbody {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+  }
+  .audit-table tr {
+    display: grid;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+  }
+  .audit-table td {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .audit-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
   .empty-state {
     padding: 36px 18px;

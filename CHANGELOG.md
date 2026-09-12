@@ -4,8 +4,9 @@
 
 ### Added
 
-- Authenticated responsive Admin Panel with API-backed Overview, Traffic, Proxies
-  and System destinations; duplicate/inert Alerts navigation was removed.
+- Authenticated responsive Admin Panel with API-backed Overview, Traffic, Proxies,
+  Sources, Clients, Audit and System destinations; duplicate/inert Alerts
+  navigation was removed.
 - Bounded asynchronous traffic persistence, HTTP/CONNECT/SOCKS5 application-stream
   accounting, tiered rollups/retention, configured-cost snapshots and durable hard
   byte budgets with restart-safe reservations.
@@ -24,6 +25,8 @@
 - Added admin-only Clients & API keys workspace with revisioned client CRUD,
   enable/disable, one-time token reveal/copy, key listing/revocation and
   destructive client confirmation.
+- Added an admin-only read-only Audit workspace backed by sanitized audit events,
+  with refresh state, empty/error handling and responsive mobile cards.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe

@@ -49,6 +49,9 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 - Completed client/API-key lifecycle management: revisioned client GET/PATCH/
   DELETE with key cascade, admin-only Clients workspace, one-time key reveal,
   copy/dismiss handling, key listing/revocation and responsive client cards.
+- Added the admin-only read-only Audit workspace with sanitized metadata,
+  refresh/error/empty states and responsive mobile cards. Alerts remains absent
+  from navigation until a real alert backend exists.
 - Updated the embedded OpenAPI contract and API foundation documentation.
 
 ## M0 verification

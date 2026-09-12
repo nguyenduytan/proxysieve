@@ -87,6 +87,18 @@ export interface APIKeyRecord {
 export interface APIKeyPage {
   items: APIKeyRecord[];
 }
+export interface AuditEvent {
+  id: string;
+  at: string;
+  actor_id?: string;
+  action: string;
+  target_type: string;
+  target_id?: string;
+  request_id?: string;
+}
+export interface AuditPage {
+  items: AuditEvent[];
+}
 export interface APIKeyCreation {
   api_key: APIKeyRecord;
   token: string;

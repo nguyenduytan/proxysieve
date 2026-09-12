@@ -4,6 +4,7 @@ import { AuthGate } from "./AuthGate";
 import { ApiError, api, discoverSession, errorMessage } from "./api";
 import type { User, SessionState } from "./api";
 import { ClientAccess } from "./ClientAccess";
+import { AuditLog } from "./AuditLog";
 import { ProxyInventory } from "./ProxyInventory";
 import { SourceInventory } from "./SourceInventory";
 import { TrafficView } from "./TrafficView";
@@ -220,6 +221,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
         )}
         {page === "Clients" && user.role === "admin" && (
           <ClientAccess onExpired={onExpired} />
+        )}
+        {page === "Audit" && user.role === "admin" && (
+          <AuditLog onExpired={onExpired} />
         )}
         {page === "System" && (
           <div className="content">

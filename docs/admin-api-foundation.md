@@ -71,9 +71,9 @@ and includes the rated upstream-byte coverage; these values are configured
 estimates, not provider-billed amounts.
 
 The embedded Admin Panel deliberately lists only API-backed destinations:
-Overview, Traffic, Proxies and System. Planned workspaces such as Alerts are not
-rendered as disabled navigation. This avoids duplicate or inert menu surfaces
-while features are still under development.
+Overview, Traffic, Proxies, Sources, Clients, Audit and System. Planned
+workspaces such as Alerts are not rendered as disabled navigation. This avoids
+duplicate or inert menu surfaces while features are still under development.
 
 Proxy inventory updates and deletes use an optimistic `revision` precondition. Send
 the complete endpoint document with its current revision to `PATCH`, or the current
@@ -123,4 +123,7 @@ clients, so use the documented loopback local mode for SOCKS during development.
 The SQLite audit trail records actor, action, target, request ID and timestamp for
 setup, login, logout and proxy/source/client/key mutations. It intentionally excludes raw
 passwords, setup tokens, cookies, API keys and request/response bodies. `/api/v1/audit`
-is administrator-only; retention/export and a dashboard audit page are pending.
+is administrator-only. The embedded administrator-only Audit workspace presents
+the latest 100 entries as read-only metadata with a manual refresh control. It
+does not expose secrets, request bodies or mutation controls; retention and
+export remain pending.
