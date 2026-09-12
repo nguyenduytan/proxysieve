@@ -32,6 +32,33 @@ export interface ProxyPage {
   items: EndpointRecord[];
   next_after: string;
 }
+export type SourceType = "manual" | "file" | "api" | "provider" | "rotating";
+export interface ProxySource {
+  id: string;
+  name: string;
+  type: SourceType;
+  config?: Record<string, string>;
+  refresh_interval_ns: number;
+  last_refresh_at?: string;
+  last_refresh_status?: string;
+  credential_ref?: string;
+  enabled: boolean;
+}
+export interface SourceRecord {
+  source: ProxySource;
+  revision: number;
+}
+export interface SourcePage {
+  items: SourceRecord[];
+  next_after: string;
+}
+export interface SourceRefreshResult {
+  source: SourceRecord;
+  created: number;
+  updated: number;
+  skipped: number;
+  invalid: number;
+}
 export interface TrafficEvent {
   at: string;
   request_id: string;
@@ -152,14 +179,19 @@ export function csrfValue(cookie: string): string {
 // The only data path is the same-origin API. There is no automatic demo fallback.
 export async function api<T>(
   path: string,
-  options: { body?: unknown; signal?: AbortSignal; method?: string } = {},
+  options: {
+    body?: unknown;
+    signal?: AbortSignal;
+    method?: string;
+    timeoutMs?: number;
+  } = {},
 ): Promise<T> {
   const headers = new Headers({ Accept: "application/json" });
   if (options.body !== undefined)
     headers.set("Content-Type", "application/json");
   if (options.method && options.method !== "GET")
     headers.set("X-CSRF-Token", csrfValue(document.cookie));
-  const timeout = AbortSignal.timeout(10_000);
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? 10_000);
   const signal = options.signal
     ? AbortSignal.any([options.signal, timeout])
     : timeout;

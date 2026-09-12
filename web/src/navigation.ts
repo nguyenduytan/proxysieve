@@ -1,7 +1,13 @@
 import type { ComponentType } from "react";
-import { Activity, Globe2, LayoutDashboard, Settings } from "lucide-react";
+import {
+  Activity,
+  DatabaseZap,
+  Globe2,
+  LayoutDashboard,
+  Settings,
+} from "lucide-react";
 
-export type Page = "Overview" | "Traffic" | "Proxies" | "System";
+export type Page = "Overview" | "Traffic" | "Proxies" | "Sources" | "System";
 
 export interface NavigationItem {
   page: Page;
@@ -30,6 +36,12 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Proxies",
     description: "Saved endpoint inventory",
     icon: Globe2,
+  },
+  {
+    page: "Sources",
+    label: "Sources",
+    description: "Scheduled proxy feeds",
+    icon: DatabaseZap,
   },
   {
     page: "System",

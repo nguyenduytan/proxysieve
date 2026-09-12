@@ -90,7 +90,12 @@ may list and inspect sources; operators may create, replace or delete source
 metadata with a valid CSRF token. `last_refresh_at` and `last_refresh_status` are
 server-managed fields, so PATCH requests cannot forge refresh results. Source
 `config` is bounded non-secret metadata; credentials belong in `credential_ref`.
-The CRUD surface does not fetch or activate a source yet.
+`POST /api/v1/sources/{id}/refresh` fetches an enabled HTTP(S) API source through
+the default-deny destination policy, parses its bounded response, and atomically
+reconciles matching endpoint inventory with refresh status. A bounded scheduler
+uses the same refresh coordinator for due sources. The Admin Sources workspace
+exposes this lifecycle to viewers and operators without implying that saved
+endpoints are automatically activated in runtime pools or policies.
 
 ## Client API Keys
 

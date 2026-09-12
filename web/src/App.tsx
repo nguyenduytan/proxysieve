@@ -4,6 +4,7 @@ import { AuthGate } from "./AuthGate";
 import { ApiError, api, discoverSession, errorMessage } from "./api";
 import type { User, SessionState } from "./api";
 import { ProxyInventory } from "./ProxyInventory";
+import { SourceInventory } from "./SourceInventory";
 import { TrafficView } from "./TrafficView";
 import { navigationItems } from "./navigation";
 import type { Page } from "./navigation";
@@ -212,6 +213,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
         )}
         {page === "Proxies" && (
           <ProxyInventory role={user.role} onExpired={onExpired} />
+        )}
+        {page === "Sources" && (
+          <SourceInventory role={user.role} onExpired={onExpired} />
         )}
         {page === "System" && (
           <div className="content">

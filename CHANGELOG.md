@@ -19,6 +19,8 @@
 - Added revisioned proxy-source persistence and audited, RBAC-protected CRUD API.
 - Added SSRF-safe, revision-checked proxy-source refresh with atomic endpoint reconciliation and bounded failure status.
 - Added bounded automatic source scheduling with fair cursor rotation, per-source timeouts and overlap prevention shared with manual refresh.
+- Added a responsive Admin Sources workspace for viewer-safe listing and
+  operator CRUD, enable/disable, manual refresh and schedule management.
 - Connected Admin proxy import commits and responsive, revision-safe
   enable/disable controls.
 - M1 domain contracts, bounded YAML configuration with provenance and CLI inspection.

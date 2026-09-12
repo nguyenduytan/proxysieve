@@ -6,7 +6,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 
 - [ ] M0 — Repository bootstrap (local checks passed; hosted acceptance pending)
 - [ ] M1 — Domain, config, storage, secret foundations (implemented locally; acceptance review pending)
-- [ ] M2 — Proxy normalization, sources, endpoint management (parser/import, safe HTTP source fetch/preview, revisioned source CRUD and atomic manual/automatic refresh locally implemented; source UI and broader formats pending)
+- [ ] M2 — Proxy normalization, sources, endpoint management (parser/import, safe HTTP source fetch/preview, revisioned source CRUD, responsive source UI and atomic manual/automatic refresh locally implemented; broader formats pending)
 - [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local no-auth SOCKS5 CONNECT and runtime multi-listener support implemented; password auth/metrics pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator locally implemented; runtime/API simulator pending)
@@ -16,7 +16,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited client/API-key lifecycle endpoints and embedded OpenAPI contract locally implemented; broader resource APIs and SSE pending)
-- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, Overview/Traffic/Proxies/System and first-run setup locally implemented; remaining resource workflows and release UX pending)
+- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, Overview/Traffic/Proxies/Sources/System and first-run setup locally implemented; remaining resource workflows and release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect
 - [ ] M15 — Backup, restore, import/export, operations (doctor command now checks effective config, data directory, SQLite schema and listener availability; backup/restore/import/export still pending)
@@ -42,8 +42,11 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 - Added a bounded rotating source scheduler with per-source timeouts, due-time
   checks, safe continuation after individual failures and scheduled audit events.
   Manual and scheduled refreshes share one per-source overlap coordinator.
-- Updated the embedded OpenAPI contract and API foundation documentation. Source
-  UI, pools, policies and runtime activation remain pending.
+- Added the responsive Admin Sources workspace with viewer-safe listing and
+  operator create/edit, enable/disable, manual refresh, delete confirmation,
+  optimistic-conflict recovery and mobile cards. Pools, policies and runtime
+  activation remain pending.
+- Updated the embedded OpenAPI contract and API foundation documentation.
 
 ## M0 verification
 
