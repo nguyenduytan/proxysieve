@@ -163,30 +163,33 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	case "/api/v1/audit":
 		s.require(w, r, auth.RoleAdmin, func(_ auth.User) { s.listAudit(w, r) })
 	case "/api/v1/proxies":
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.listProxies(w, r) })
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			s.createProxy(w, r)
-		} else {
+		default:
 			methodNotAllowed(w)
 		}
 	case "/api/v1/proxies/import/preview":
 		s.previewImport(w, r)
 	case "/api/v1/clients":
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			s.listClients(w, r)
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			s.createClient(w, r)
-		} else {
+		default:
 			methodNotAllowed(w)
 		}
 	default:
 		if strings.HasPrefix(r.URL.Path, "/api/v1/clients/") && strings.HasSuffix(r.URL.Path, "/api-keys") {
-			if r.Method == http.MethodGet {
+			switch r.Method {
+			case http.MethodGet:
 				s.listAPIKeys(w, r)
-			} else if r.Method == http.MethodPost {
+			case http.MethodPost:
 				s.createAPIKey(w, r)
-			} else {
+			default:
 				methodNotAllowed(w)
 			}
 		} else if strings.Contains(r.URL.Path, "/api-keys/") {
