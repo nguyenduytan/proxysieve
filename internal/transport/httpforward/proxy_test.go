@@ -16,7 +16,23 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
+
+type eventRecorder chan trafficpkg.Event
+
+func (r eventRecorder) Record(_ context.Context, event trafficpkg.Event) error {
+	r <- event
+	return nil
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
 
 func direct(_ context.Context, _ policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
 	return policy.Result{Actions: []policy.Action{{Type: "direct"}}}, nil
@@ -86,6 +102,38 @@ func TestRecordsActualHTTPStreamBytes(t *testing.T) {
 		t.Fatal(event)
 	}
 }
+
+func TestRecordsPaidBytesBeforeRoundTripFailure(t *testing.T) {
+	recorded := make(eventRecorder, 1)
+	handler, err := New(Options{
+		Evaluator: Decider(direct),
+		Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				_, _ = io.ReadAll(request.Body)
+				return nil, errors.New("upstream reset")
+			})}, nil
+		}),
+		Recorder: recorded,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://example.invalid/upload", strings.NewReader("partial-cost"))
+	request.RequestURI = ""
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadGateway {
+		t.Fatal(response.Code)
+	}
+	select {
+	case event := <-recorded:
+		if event.StatusCode != http.StatusBadGateway || event.ClientUpload != 12 || event.UpstreamUpload != 12 || event.UpstreamDownload != 0 || event.ClientDownload != 0 || event.ConfiguredCost == nil || event.ConfiguredCost.Amount != (trafficpkg.Money{Currency: "USD", Micros: 12}) {
+			t.Fatal(event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("failed request traffic was not recorded")
+	}
+}
 func TestSafeResponseCache(t *testing.T) {
 	var hits int
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +192,8 @@ func TestCacheRejectsCookieResponses(t *testing.T) {
 	}
 }
 func TestRejectsUnsafeAndUnsupported(t *testing.T) {
-	h, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+	recorder, _ := internaltraffic.NewMemory(2)
+	h, err := New(Options{Evaluator: Decider(direct), Recorder: recorder, Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
 		return gateway.Route{}, errors.New("denied")
 	})})
 	if err != nil {
@@ -159,13 +208,20 @@ func TestRejectsUnsafeAndUnsupported(t *testing.T) {
 			t.Fatalf("%d %q", w.Code, w.Body.String())
 		}
 	}
+	events, dropped := recorder.Snapshot()
+	if dropped != 0 || len(events) != 2 || events[0].Action != "reject" || events[0].StatusCode != http.StatusForbidden || events[0].Host != "example.invalid" || events[1].Protocol != "connect" || events[1].Action != "reject" || events[1].StatusCode != http.StatusForbidden {
+		t.Fatal(events, dropped)
+	}
 }
 func TestDownstreamBearerAuth(t *testing.T) {
 	called := false
+	recorder, _ := internaltraffic.NewMemory(2)
 	h, err := New(Options{Evaluator: Decider(func(_ context.Context, request policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
 		called = request.ClientID == "client"
 		return direct(context.Background(), request, policy.Visibility{})
-	}), Router: RouterFunc(routeDirect), Authenticate: func(_ context.Context, header string) (model.ID, error) {
+	}), Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+		return gateway.Route{Action: "reject"}, nil
+	}), Recorder: recorder, Authenticate: func(_ context.Context, header string) (model.ID, error) {
 		if header != "Bearer fake-key" {
 			return "", errors.New("bad")
 		}
@@ -188,12 +244,17 @@ func TestDownstreamBearerAuth(t *testing.T) {
 	if !called {
 		t.Fatal("client identity missing")
 	}
+	events, _ := recorder.Snapshot()
+	if len(events) != 1 || events[0].ClientID != "client" {
+		t.Fatal("client identity missing from traffic event", events)
+	}
 }
 func TestConnectDirectTunnel(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "tunnel ok") }))
 	defer target.Close()
 	targetURL, _ := url.Parse(target.URL)
-	h, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect)})
+	recorded := make(eventRecorder, 1)
+	h, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect), Recorder: recorded})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +273,8 @@ func TestConnectDirectTunnel(t *testing.T) {
 	if err != nil || res.StatusCode != 200 {
 		t.Fatal(res, err)
 	}
-	if _, err = io.WriteString(conn, "GET / HTTP/1.1\r\nHost: "+targetURL.Host+"\r\nConnection: close\r\n\r\n"); err != nil {
+	requestBytes := "GET / HTTP/1.1\r\nHost: " + targetURL.Host + "\r\nConnection: close\r\n\r\n"
+	if _, err = io.WriteString(conn, requestBytes); err != nil {
 		t.Fatal(err)
 	}
 	response, err := http.ReadResponse(reader, &http.Request{Method: http.MethodGet})
@@ -223,5 +285,14 @@ func TestConnectDirectTunnel(t *testing.T) {
 	_ = response.Body.Close()
 	if string(body) != "tunnel ok" {
 		t.Fatal(string(body))
+	}
+	_ = conn.Close()
+	select {
+	case event := <-recorded:
+		if event.Protocol != "connect" || event.Action != "direct" || event.StatusCode != http.StatusOK || event.ClientUpload != trafficpkg.Bytes(len(requestBytes)) || event.ClientDownload == 0 || event.Direct != event.ClientUpload+event.ClientDownload || event.UpstreamUpload != 0 || event.UpstreamDownload != 0 {
+			t.Fatal(event)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("CONNECT traffic event was not recorded")
 	}
 }

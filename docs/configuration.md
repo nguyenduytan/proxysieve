@@ -39,6 +39,21 @@ expanded from user-provided strings; use an explicit path. Built-in defaults use
 the OS user-home lookup. Command-line `--set` accepts existing scalar dotted paths;
 edit the file for arrays or optional fields. Duplicate `--set` keys are rejected.
 
+Traffic retention defaults to 30 days of raw events, 90 days of minute aggregates,
+365 days of hour aggregates, and 3,650 days of UTC-day aggregates. Configure these
+with `traffic.retention_days`, `traffic.minute_retention_days`,
+`traffic.hour_retention_days`, and `traffic.day_retention_days`. The scheduler
+normalizes effective values so each coarser tier lasts at least as long as its
+source tier; shortening a setting never moves a durable watermark backward or
+recovers already-pruned data. `traffic.aggregation_interval` controls maintenance
+frequency and defaults to one minute.
+
+`budgets` accepts durable paid-route byte guards. Supported scopes are `system`,
+`client`, `pool`, and `proxy`; every non-system scope requires `scope_id`. Pool and
+proxy IDs must exist in the same configuration. A hard budget currently requires
+`action: reject`. Configured budgets require the SQLite-backed admin/control store;
+startup fails rather than silently running an in-memory hard limit.
+
 Listener arrays replace defaults in full. Required listener identity/protocol/auth
 fields must be present. Omitted connection limit/idle timeout receive safe defaults;
 explicit zero is invalid. Binds must be literal IP:port, with brackets for IPv6.
@@ -60,6 +75,21 @@ The runtime also accepts `proxies`, `pools`, and `policies`. A policy route acti
 references a configured pool by ID; a pool lists endpoint IDs and selection strategy.
 ProxySieve does not silently substitute `DIRECT` when a pool is empty, unhealthy,
 misconfigured, or its credentials are unavailable.
+
+An endpoint may include a deterministic configured price snapshot:
+
+```yaml
+rate:
+  price: { currency: USD, micros: 2500000 }
+  unit_bytes: 1000000000
+  download_only: false
+  effective_at: 2026-09-01T00:00:00Z
+```
+
+This example means USD 2.50 per decimal GB of upstream upload plus download.
+`unit_bytes` accepts decimal GB (`1000000000`) or GiB (`1073741824`). Cost is
+rounded half-up once per traffic event and remains explicitly an estimate. A
+future-dated rate is stored but does not price traffic before `effective_at`.
 
 Endpoint credentials are references only. For example, an endpoint with
 `credential_ref: secret://upstream/auth` reads this JSON value from the process

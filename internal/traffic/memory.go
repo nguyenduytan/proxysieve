@@ -31,6 +31,8 @@ func (m *Memory) Record(ctx context.Context, event traffic.Event) error {
 	defer m.mu.Unlock()
 	if len(m.events) >= m.max {
 		m.dropped++
+		copy(m.events, m.events[1:])
+		m.events[len(m.events)-1] = event
 		return ErrFull
 	}
 	m.events = append(m.events, event)

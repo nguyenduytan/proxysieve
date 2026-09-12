@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, ApiError, csrfValue, discoverSession, formatBytes } from "./api";
+import {
+  api,
+  ApiError,
+  csrfValue,
+  discoverSession,
+  formatBytes,
+  formatConfiguredCosts,
+} from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 function mockFetch(...responses: Response[]) {
@@ -51,5 +58,14 @@ describe("control-plane client", () => {
     expect(formatBytes(1024)).toBe("1.0 KiB");
     expect(formatBytes(0)).toBe("0 B");
     expect(formatBytes(-1)).toBe("—");
+    const cost = formatConfiguredCosts([
+      {
+        amount: { currency: "USD", micros: 1_250_000 },
+        priced_upstream_upload_bytes: 1,
+        priced_upstream_download_bytes: 2,
+      },
+    ]);
+    expect(cost).toContain("1.25");
+    expect(formatConfiguredCosts([])).toBe("—");
   });
 });

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"github.com/nguyenduytan/proxysieve/internal/security"
+	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
+	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/config"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
@@ -17,6 +19,7 @@ import (
 	"net/netip"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func TestBuildSafety(t *testing.T) {
@@ -35,6 +38,12 @@ func TestBuildSafety(t *testing.T) {
 	}
 	c.Listeners[1].Auth = "password"
 	c.Listeners[1].CredentialRef = secret.Ref("secret://client/test")
+	if _, err = Build(c); !errors.Is(err, ErrUnsupportedAuthentication) {
+		t.Fatal(err)
+	}
+	c = config.Defaults(t.TempDir())
+	c.Listeners = c.Listeners[1:]
+	c.Listeners[0].Auth = "api_key"
 	if _, err = Build(c); !errors.Is(err, ErrUnsupportedAuthentication) {
 		t.Fatal(err)
 	}
@@ -128,6 +137,185 @@ func TestProxyPoolRoutesToUpstream(t *testing.T) {
 	_ = response.Body.Close()
 	if string(body) != "proxied" || gotURL != "http://origin.example.invalid/path" {
 		t.Fatalf("%q %q", body, gotURL)
+	}
+}
+
+func TestPaidRouteHardBudgetPersistsAndRejectsNextRequest(t *testing.T) {
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "x")
+	}))
+	defer upstreamServer.Close()
+	upstreamURL, _ := url.Parse(upstreamServer.URL)
+	host, portRaw, _ := net.SplitHostPort(upstreamURL.Host)
+	c := config.Defaults(t.TempDir())
+	c.Listeners = c.Listeners[:1]
+	c.Proxies = []proxy.Endpoint{{ID: "upstream", Name: "upstream", Protocol: proxy.HTTP, Host: host, Port: parsePort(t, portRaw), Enabled: true, TrustedRemoteDNS: true}}
+	c.Pools = []routing.Pool{{ID: "pool", Name: "pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"upstream"}, Enabled: true}}
+	c.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "default", Rules: []policy.Rule{{ID: "route", Name: "route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}}}}
+	c.Budgets = []publicbudget.Config{{ID: "system", Name: "System", Scope: publicbudget.ScopeSystem, Limit: 2, Hard: true, Action: publicbudget.ActionReject}}
+	runtime, err := Build(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Store.Close() })
+	downstream := httptest.NewServer(runtime.Server.Handler)
+	defer downstream.Close()
+	downstreamURL, _ := url.Parse(downstream.URL)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(downstreamURL)}}
+	response, err := client.Get("http://origin.example.invalid/first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if err != nil || string(body) != "x" {
+		t.Fatal(string(body), err)
+	}
+	if err = runtime.Store.ReserveBudgets(t.Context(), c.Budgets, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err = runtime.Store.ConsumeBudgets(t.Context(), []model.ID{"system"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	response, err = client.Get("http://origin.example.invalid/second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusTooManyRequests {
+		t.Fatal(response.StatusCode)
+	}
+	usage, err := runtime.Store.BudgetUsage(t.Context(), "system")
+	if err != nil || usage.Used != 2 || usage.Reserved != 0 {
+		t.Fatal(usage, err)
+	}
+}
+
+func TestHTTPEventsArePersistedOffRequestPath(t *testing.T) {
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "persisted")
+	}))
+	defer upstreamServer.Close()
+	upstreamURL, _ := url.Parse(upstreamServer.URL)
+	host, portRaw, _ := net.SplitHostPort(upstreamURL.Host)
+	c := config.Defaults(t.TempDir())
+	c.Listeners = c.Listeners[:1]
+	c.Proxies = []proxy.Endpoint{{ID: "upstream", Name: "upstream", Protocol: proxy.HTTP, Host: host, Port: parsePort(t, portRaw), Enabled: true, TrustedRemoteDNS: true}}
+	c.Pools = []routing.Pool{{ID: "pool", Name: "pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"upstream"}, Enabled: true}}
+	c.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "default", Rules: []policy.Rule{{ID: "route", Name: "route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}}}}
+	runtime, err := Build(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.Durable.Start()
+	t.Cleanup(func() {
+		runtime.Durable.Stop()
+		_ = runtime.Store.Close()
+	})
+	downstream := httptest.NewServer(runtime.Server.Handler)
+	defer downstream.Close()
+	downstreamURL, _ := url.Parse(downstream.URL)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(downstreamURL)}}
+	response, err := client.Get("http://origin.example.invalid/persist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	runtime.Durable.Stop()
+	events, err := runtime.Store.ListTraffic(t.Context(), sqlite.TrafficPage{Limit: 10})
+	if err != nil || len(events) != 1 || events[0].Host != "origin.example.invalid" || events[0].UpstreamDownload == 0 {
+		t.Fatal(events, err)
+	}
+	stats := runtime.Durable.Stats()
+	if stats.Accepted != 1 || stats.Written != 1 || stats.QueueDropped != 0 || stats.FailedEvents != 0 {
+		t.Fatal(stats)
+	}
+}
+
+func TestSOCKSTunnelEventsArePersisted(t *testing.T) {
+	target, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = target.Close() }()
+	targetDone := make(chan struct{})
+	go func() {
+		defer close(targetDone)
+		conn, acceptErr := target.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		payload := make([]byte, 4)
+		if _, readErr := io.ReadFull(conn, payload); readErr == nil && string(payload) == "ping" {
+			_, _ = conn.Write([]byte("ok"))
+		}
+	}()
+	host, portRaw, err := net.SplitHostPort(target.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := parsePort(t, portRaw)
+	c := config.Defaults(t.TempDir())
+	c.Listeners = c.Listeners[1:]
+	c.Security.AllowDirect = true
+	c.Security.DenyPrivate = false
+	c.Security.DirectAllowlist = []string{host}
+	c.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "default", Rules: []policy.Rule{{ID: "route", Name: "route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "direct"}}}}}}
+	runtime, err := Build(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.Durable.Start()
+	t.Cleanup(func() {
+		runtime.Durable.Stop()
+		_ = runtime.Store.Close()
+	})
+	client, server := net.Pipe()
+	served := make(chan struct{})
+	go func() {
+		runtime.SOCKS.Serve(context.Background(), server)
+		close(served)
+	}()
+	if _, err = client.Write([]byte{5, 1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, 2)
+	if _, err = io.ReadFull(client, reply); err != nil || reply[1] != 0 {
+		t.Fatal(reply, err)
+	}
+	request := append([]byte{5, 1, 0, 3, byte(len(host))}, []byte(host)...)
+	request = append(request, byte(port>>8), byte(port))
+	if _, err = client.Write(request); err != nil {
+		t.Fatal(err)
+	}
+	reply = make([]byte, 10)
+	if _, err = io.ReadFull(client, reply); err != nil || reply[1] != 0 {
+		t.Fatal(reply, err)
+	}
+	if _, err = client.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	payload := make([]byte, 2)
+	if _, err = io.ReadFull(client, payload); err != nil || string(payload) != "ok" {
+		t.Fatal(string(payload), err)
+	}
+	_ = client.Close()
+	select {
+	case <-served:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SOCKS tunnel did not close")
+	}
+	<-targetDone
+	runtime.Durable.Stop()
+	events, err := runtime.Store.ListTraffic(t.Context(), sqlite.TrafficPage{Limit: 10})
+	if err != nil || len(events) != 1 {
+		t.Fatal(events, err)
+	}
+	event := events[0]
+	if event.Protocol != "socks5" || event.Action != "direct" || event.ClientUpload != 4 || event.ClientDownload != 2 || event.Direct != 6 || event.UpstreamUpload != 0 || event.UpstreamDownload != 0 {
+		t.Fatal(event)
 	}
 }
 func parsePort(t *testing.T, raw string) uint16 {

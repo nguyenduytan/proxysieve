@@ -15,9 +15,11 @@ import (
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
 	"github.com/nguyenduytan/proxysieve/internal/api"
+	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	"github.com/nguyenduytan/proxysieve/internal/downstreamauth"
 	internalhealth "github.com/nguyenduytan/proxysieve/internal/health"
+	"github.com/nguyenduytan/proxysieve/internal/scheduler"
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
@@ -25,6 +27,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/transport/httpforward"
 	"github.com/nguyenduytan/proxysieve/internal/transport/socks5"
 	"github.com/nguyenduytan/proxysieve/internal/upstream"
+	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/config"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
@@ -32,6 +35,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
+	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
 var ErrUnsupportedListener = errors.New("configured listener type is not implemented")
@@ -47,11 +51,13 @@ type Runtime struct {
 	SOCKSBind  string
 	SOCKSMax   int
 	Traffic    *internaltraffic.Memory
+	Durable    *internaltraffic.Async
 	Admin      *http.Server
 	AdminBind  string
 	AdminMax   int
 	SetupToken string
 	Store      *sqlite.Store
+	Scheduler  *scheduler.Runner
 }
 type resolver struct{}
 
@@ -69,6 +75,7 @@ type router struct {
 	credentials  upstream.CredentialResolver
 	health       *internalhealth.Manager
 	directPolicy config.Security
+	budgets      *internalbudget.Manager
 }
 
 func (r *router) Evaluate(_ context.Context, request policy.RequestContext, visibility policy.Visibility) (policy.Result, error) {
@@ -157,7 +164,21 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 	if err != nil {
 		return gateway.Route{}, ErrPoolUnavailable
 	}
-	return gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, Transport: transport, Dial: func(ctx context.Context, target string) (net.Conn, error) {
+	var rate *trafficpkg.Rate
+	if endpoint.Rate != nil && !endpoint.Rate.EffectiveAt.After(request.Timestamp) {
+		snapshot := *endpoint.Rate
+		rate = &snapshot
+	}
+	var reserve publicbudget.ReserveFunc
+	if r.budgets != nil {
+		ids := r.budgets.ApplicableIDs(request.ClientID, poolID, endpoint.ID)
+		if len(ids) > 0 {
+			reserve = func(ctx context.Context, amount trafficpkg.Bytes) (publicbudget.Lease, error) {
+				return r.budgets.Reserve(ctx, ids, amount)
+			}
+		}
+	}
+	return gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, Rate: rate, Reserve: reserve, Transport: transport, Dial: func(ctx context.Context, target string) (net.Conn, error) {
 		return connector.Connect(ctx, endpoint, target)
 	}, Observe: func(success bool, status int) {
 		_, _ = r.health.Observe(endpoint.ID, publichealth.Observation{Success: success, HTTPStatus: status})
@@ -247,6 +268,9 @@ func Build(c config.Config) (Runtime, error) {
 		if listener.Auth != "local" && listener.Auth != "api_key" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
+		if listener.Auth == "api_key" && listener.Type != "http" {
+			return Runtime{}, ErrUnsupportedAuthentication
+		}
 		if types[listener.Type] {
 			return Runtime{}, config.ErrInvalid
 		}
@@ -291,6 +315,7 @@ func Build(c config.Config) (Runtime, error) {
 		return Runtime{}, err
 	}
 	runtime := Runtime{Traffic: trafficRecorder}
+	var budgetManager *internalbudget.Manager
 	if c.Admin.Enabled {
 		if c.Storage.Driver != "sqlite" {
 			return Runtime{}, ErrUnsupportedListener
@@ -299,7 +324,19 @@ func Build(c config.Config) (Runtime, error) {
 		if err != nil {
 			return Runtime{}, err
 		}
+		if len(c.Budgets) > 0 {
+			budgetManager, err = internalbudget.NewPersistent(c.Budgets, 64<<10, controlStore)
+			if err != nil {
+				_ = controlStore.Close()
+				return Runtime{}, err
+			}
+		}
 		service, err := admin.New(controlStore, security.DefaultPasswordParams())
+		if err != nil {
+			_ = controlStore.Close()
+			return Runtime{}, err
+		}
+		durableRecorder, err := internaltraffic.NewAsync(controlStore, 4096, 128, 250*time.Millisecond)
 		if err != nil {
 			_ = controlStore.Close()
 			return Runtime{}, err
@@ -309,19 +346,39 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
+		server.SetTrafficStatus(durableRecorder)
 		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}
 		runtime.AdminBind = c.Admin.Bind
 		runtime.AdminMax = 32
 		runtime.Store = controlStore
+		runtime.Durable = durableRecorder
+		rawRetention := time.Duration(c.Traffic.RetentionDays) * 24 * time.Hour
+		minuteRetention := maxDuration(time.Duration(c.Traffic.MinuteRetentionDays)*24*time.Hour, rawRetention)
+		hourRetention := maxDuration(time.Duration(c.Traffic.HourRetentionDays)*24*time.Hour, minuteRetention)
+		dayRetention := maxDuration(time.Duration(c.Traffic.DayRetentionDays)*24*time.Hour, hourRetention)
+		runtime.Scheduler = scheduler.New(time.Duration(c.Traffic.AggregationInterval), scheduler.TrafficJob{
+			Store: controlStore, Retention: rawRetention, MinuteRetention: minuteRetention,
+			HourRetention: hourRetention, DayRetention: dayRetention,
+			RetainTiers: func(ctx context.Context, retention scheduler.TierRetention) (scheduler.TierRetentionResult, error) {
+				result, err := controlStore.RetainTrafficTiers(ctx, sqlite.TrafficRetention{
+					RawBefore: retention.RawBefore, MinuteBefore: retention.MinuteBefore,
+					HourBefore: retention.HourBefore, DayBefore: retention.DayBefore,
+				})
+				return scheduler.TierRetentionResult{RawEvents: result.RawEvents, Minutes: result.Minutes, Hours: result.Hours, Days: result.Days}, err
+			},
+		}.Run)
 		if token, err := service.SetupToken(context.Background()); err == nil {
 			runtime.SetupToken = token
 		}
 	}
+	if len(c.Budgets) > 0 && budgetManager == nil {
+		return Runtime{}, ErrUnsupportedListener
+	}
 	for _, listener := range c.Listeners {
-		if listener.Auth != "local" {
+		if listener.Auth != "local" && listener.Auth != "api_key" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
-		r := &router{document: documents[model.ID(listener.Policy)], endpoints: endpoints, pools: pools, selectors: selectors, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security}
+		r := &router{document: documents[model.ID(listener.Policy)], endpoints: endpoints, pools: pools, selectors: selectors, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager}
 		switch listener.Type {
 		case "http":
 			if runtime.Server != nil {
@@ -336,7 +393,11 @@ func Build(c config.Config) (Runtime, error) {
 					return downstreamauth.AuthenticateBearer(ctx, header, runtime.Store)
 				}
 			}
-			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: trafficRecorder, Authenticate: authenticate, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20)})
+			var recorder trafficpkg.Recorder = trafficRecorder
+			if runtime.Durable != nil {
+				recorder = internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, runtime.Durable}}
+			}
+			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: recorder, Authenticate: authenticate, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20)})
 			if err != nil {
 				return Runtime{}, err
 			}
@@ -347,7 +408,11 @@ func Build(c config.Config) (Runtime, error) {
 			if runtime.SOCKS != nil {
 				return Runtime{}, config.ErrInvalid
 			}
-			server, err := socks5.New(socks5.Options{Evaluator: r, Router: r, IdleTimeout: time.Duration(listener.IdleTimeout)})
+			var recorder trafficpkg.Recorder = trafficRecorder
+			if runtime.Durable != nil {
+				recorder = internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, runtime.Durable}}
+			}
+			server, err := socks5.New(socks5.Options{Evaluator: r, Router: r, Recorder: recorder, IdleTimeout: time.Duration(listener.IdleTimeout)})
 			if err != nil {
 				return Runtime{}, err
 			}
@@ -371,6 +436,14 @@ func (r Runtime) Run(ctx context.Context) error {
 func (r Runtime) RunReady(ctx context.Context, ready func() error) error {
 	if r.Store != nil {
 		defer func() { _ = r.Store.Close() }()
+	}
+	if r.Durable != nil {
+		r.Durable.Start()
+		defer r.Durable.Stop()
+	}
+	if r.Scheduler != nil {
+		r.Scheduler.Start(ctx)
+		defer r.Scheduler.Stop()
 	}
 	if ctx.Err() != nil {
 		return nil
@@ -491,4 +564,11 @@ func min64(left, right int64) int64 {
 		return left
 	}
 	return right
+}
+
+func maxDuration(left, right time.Duration) time.Duration {
+	if left < right {
+		return right
+	}
+	return left
 }

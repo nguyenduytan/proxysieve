@@ -1,51 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  Activity,
-  BarChart3,
-  Bell,
-  Boxes,
-  CircleDollarSign,
-  Globe2,
-  HeartPulse,
-  LayoutDashboard,
-  LogOut,
-  Menu,
-  Moon,
-  Route,
-  Settings,
-  ShieldCheck,
-  Sun,
-  UsersRound,
-  X,
-} from "lucide-react";
+import { LogOut, Menu, Moon, ShieldCheck, Sun, X } from "lucide-react";
 import { AuthGate } from "./AuthGate";
 import { ApiError, api, discoverSession, errorMessage } from "./api";
 import type { User, SessionState } from "./api";
 import { ProxyInventory } from "./ProxyInventory";
 import { TrafficView } from "./TrafficView";
+import { navigationItems } from "./navigation";
+import type { Page } from "./navigation";
 import { useLiveData, useSystem } from "./useLiveData";
 
-type Page = "Overview" | "Live Traffic" | "Proxies" | "Settings";
 type State =
   | SessionState
   | { kind: "checking" }
   | { kind: "unavailable"; message: string };
-const available = [
-  { page: "Overview" as const, icon: LayoutDashboard },
-  { page: "Live Traffic" as const, icon: Activity },
-  { page: "Proxies" as const, icon: Globe2 },
-  { page: "Settings" as const, icon: Settings },
-];
-const planned = [
-  { label: "Analytics", icon: BarChart3 },
-  { label: "Proxy Pools", icon: Boxes },
-  { label: "Sessions", icon: UsersRound },
-  { label: "Policies", icon: Route },
-  { label: "Budgets", icon: CircleDollarSign },
-  { label: "Health", icon: HeartPulse },
-  { label: "Alerts", icon: Bell },
-];
-
 export function App() {
   const [state, setState] = useState<State>({ kind: "checking" });
   const [attempt, setAttempt] = useState(0);
@@ -114,6 +81,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const live = useLiveData(paused, onExpired);
   const system = useSystem(onExpired);
+  useEffect(() => {
+    document.title = `${page} · ProxySieve`;
+  }, [page]);
   async function logout() {
     setLoggingOut(true);
     setLogoutError("");
@@ -154,36 +124,24 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
           <span>Control plane connected</span>
         </div>
         <nav aria-label="Primary navigation">
-          {available.map(({ page: target, icon: Icon }) => (
-            <button
-              key={target}
-              className={page === target ? "nav-item active" : "nav-item"}
-              aria-current={page === target ? "page" : undefined}
-              onClick={() => {
-                setPage(target);
-                setMenu(false);
-              }}
-            >
-              <Icon size={17} />
-              <span>{target === "Settings" ? "System" : target}</span>
-            </button>
-          ))}
+          {navigationItems.map(
+            ({ page: target, label, description, icon: Icon }) => (
+              <button
+                key={target}
+                className={page === target ? "nav-item active" : "nav-item"}
+                aria-current={page === target ? "page" : undefined}
+                title={description}
+                onClick={() => {
+                  setPage(target);
+                  setMenu(false);
+                }}
+              >
+                <Icon size={17} />
+                <span>{label}</span>
+              </button>
+            ),
+          )}
         </nav>
-        <p className="nav-section-label">PLANNED WORKSPACES</p>
-        <div className="planned-nav">
-          {planned.map(({ label, icon: Icon }) => (
-            <button
-              key={label}
-              className="nav-item"
-              disabled
-              title="Not yet available"
-            >
-              <Icon size={17} />
-              <span>{label}</span>
-              <small>Planned</small>
-            </button>
-          ))}
-        </div>
         <div className="sidebar-footer">
           <div className="mini-user">
             <span>{user.username.slice(0, 2).toUpperCase()}</span>
@@ -216,7 +174,7 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
           <div className="crumb">
             <span>ProxySieve</span>
             <b>/</b>
-            <strong>{page === "Settings" ? "System" : page}</strong>
+            <strong>{page}</strong>
           </div>
           <div className="top-actions">
             <button
@@ -242,7 +200,7 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
             {logoutError}
           </p>
         )}
-        {(page === "Overview" || page === "Live Traffic") && (
+        {(page === "Overview" || page === "Traffic") && (
           <TrafficView
             overview={page === "Overview"}
             data={live.data}
@@ -255,7 +213,7 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
         {page === "Proxies" && (
           <ProxyInventory role={user.role} onExpired={onExpired} />
         )}
-        {page === "Settings" && (
+        {page === "System" && (
           <div className="content">
             <header className="page-heading">
               <div>
@@ -293,8 +251,8 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
               )}
             </section>
             <p className="scope-notice">
-              This is a development build, not a stable release. Settings
-              mutations, API keys, audit logs and production release checks are
+              This is a development build, not a stable release. Configuration
+              editing, operational audit views and production release checks are
               still in progress.
             </p>
           </div>

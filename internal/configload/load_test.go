@@ -100,8 +100,8 @@ func TestDataDirectoryDerivation(t *testing.T) {
 }
 
 func TestNumericPrecedence(t *testing.T) {
-	e, err := Load(Options{Home: t.TempDir(), Flags: map[string]string{"traffic.retention_days": "7"}, Runtime: map[string]string{"traffic.retention_days": "14"}})
-	if err != nil || e.Config.Traffic.RetentionDays != 14 || e.Sources["traffic.retention_days"] != "runtime" {
+	e, err := Load(Options{Home: t.TempDir(), Flags: map[string]string{"traffic.retention_days": "7", "traffic.minute_retention_days": "45"}, Runtime: map[string]string{"traffic.retention_days": "14"}})
+	if err != nil || e.Config.Traffic.RetentionDays != 14 || e.Config.Traffic.MinuteRetentionDays != 45 || e.Sources["traffic.retention_days"] != "runtime" || e.Sources["traffic.minute_retention_days"] != "flags" {
 		t.Fatal(e, err)
 	}
 }

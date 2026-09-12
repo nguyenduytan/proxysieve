@@ -2,13 +2,41 @@ import { useMemo, useState } from "react";
 import {
   Activity,
   ArrowDownToLine,
+  BarChart3,
+  CircleDollarSign,
   Pause,
   Play,
   Search,
   ShieldCheck,
 } from "lucide-react";
-import { formatBytes } from "./api";
+import { formatBytes, formatConfiguredCosts } from "./api";
 import type { TrafficEvent, TrafficPage } from "./api";
+
+const hourMilliseconds = 60 * 60 * 1000;
+
+export function fillHourlySeries(data: TrafficPage["series"]) {
+  if (!data || data.granularity !== "hour") return [];
+  const from = Date.parse(data.from);
+  const until = Date.parse(data.until);
+  if (
+    !Number.isFinite(from) ||
+    !Number.isFinite(until) ||
+    until <= from ||
+    (until - from) / hourMilliseconds > 2000
+  )
+    return [];
+  const counts = new Map(
+    data.points.map((point) => [
+      Date.parse(point.bucket_start),
+      point.totals.request_count,
+    ]),
+  );
+  const buckets = [];
+  for (let at = from; at < until; at += hourMilliseconds) {
+    buckets.push({ at, count: counts.get(at) ?? 0 });
+  }
+  return buckets;
+}
 
 export function TrafficView({
   overview,
@@ -28,31 +56,27 @@ export function TrafficView({
   const [filter, setFilter] = useState("");
   const rows = useMemo(
     () =>
-      (data?.events ?? [])
-        .filter((row) =>
-          `${row.host} ${row.action} ${row.pool_id} ${row.proxy_id}`
-            .toLowerCase()
-            .includes(filter.toLowerCase()),
-        )
-        .slice()
-        .reverse(),
+      (data?.events ?? []).filter((row) =>
+        `${row.host} ${row.protocol} ${row.action} ${row.pool_id} ${row.proxy_id}`
+          .toLowerCase()
+          .includes(filter.toLowerCase()),
+      ),
     [data, filter],
   );
-  const events = data?.events ?? [];
-  const upstream = events.reduce(
-    (sum, event) =>
-      sum + event.upstream_upload_bytes + event.upstream_download_bytes,
-    0,
-  );
-  const direct = events.reduce((sum, event) => sum + event.direct_bytes, 0);
+  const totals = data?.summary?.totals;
+  const upstream = totals
+    ? totals.upstream_upload_bytes + totals.upstream_download_bytes
+    : null;
+  const direct = totals?.direct_bytes ?? null;
+  const hourly = useMemo(() => fillHourlySeries(data?.series), [data?.series]);
+  const persistenceLosses =
+    (data?.durable?.queue_dropped ?? 0) + (data?.durable?.failed_events ?? 0);
   return (
     <div className="content">
       <header className="page-heading overview-heading">
         <div>
-          <h1>{overview ? "Overview" : "Live traffic"}</h1>
-          <p>
-            HTTP body measurements from this process. Not provider-billed bytes.
-          </p>
+          <h1>{overview ? "Overview" : "Traffic"}</h1>
+          <p>Application-stream measurements. Not provider-billed bytes.</p>
         </div>
         <span className="live-signal">
           <span className={paused || error ? "pulse paused" : "pulse"} />
@@ -64,9 +88,11 @@ export function TrafficView({
         </span>
       </header>
       <div className="scope-notice">
-        Local development build · Retained HTTP events only. Tunnel totals,
-        historical analytics, budgets and estimated savings are not available
-        yet.
+        Local development build · Live and retained HTTP, CONNECT and SOCKS5
+        events with bounded summary and minute/hour/day rollups. Transport
+        framing, budget management and savings projections are not available
+        yet. Configured costs are estimates for rated proxy routes only;
+        configured hard byte budgets are enforced in the gateway.
       </div>
       {error && (
         <div role="alert" className="auth-error">
@@ -77,30 +103,51 @@ export function TrafficView({
         <section className="metric-grid">
           <DataMetric
             icon={<ArrowDownToLine size={17} />}
-            label="Proxy response/request bodies"
-            value={data ? formatBytes(upstream) : "—"}
+            label="Paid proxy stream bytes"
+            value={upstream === null ? "—" : formatBytes(upstream)}
+            context="Last 24 hours"
           />
           <DataMetric
             icon={<ShieldCheck size={17} />}
-            label="Direct body bytes"
-            value={data ? formatBytes(direct) : "—"}
+            label="Direct stream bytes"
+            value={direct === null ? "—" : formatBytes(direct)}
+            context="Last 24 hours"
           />
           <DataMetric
             icon={<Activity size={17} />}
-            label="Retained request events"
-            value={data ? String(events.length) : "—"}
+            label="Events"
+            value={totals ? String(totals.request_count) : "—"}
+            context={
+              data
+                ? `Last 24 hours · ${data.dropped} live evictions`
+                : "24-hour summary unavailable"
+            }
+          />
+          <DataMetric
+            icon={<CircleDollarSign size={17} />}
+            label="Configured estimated cost"
+            value={formatConfiguredCosts(data?.summary?.configured_costs)}
+            context="Last 24 hours · rated proxy routes"
           />
           <DataMetric
             icon={<Activity size={17} />}
-            label="Events dropped at capacity"
-            value={data ? String(data.dropped) : "—"}
+            label="Events not persisted"
+            value={data ? String(persistenceLosses) : "—"}
+            context={
+              data?.durable
+                ? `${data.durable.queued} queued · ${data.durable.write_failures} failed batches`
+                : "Persistence status unavailable"
+            }
           />
         </section>
       )}
-      <section className="table-panel" aria-label="Recorded HTTP traffic">
+      {overview && (
+        <TrafficChart buckets={hourly} total={totals?.request_count ?? null} />
+      )}
+      <section className="table-panel" aria-label="Recorded gateway traffic">
         <div className="section-header">
           <div>
-            <h2>Recorded HTTP traffic</h2>
+            <h2>Recorded gateway traffic</h2>
             <span>
               {updated
                 ? `Last refreshed ${updated.toLocaleTimeString()}`
@@ -112,7 +159,7 @@ export function TrafficView({
               <Search size={15} />
               <input
                 aria-label="Search live traffic"
-                placeholder="Host, action, pool…"
+                placeholder="Host, protocol, action, pool…"
                 value={filter}
                 onChange={(event) => setFilter(event.target.value)}
               />
@@ -129,18 +176,16 @@ export function TrafficView({
         </div>
         {data === null ? (
           <div className="empty-state" role="status">
-            Loading request events…
+            Loading gateway events…
           </div>
         ) : rows.length === 0 ? (
           <div className="empty-state">
             <Activity size={27} />
-            <h3>
-              {filter ? "No matching requests" : "No HTTP request events yet"}
-            </h3>
+            <h3>{filter ? "No matching events" : "No gateway events yet"}</h3>
             <p>
               {filter
-                ? "Try another host, action or pool."
-                : "Configure an explicit route and send HTTP traffic through the gateway. HTTPS/SOCKS tunnels are not included in this view yet."}
+                ? "Try another host, protocol, action or pool."
+                : "Configure an explicit route and send HTTP, CONNECT or SOCKS5 traffic through the gateway."}
             </p>
           </div>
         ) : (
@@ -150,17 +195,21 @@ export function TrafficView({
                 <tr>
                   <th>Time</th>
                   <th>Action</th>
+                  <th>Protocol</th>
                   <th>Host</th>
                   <th>Pool</th>
                   <th>Proxy</th>
                   <th>Status</th>
-                  <th>Proxy body bytes</th>
-                  <th>Direct body bytes</th>
+                  <th>Paid proxy bytes</th>
+                  <th>Direct bytes</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, index) => (
-                  <TrafficLine key={`${row.request_id}-${index}`} row={row} />
+                {rows.map((row) => (
+                  <TrafficLine
+                    key={`${row.request_id}:${row.connection_id}:${row.at}`}
+                    row={row}
+                  />
                 ))}
               </tbody>
             </table>
@@ -170,14 +219,77 @@ export function TrafficView({
     </div>
   );
 }
+
+function TrafficChart({
+  buckets,
+  total,
+}: {
+  buckets: { at: number; count: number }[];
+  total: number | null;
+}) {
+  const maximum = Math.max(1, ...buckets.map((bucket) => bucket.count));
+  const eventTotal = total === null ? "—" : eventCountLabel(total);
+  return (
+    <section
+      className="chart-panel traffic-chart"
+      aria-label="Gateway event activity"
+    >
+      <header>
+        <div>
+          <h2>Gateway event activity</h2>
+          <span>Hourly totals from the bounded analytics API</span>
+        </div>
+        <b>{eventTotal}</b>
+      </header>
+      {buckets.length === 0 ? (
+        <div className="chart-empty" role="status">
+          Waiting for hourly analytics…
+        </div>
+      ) : (
+        <div
+          className="hour-bars"
+          role="img"
+          aria-label={`Hourly gateway event activity, ${eventCountLabel(total ?? 0)} in the last 24 hours`}
+        >
+          {buckets.map((bucket) => (
+            <span
+              key={bucket.at}
+              title={`${new Date(bucket.at).toLocaleString()}: ${eventCountLabel(bucket.count)}`}
+              style={{
+                height: `${Math.max(bucket.count ? 8 : 2, (bucket.count / maximum) * 100)}%`,
+              }}
+            />
+          ))}
+        </div>
+      )}
+      <footer>
+        <span>
+          {buckets[0]
+            ? new Date(buckets[0].at).toLocaleTimeString([], {
+                hour: "2-digit",
+              })
+            : "24h ago"}
+        </span>
+        <BarChart3 size={14} aria-hidden="true" />
+        <span>Now</span>
+      </footer>
+    </section>
+  );
+}
+
+function eventCountLabel(count: number) {
+  return `${count} ${count === 1 ? "event" : "events"}`;
+}
 function DataMetric({
   icon,
   label,
   value,
+  context = "This process · retained events",
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  context?: string;
 }) {
   return (
     <article className="metric">
@@ -185,30 +297,45 @@ function DataMetric({
       <div>
         <p>{label}</p>
         <strong>{value}</strong>
-        <span className="metric-change neutral">
-          This process · retained events
-        </span>
+        <span className="metric-change neutral">{context}</span>
       </div>
     </article>
   );
 }
 function TrafficLine({ row }: { row: TrafficEvent }) {
+  const timestamp = new Date(row.at);
   return (
     <tr>
-      <td className="mono muted">{new Date(row.at).toLocaleTimeString()}</td>
+      <td className="mono muted" title={timestamp.toISOString()}>
+        {timestamp.toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })}
+      </td>
       <td>
         <span className={`action-badge ${row.action}`}>
           {row.action.toUpperCase()}
         </span>
       </td>
+      <td className="mono">{row.protocol.toUpperCase()}</td>
       <td className="host-cell">{row.host}</td>
       <td>{row.pool_id || "—"}</td>
       <td>{row.proxy_id || "—"}</td>
-      <td>{row.status_code || "—"}</td>
+      <td>{trafficStatus(row)}</td>
       <td>
         {formatBytes(row.upstream_upload_bytes + row.upstream_download_bytes)}
       </td>
       <td>{formatBytes(row.direct_bytes)}</td>
     </tr>
   );
+}
+
+function trafficStatus(row: TrafficEvent) {
+  if (row.protocol === "socks5") {
+    return row.status_code === 0 ? "OK" : `SOCKS ${row.status_code}`;
+  }
+  return row.status_code || "—";
 }

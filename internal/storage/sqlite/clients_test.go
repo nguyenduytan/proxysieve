@@ -27,7 +27,7 @@ func TestClientAndAPIKeyPersistence(t *testing.T) {
 	if err != nil || found.ID != key.ID || found.RevokedAt != nil {
 		t.Fatal(found, err)
 	}
-	if err = s.RevokeAPIKey(t.Context(), model.ID("key"), now.Add(time.Minute)); err != nil {
+	if err = s.RevokeAPIKey(t.Context(), client.ID, model.ID("key"), now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	found, err = s.FindAPIKey(t.Context(), hash)

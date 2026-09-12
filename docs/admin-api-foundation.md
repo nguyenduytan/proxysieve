@@ -13,11 +13,21 @@ POST /api/v1/auth/setup
 POST /api/v1/auth/login
 POST /api/v1/auth/logout
 GET  /api/v1/auth/me
+GET  /api/v1/openapi.yaml
 GET  /api/v1/system/info
 GET  /api/v1/traffic/live
+GET  /api/v1/traffic/history
+GET  /api/v1/traffic/summary
+GET  /api/v1/traffic/timeseries
 GET  /api/v1/audit
+GET  /api/v1/proxies
+POST /api/v1/proxies
+POST /api/v1/proxies/import/preview
+GET  /api/v1/clients
 POST /api/v1/clients
+GET  /api/v1/clients/{id}/api-keys
 POST /api/v1/clients/{id}/api-keys
+DELETE /api/v1/clients/{id}/api-keys/{key-id}
 ```
 
 The first run creates no default password. A random setup token appears only on
@@ -40,18 +50,30 @@ are rejected. Responses set restrictive security headers and `Cache-Control: no-
 Remote/TLS admin serving rejects explicitly until the TLS secret/certificate path is
 implemented. Do not work around this by exposing the local admin port publicly.
 
-`GET /api/v1/traffic/live` is authenticated and returns bounded in-memory HTTP
-application-stream events only. It clearly does not represent historical rollups,
-network-interface bytes or a provider invoice. Event persistence, SSE and full
-analytics arrive in later milestones.
+`GET /api/v1/traffic/live` is authenticated and returns the bounded newest-event
+gateway buffer plus asynchronous persistence health. `GET /api/v1/traffic/history`
+returns recent SQLite events. `traffic/summary` and `traffic/timeseries` return
+bounded analytics over aligned UTC ranges with optional client, pool, proxy,
+action and protocol filters. Timeseries accepts minute/hour/day granularity and
+returns at most 2,000 non-empty buckets. These application-stream measurements do
+not represent network-interface bytes or a provider invoice. SSE and domain/rule
+breakdowns arrive in later milestones. `configured_costs` is grouped by currency
+and includes the rated upstream-byte coverage; these values are configured
+estimates, not provider-billed amounts.
+
+The embedded Admin Panel deliberately lists only API-backed destinations:
+Overview, Traffic, Proxies and System. Planned workspaces such as Alerts are not
+rendered as disabled navigation. This avoids duplicate or inert menu surfaces
+while features are still under development.
 
 ## Client API Keys
 
 An admin may create an enabled logical client with `POST /api/v1/clients`, then
 create a downstream key with `POST /api/v1/clients/{id}/api-keys`. The raw key is
 returned only by its creation response. SQLite retains a SHA-256 hash and display
-prefix, never the raw token. API key listing/revocation and client CRUD remain in
-progress.
+prefix, never the raw token. Administrators can list clients and key metadata, and
+revoke an existing key with the CSRF-protected DELETE route. A machine-readable
+contract is available at `GET /api/v1/openapi.yaml`.
 
 For an HTTP listener configured with `auth: api_key`, downstream clients must send:
 

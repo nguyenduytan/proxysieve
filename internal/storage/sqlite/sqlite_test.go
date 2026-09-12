@@ -33,7 +33,7 @@ func TestPersistenceAndMigrationChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 4 || status.JournalMode != "wal" || status.EndpointCount != 1 {
+	if err != nil || status.SchemaVersion != 10 || status.JournalMode != "wal" || status.EndpointCount != 1 {
 		t.Fatalf("%+v %v", status, err)
 	}
 	if err = s.Close(); err != nil {
@@ -63,7 +63,7 @@ func TestFutureSchemaRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (5,'future','unknown')"); err != nil {
+	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (11,'future','unknown')"); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.Close()
@@ -96,7 +96,7 @@ func TestMigrationAtomicity(t *testing.T) {
 		t.Fatalf("table survived rollback: %d %v", n, err)
 	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 4 {
+	if err != nil || status.SchemaVersion != 10 {
 		t.Fatalf("%+v %v", status, err)
 	}
 }

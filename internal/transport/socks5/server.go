@@ -12,9 +12,12 @@ import (
 	"sync"
 	"time"
 
+	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
+	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
+	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
 const (
@@ -33,11 +36,13 @@ type Router gateway.Router
 type Options struct {
 	Evaluator   gateway.Evaluator
 	Router      gateway.Router
+	Recorder    trafficpkg.Recorder
 	IdleTimeout time.Duration
 }
 type Server struct {
 	evaluator gateway.Evaluator
 	router    gateway.Router
+	recorder  trafficpkg.Recorder
 	idle      time.Duration
 }
 
@@ -51,7 +56,7 @@ func New(options Options) (*Server, error) {
 	if options.IdleTimeout > 24*time.Hour {
 		return nil, errors.New("invalid socks5 idle timeout")
 	}
-	return &Server{evaluator: options.Evaluator, router: options.Router, idle: options.IdleTimeout}, nil
+	return &Server{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, idle: options.IdleTimeout}, nil
 }
 
 // Serve accepts one downstream connection. No-auth is only used by a listener
@@ -71,16 +76,28 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 	request := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), Listener: "socks", Protocol: "socks5", Host: host, Port: port, Timestamp: time.Now().UTC()}
 	result, err := s.evaluator.Evaluate(ctx, request, policy.Visibility{Host: true})
 	if err != nil {
+		recordTunnel(s.recorder, ctx, request, gateway.Route{Action: "reject"}, 2, 0, 0, 0, 0)
 		writeReply(conn, 2)
 		return
 	}
 	route, err := s.router.Route(ctx, request, result)
 	if err != nil || route.Dial == nil {
+		if route.Action != "block" && route.Action != "reject" {
+			route.Action = "reject"
+		}
+		recordTunnel(s.recorder, ctx, request, route, 2, 0, 0, 0, 0)
+		writeReply(conn, 2)
+		return
+	}
+	if err = internalbudget.Available(ctx, route.Reserve); err != nil {
+		route.Action = "budget_reject"
+		recordTunnel(s.recorder, ctx, request, route, 2, 0, 0, 0, 0)
 		writeReply(conn, 2)
 		return
 	}
 	upstream, err := route.Dial(ctx, net.JoinHostPort(host, strconv.Itoa(int(port))))
 	if err != nil {
+		recordTunnel(s.recorder, ctx, request, route, 5, 0, 0, 0, 0)
 		writeReply(conn, 5)
 		return
 	}
@@ -90,22 +107,49 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 	}
 	_ = conn.SetDeadline(time.Time{})
 	var copies sync.WaitGroup
+	clientUpload := &internaltraffic.Reader{Source: reader}
+	upstreamUpload := &internaltraffic.Writer{Destination: &internalbudget.Writer{Context: ctx, Destination: upstream, Reserve: route.Reserve}}
+	upstreamDownload := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: ctx, Source: upstream, Reserve: route.Reserve}}
+	clientDownload := &internaltraffic.Writer{Destination: conn}
 	copies.Add(2)
 	go func() {
 		defer copies.Done()
-		_, _ = io.Copy(upstream, reader)
+		_, _ = io.Copy(upstreamUpload, clientUpload)
 		if writer, ok := upstream.(interface{ CloseWrite() error }); ok {
 			_ = writer.CloseWrite()
 		}
 	}()
 	go func() {
 		defer copies.Done()
-		_, _ = io.Copy(conn, upstream)
+		_, _ = io.Copy(clientDownload, upstreamDownload)
 		if writer, ok := conn.(interface{ CloseWrite() error }); ok {
 			_ = writer.CloseWrite()
 		}
 	}()
 	copies.Wait()
+	recordTunnel(s.recorder, ctx, request, route, 0, clientUpload.Bytes(), clientDownload.Bytes(), upstreamUpload.Bytes(), upstreamDownload.Bytes())
+}
+
+func recordTunnel(recorder trafficpkg.Recorder, ctx context.Context, request policy.RequestContext, route gateway.Route, status int, clientUpload, clientDownload, routeUpload, routeDownload trafficpkg.Bytes) {
+	if recorder == nil {
+		return
+	}
+	direct := trafficpkg.Bytes(0)
+	proxyUpload, proxyDownload := trafficpkg.Bytes(0), trafficpkg.Bytes(0)
+	switch route.Action {
+	case "direct":
+		direct, _ = routeUpload.Add(routeDownload)
+	case "proxy":
+		proxyUpload, proxyDownload = routeUpload, routeDownload
+	}
+	cost, _ := trafficpkg.NewCostSnapshot(route.Rate, proxyUpload, proxyDownload)
+	_ = recorder.Record(context.WithoutCancel(ctx), trafficpkg.Event{
+		At: time.Now().UTC(), RequestID: request.RequestID, ConnectionID: request.ConnectionID,
+		ClientID: request.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID,
+		Host: request.Host, Protocol: "socks5", Action: route.Action, StatusCode: status,
+		ClientUpload: clientUpload, ClientDownload: clientDownload,
+		UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, ConfiguredCost: cost,
+	})
 }
 func negotiate(reader *bufio.Reader, conn net.Conn) bool {
 	header := make([]byte, 2)

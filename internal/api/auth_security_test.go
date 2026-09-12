@@ -8,6 +8,7 @@ import (
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
 	"github.com/nguyenduytan/proxysieve/internal/security"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestRejectsCrossOriginAndTrailingJSON(t *testing.T) {
@@ -74,5 +75,30 @@ func TestLoginRateLimitAndAssetFallback(t *testing.T) {
 	}
 	if w := request(server.Handler(), http.MethodGet, "/assets/missing.js", nil, ""); w.Code != 404 {
 		t.Fatal(w.Code)
+	}
+}
+
+func TestOpenAPIContractIsServedWithoutSession(t *testing.T) {
+	service, _ := admin.New(&memoryUsers{users: map[string]userRecord{}}, security.DefaultPasswordParams())
+	server, _ := New(service, nil, nil, nil)
+	response := request(server.Handler(), http.MethodGet, "/api/v1/openapi.yaml", nil, "")
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/yaml; charset=utf-8" {
+		t.Fatal(response.Code, response.Header())
+	}
+	if !strings.Contains(response.Body.String(), "openapi: 3.1.0") || !strings.Contains(response.Body.String(), "/api/v1/clients/{clientId}/api-keys/{keyId}") {
+		t.Fatal("served OpenAPI contract is incomplete")
+	}
+}
+
+func TestOpenAPIContractParsesAsYAML(t *testing.T) {
+	var document map[string]any
+	if err := yaml.Unmarshal(openAPISpec, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document["openapi"] != "3.1.0" {
+		t.Fatalf("unexpected OpenAPI version: %#v", document["openapi"])
+	}
+	if _, ok := document["paths"]; !ok {
+		t.Fatal("OpenAPI document has no paths")
 	}
 }

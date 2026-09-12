@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	pspolicy "github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
@@ -45,19 +46,20 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 }
 
 type Config struct {
-	Version   int               `json:"version" yaml:"version"`
-	Server    Server            `json:"server" yaml:"server"`
-	Listeners []Listener        `json:"listeners" yaml:"listeners"`
-	Admin     Admin             `json:"admin" yaml:"admin"`
-	Storage   Storage           `json:"storage" yaml:"storage"`
-	Traffic   Traffic           `json:"traffic" yaml:"traffic"`
-	Inspect   Inspect           `json:"inspect" yaml:"inspect"`
-	Cache     Cache             `json:"cache" yaml:"cache"`
-	Security  Security          `json:"security" yaml:"security"`
-	Logging   Logging           `json:"logging" yaml:"logging"`
-	Proxies   []proxy.Endpoint  `json:"proxies" yaml:"proxies"`
-	Pools     []routing.Pool    `json:"pools" yaml:"pools"`
-	Policies  []pspolicy.Policy `json:"policies" yaml:"policies"`
+	Version   int                   `json:"version" yaml:"version"`
+	Server    Server                `json:"server" yaml:"server"`
+	Listeners []Listener            `json:"listeners" yaml:"listeners"`
+	Admin     Admin                 `json:"admin" yaml:"admin"`
+	Storage   Storage               `json:"storage" yaml:"storage"`
+	Traffic   Traffic               `json:"traffic" yaml:"traffic"`
+	Inspect   Inspect               `json:"inspect" yaml:"inspect"`
+	Cache     Cache                 `json:"cache" yaml:"cache"`
+	Security  Security              `json:"security" yaml:"security"`
+	Logging   Logging               `json:"logging" yaml:"logging"`
+	Proxies   []proxy.Endpoint      `json:"proxies" yaml:"proxies"`
+	Pools     []routing.Pool        `json:"pools" yaml:"pools"`
+	Policies  []pspolicy.Policy     `json:"policies" yaml:"policies"`
+	Budgets   []publicbudget.Config `json:"budgets" yaml:"budgets"`
 }
 type Server struct {
 	DataDir         string   `json:"data_dir" yaml:"data_dir"`
@@ -88,6 +90,9 @@ type Storage struct {
 }
 type Traffic struct {
 	RetentionDays       int      `json:"retention_days" yaml:"retention_days"`
+	MinuteRetentionDays int      `json:"minute_retention_days" yaml:"minute_retention_days"`
+	HourRetentionDays   int      `json:"hour_retention_days" yaml:"hour_retention_days"`
+	DayRetentionDays    int      `json:"day_retention_days" yaml:"day_retention_days"`
 	AggregationInterval Duration `json:"aggregation_interval" yaml:"aggregation_interval"`
 }
 type Inspect struct {
@@ -127,7 +132,7 @@ func Defaults(home string) Config {
 		},
 		Admin:    Admin{Enabled: true, Bind: "127.0.0.1:9090", AuthRequired: true},
 		Storage:  Storage{Driver: "sqlite", Path: filepath.Join(dir, "proxysieve.db"), BusyTimeout: Duration(5 * time.Second)},
-		Traffic:  Traffic{RetentionDays: 30, AggregationInterval: Duration(time.Minute)},
+		Traffic:  Traffic{RetentionDays: 30, MinuteRetentionDays: 90, HourRetentionDays: 365, DayRetentionDays: 3650, AggregationInterval: Duration(time.Minute)},
 		Cache:    Cache{DNS: CacheLimit{Enabled: true, MaxEntries: 4096, MaxBytes: 4 << 20}, Response: CacheLimit{MaxEntries: 1024, MaxBytes: 64 << 20}},
 		Security: Security{DenyPrivate: true},
 		Logging:  Logging{Level: "info", Format: "json"},
@@ -187,7 +192,11 @@ func (c Config) Validate() error {
 	if c.Storage.Driver == "sqlite" && (c.Storage.Path == "" || strings.HasPrefix(c.Storage.Path, "file:") || strings.ContainsRune(c.Storage.Path, 0)) {
 		return ErrInvalid
 	}
-	if c.Traffic.RetentionDays < 1 || c.Traffic.RetentionDays > 3650 || c.Traffic.AggregationInterval <= 0 || c.Traffic.AggregationInterval > Duration(time.Hour) {
+	if c.Traffic.RetentionDays < 1 || c.Traffic.RetentionDays > 3650 ||
+		c.Traffic.MinuteRetentionDays < 1 || c.Traffic.MinuteRetentionDays > 3650 ||
+		c.Traffic.HourRetentionDays < 1 || c.Traffic.HourRetentionDays > 3650 ||
+		c.Traffic.DayRetentionDays < 1 || c.Traffic.DayRetentionDays > 3650 ||
+		c.Traffic.AggregationInterval <= 0 || c.Traffic.AggregationInterval > Duration(time.Hour) {
 		return ErrInvalid
 	}
 	for _, v := range []CacheLimit{c.Cache.DNS, c.Cache.Response} {
@@ -260,6 +269,21 @@ func (c Config) Validate() error {
 			}
 		}
 	}
+	budgetIDs := map[model.ID]bool{}
+	for _, configured := range c.Budgets {
+		if configured.Validate() != nil || budgetIDs[configured.ID] {
+			return ErrInvalid
+		}
+		if configured.Scope == publicbudget.ScopePool {
+			if _, ok := poolIDs[configured.ScopeID]; !ok {
+				return ErrInvalid
+			}
+		}
+		if configured.Scope == publicbudget.ScopeProxy && !proxyIDs[configured.ScopeID] {
+			return ErrInvalid
+		}
+		budgetIDs[configured.ID] = true
+	}
 	for _, listener := range c.Listeners {
 		if !policyIDs[model.ID(listener.Policy)] {
 			return ErrInvalid
@@ -314,6 +338,7 @@ func (c Config) Clone() Config {
 	for i := range c.Policies {
 		c.Policies[i] = c.Policies[i].Clone()
 	}
+	c.Budgets = slices.Clone(c.Budgets)
 	return c
 }
 

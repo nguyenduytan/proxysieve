@@ -4,8 +4,10 @@ package gateway
 import (
 	"context"
 	"errors"
+	"github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
+	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 	"net"
 	"net/http"
 )
@@ -26,6 +28,8 @@ type Route struct {
 	Transport http.RoundTripper
 	Dial      func(context.Context, string) (net.Conn, error)
 	Observe   func(bool, int)
+	Rate      *traffic.Rate
+	Reserve   budget.ReserveFunc
 }
 
 type Router interface {

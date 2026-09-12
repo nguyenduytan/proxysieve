@@ -54,3 +54,21 @@ func TestValueFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestCostSnapshotPinsConfiguredRate(t *testing.T) {
+	rate := Rate{Price: Money{Currency: "USD", Micros: 2_000_000}, Unit: GB, EffectiveAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)}
+	snapshot, err := NewCostSnapshot(&rate, 250_000_000, 250_000_000)
+	if err != nil || snapshot.Amount != (Money{Currency: "USD", Micros: 1_000_000}) || snapshot.Validate(250_000_000, 250_000_000) != nil {
+		t.Fatal(snapshot, err)
+	}
+	rate.Price.Micros = 9_000_000
+	if snapshot.Rate.Price.Micros != 2_000_000 {
+		t.Fatal("snapshot changed with source rate")
+	}
+	if snapshot.Validate(0, 1) == nil {
+		t.Fatal("snapshot accepted different byte totals")
+	}
+	if none, err := NewCostSnapshot(nil, 1, 1); err != nil || none != nil {
+		t.Fatal(none, err)
+	}
+}

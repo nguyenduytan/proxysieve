@@ -66,6 +66,35 @@ type Rate struct {
 	EffectiveAt  time.Time `json:"effective_at" yaml:"effective_at"`
 }
 
+// CostSnapshot preserves the exact configured rate used for an event. Amount is
+// an estimate derived from application-stream bytes, never a provider invoice.
+type CostSnapshot struct {
+	Amount Money `json:"amount"`
+	Rate   Rate  `json:"rate"`
+}
+
+func NewCostSnapshot(rate *Rate, upload, download Bytes) (*CostSnapshot, error) {
+	if rate == nil {
+		return nil, nil
+	}
+	amount, err := rate.Charge(upload, download)
+	if err != nil {
+		return nil, err
+	}
+	return &CostSnapshot{Amount: amount, Rate: *rate}, nil
+}
+
+func (s CostSnapshot) Validate(upload, download Bytes) error {
+	if s.Rate.Validate() != nil || s.Amount.Validate() != nil || s.Amount.Currency != s.Rate.Price.Currency {
+		return ErrInvalid
+	}
+	want, err := s.Rate.Charge(upload, download)
+	if err != nil || want != s.Amount {
+		return ErrInvalid
+	}
+	return nil
+}
+
 func (r Rate) Validate() error {
 	if r.Price.Validate() != nil || (r.Unit != GB && r.Unit != GiB) || r.EffectiveAt.IsZero() {
 		return ErrInvalid

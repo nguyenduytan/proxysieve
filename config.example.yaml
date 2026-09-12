@@ -11,6 +11,13 @@ listeners:
     idle_timeout: 2m
 admin:
   bind: "127.0.0.1:9090"
+traffic:
+  retention_days: 30
+  minute_retention_days: 90
+  hour_retention_days: 365
+  day_retention_days: 3650
+  aggregation_interval: 1m
+budgets: []
 inspect:
   enabled: false
 cache:

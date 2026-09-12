@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	cachepkg "github.com/nguyenduytan/proxysieve/pkg/cache"
@@ -78,7 +79,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodConnect {
-		h.connect(w, r)
+		h.connect(w, r, clientID)
 		return
 	}
 	if r.URL == nil || !r.URL.IsAbs() || r.URL.Host == "" || r.URL.User != nil || r.Host == "" || defaultPort(r.URL.Scheme) == 0 {
@@ -106,11 +107,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "http", Scheme: r.URL.Scheme, Host: host, Port: port, Method: model.Optional[string]{Known: true, Value: r.Method}, Path: model.Optional[string]{Known: true, Value: r.URL.EscapedPath()}, Headers: model.Optional[map[string][]string]{Known: true, Value: cloneHeader(r.Header)}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true, Path: true, Headers: true})
 	if err != nil {
+		recordHTTP(h.recorder, r, ctx, gateway.Route{Action: "reject"}, host, 0, 0, 0, http.StatusForbidden, 0)
 		http.Error(w, "POLICY_REJECTED", http.StatusForbidden)
 		return
 	}
 	route, err := h.router.Route(r.Context(), ctx, result)
 	if err != nil || route.Action == "block" || route.Action == "reject" || route.Action == "" {
+		if route.Action != "block" && route.Action != "reject" {
+			route.Action = "reject"
+		}
+		recordHTTP(h.recorder, r, ctx, route, host, 0, 0, 0, http.StatusForbidden, 0)
 		if errors.Is(err, gateway.ErrDenied) {
 			http.Error(w, "DESTINATION_DENIED", http.StatusForbidden)
 			return
@@ -119,7 +125,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if route.Transport == nil {
+		recordHTTP(h.recorder, r, ctx, route, host, 0, 0, 0, http.StatusBadGateway, 0)
 		http.Error(w, "ROUTE_UNAVAILABLE", http.StatusBadGateway)
+		return
+	}
+	if err = internalbudget.Available(r.Context(), route.Reserve); err != nil {
+		route.Action = "budget_reject"
+		recordHTTP(h.recorder, r, ctx, route, host, 0, 0, 0, http.StatusTooManyRequests, 0)
+		http.Error(w, "BUDGET_EXCEEDED", http.StatusTooManyRequests)
 		return
 	}
 	cacheKey := cacheKeyFor(route, r)
@@ -130,7 +143,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			delivered := &internaltraffic.Writer{Destination: w}
 			_, copyErr := delivered.Write(cached.Body)
 			if h.recorder != nil {
-				_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: "cache", StatusCode: cached.Status, ClientDownload: delivered.Bytes(), CacheServed: delivered.Bytes()})
+				_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: "cache", StatusCode: cached.Status, ClientDownload: delivered.Bytes(), CacheServed: delivered.Bytes()})
 			}
 			if copyErr != nil {
 				panic(http.ErrAbortHandler)
@@ -144,7 +157,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	upload := &internaltraffic.Reader{Source: body}
 	out := r.Clone(r.Context())
-	out.Body = &countedBody{Reader: upload, Closer: body}
+	out.Body = &countedBody{Reader: &internalbudget.Reader{Context: r.Context(), Source: upload, Reserve: route.Reserve}, Closer: body}
 	if body == http.NoBody {
 		out.Body = http.NoBody
 	}
@@ -159,6 +172,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if route.Observe != nil {
 			route.Observe(false, 0)
 		}
+		recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), 0, 0, http.StatusBadGateway, 0)
 		http.Error(w, "UPSTREAM_FAILED", http.StatusBadGateway)
 		return
 	}
@@ -166,7 +180,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if route.Observe != nil {
 		route.Observe(true, response.StatusCode)
 	}
-	download := &internaltraffic.Reader{Source: response.Body}
+	download := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: r.Context(), Source: response.Body, Reserve: route.Reserve}}
 	responseHeaders := response.Header.Clone()
 	stripHopByHop(responseHeaders)
 	cacheable := h.responseCache != nil && cachepkg.CheckRequest(r).Eligible && response.Header.Get("Vary") == "" && cachepkg.CheckResponse(response.StatusCode, response.Header, response.ContentLength, h.maxCacheBody).Eligible
@@ -200,11 +214,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
-	clientID, ok := h.authenticateRequest(w, r)
-	if !ok {
-		return
-	}
+func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model.ID) {
 	host, portRaw, err := net.SplitHostPort(r.Host)
 	if err != nil || !proxy.ValidHost(host) {
 		http.Error(w, "INVALID_CONNECT_TARGET", http.StatusBadRequest)
@@ -218,11 +228,16 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "connect", Host: host, Port: uint16(port64), Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true})
 	if err != nil {
+		recordTunnel(h.recorder, r.Context(), ctx, gateway.Route{Action: "reject"}, host, "connect", http.StatusForbidden, 0, 0, 0, 0)
 		http.Error(w, "POLICY_BLOCKED", http.StatusForbidden)
 		return
 	}
 	route, err := h.router.Route(r.Context(), ctx, result)
 	if err != nil || route.Dial == nil {
+		if route.Action != "block" && route.Action != "reject" {
+			route.Action = "reject"
+		}
+		recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusForbidden, 0, 0, 0, 0)
 		if errors.Is(err, gateway.ErrDenied) {
 			http.Error(w, "DESTINATION_DENIED", http.StatusForbidden)
 			return
@@ -230,11 +245,18 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "DESTINATION_DENIED", http.StatusForbidden)
 		return
 	}
+	if err = internalbudget.Available(r.Context(), route.Reserve); err != nil {
+		route.Action = "budget_reject"
+		recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusTooManyRequests, 0, 0, 0, 0)
+		http.Error(w, "BUDGET_EXCEEDED", http.StatusTooManyRequests)
+		return
+	}
 	upstream, err := route.Dial(r.Context(), net.JoinHostPort(host, portRaw))
 	if err != nil {
 		if route.Observe != nil {
 			route.Observe(false, 0)
 		}
+		recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusBadGateway, 0, 0, 0, 0)
 		http.Error(w, "UPSTREAM_FAILED", http.StatusBadGateway)
 		return
 	}
@@ -259,22 +281,27 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var copies sync.WaitGroup
+	clientUpload := &internaltraffic.Reader{Source: buffer.Reader}
+	upstreamUpload := &internaltraffic.Writer{Destination: &internalbudget.Writer{Context: r.Context(), Destination: upstream, Reserve: route.Reserve}}
+	upstreamDownload := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: r.Context(), Source: upstream, Reserve: route.Reserve}}
+	clientDownload := &internaltraffic.Writer{Destination: client}
 	copies.Add(2)
 	go func() {
 		defer copies.Done()
-		_, _ = io.Copy(upstream, buffer.Reader)
+		_, _ = io.Copy(upstreamUpload, clientUpload)
 		if closeWriter, ok := upstream.(interface{ CloseWrite() error }); ok {
 			_ = closeWriter.CloseWrite()
 		}
 	}()
 	go func() {
 		defer copies.Done()
-		_, _ = io.Copy(client, upstream)
+		_, _ = io.Copy(clientDownload, upstreamDownload)
 		if closeWriter, ok := client.(interface{ CloseWrite() error }); ok {
 			_ = closeWriter.CloseWrite()
 		}
 	}()
 	copies.Wait()
+	recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusOK, clientUpload.Bytes(), clientDownload.Bytes(), upstreamUpload.Bytes(), upstreamDownload.Bytes())
 }
 func defaultPort(scheme string) int {
 	if scheme == "https" {
@@ -328,6 +355,9 @@ func cacheKeyFor(route gateway.Route, request *http.Request) cachepkg.Key {
 	return cachepkg.Key{ClientID: "local", SessionHash: "anonymous", RouteID: routeID, Method: request.Method, URL: request.URL.String(), Vary: map[string]string{}}
 }
 func recordHTTP(recorder trafficpkg.Recorder, request *http.Request, ctx policy.RequestContext, route gateway.Route, host string, upload, download, delivered trafficpkg.Bytes, status int, cacheServed trafficpkg.Bytes) {
+	if recorder == nil {
+		return
+	}
 	direct := trafficpkg.Bytes(0)
 	proxyUpload, proxyDownload := trafficpkg.Bytes(0), trafficpkg.Bytes(0)
 	switch route.Action {
@@ -336,7 +366,30 @@ func recordHTTP(recorder trafficpkg.Recorder, request *http.Request, ctx policy.
 	case "proxy":
 		proxyUpload, proxyDownload = upload, download
 	}
-	_ = recorder.Record(context.WithoutCancel(request.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: route.Action, StatusCode: status, ClientUpload: upload, ClientDownload: delivered, UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, CacheServed: cacheServed})
+	cost, _ := trafficpkg.NewCostSnapshot(route.Rate, proxyUpload, proxyDownload)
+	_ = recorder.Record(context.WithoutCancel(request.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: route.Action, StatusCode: status, ClientUpload: upload, ClientDownload: delivered, UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, CacheServed: cacheServed, ConfiguredCost: cost})
+}
+
+func recordTunnel(recorder trafficpkg.Recorder, recordContext context.Context, request policy.RequestContext, route gateway.Route, host, protocol string, status int, clientUpload, clientDownload, routeUpload, routeDownload trafficpkg.Bytes) {
+	if recorder == nil {
+		return
+	}
+	direct := trafficpkg.Bytes(0)
+	proxyUpload, proxyDownload := trafficpkg.Bytes(0), trafficpkg.Bytes(0)
+	switch route.Action {
+	case "direct":
+		direct, _ = routeUpload.Add(routeDownload)
+	case "proxy":
+		proxyUpload, proxyDownload = routeUpload, routeDownload
+	}
+	cost, _ := trafficpkg.NewCostSnapshot(route.Rate, proxyUpload, proxyDownload)
+	_ = recorder.Record(context.WithoutCancel(recordContext), trafficpkg.Event{
+		At: time.Now().UTC(), RequestID: request.RequestID, ConnectionID: request.ConnectionID,
+		ClientID: request.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host,
+		Protocol: protocol, Action: route.Action, StatusCode: status,
+		ClientUpload: clientUpload, ClientDownload: clientDownload,
+		UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, ConfiguredCost: cost,
+	})
 }
 func (h *Handler) authenticateRequest(w http.ResponseWriter, r *http.Request) (model.ID, bool) {
 	if h.authenticate == nil {

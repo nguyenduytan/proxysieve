@@ -56,12 +56,12 @@ explicitly scoped features.
 
 | Area | Available locally | Still in progress |
 | --- | --- | --- |
-| Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, graceful shutdown, listener limits | SOCKS password auth, UDP, tunnel accounting |
+| Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, graceful shutdown, listener limits | SOCKS password auth, UDP, transport-framing accounting |
 | Routing | Deterministic policies, pools, selection strategies, configured upstream HTTP/HTTPS/SOCKS | Persisted pool management, chains, full failover |
 | Safety | Loopback defaults, private destination checks, pinned DIRECT DNS, no implicit DIRECT, source fetch guard | Persistent encrypted secret store, TLS remote admin |
-| Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC foundation | API keys, audit log, SSE, backup/restore |
-| Measurement | HTTP application-stream counters, bounded live events, health/circuit state, hard-budget reservation primitive | Durable rollups, budget wiring, provider billing reconciliation |
-| Dashboard | Embedded authenticated admin shell, live event view, proxy inventory and import preview | Full CRUD for every domain, charts from durable analytics |
+| Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited client/API-key lifecycle API, published OpenAPI contract | API-key list/revocation UI, SSE, backup/restore |
+| Measurement | HTTP/CONNECT/SOCKS5 application-stream counters, newest-event live buffer, bounded batched SQLite history, restart-safe minute/hour/day rollups, tier-specific pruning, bounded summary/timeseries queries, currency-separated configured-cost estimates, health/circuit state, restart-safe hard byte-budget enforcement | Transport/proxy framing, billing windows, soft/cost budgets, projections, provider billing reconciliation |
+| Dashboard | Embedded authenticated admin shell with Overview, Traffic, Proxies and System; responsive navigation; proxy inventory/import preview; real 24-hour traffic metrics/chart | Full CRUD for every domain, broader analytics/cost views, Alerts when its backend exists |
 
 Read [PROGRESS.md](PROGRESS.md) for the precise milestone checklist. A green local
 test does not imply an unimplemented capability is available.

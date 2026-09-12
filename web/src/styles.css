@@ -392,9 +392,14 @@ nav {
 }
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 14px;
   margin-bottom: 20px;
+}
+@media (min-width: 1220px) {
+  .metric-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
 }
 .metric {
   padding: 18px;
@@ -476,6 +481,42 @@ nav {
   min-height: 272px;
   padding: 20px;
 }
+.traffic-chart {
+  min-height: 220px;
+  margin-bottom: 20px;
+}
+.hour-bars {
+  height: 118px;
+  display: grid;
+  grid-template-columns: repeat(24, minmax(3px, 1fr));
+  align-items: end;
+  gap: 5px;
+  padding-top: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.hour-bars span {
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: var(--blue);
+  opacity: 0.88;
+}
+.hour-bars span:hover {
+  opacity: 1;
+}
+.chart-empty {
+  height: 118px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.traffic-chart footer {
+  min-height: 29px;
+  align-items: end;
+}
+.traffic-chart footer svg {
+  color: var(--muted);
+}
 .chart-panel header,
 .actions-panel header,
 .health-panel header,
@@ -504,6 +545,7 @@ nav {
 }
 .chart-panel header b {
   font-size: 16px;
+  white-space: nowrap;
 }
 .line-chart {
   width: 100%;
@@ -774,7 +816,8 @@ tbody tr:last-child td {
   color: #246ccc;
   background: #eaf2fe;
 }
-.action-badge.block {
+.action-badge.block,
+.action-badge.reject {
   color: #0e887a;
   background: #e8f7f4;
 }
@@ -965,9 +1008,6 @@ tbody tr:last-child td {
   }
   .crumb {
     font-size: 12px;
-  }
-  .top-actions .icon-button:first-child {
-    display: none;
   }
   .content {
     padding: 21px 16px;

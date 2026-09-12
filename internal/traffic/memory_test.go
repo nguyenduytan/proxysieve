@@ -15,11 +15,11 @@ func TestBoundedRecorder(t *testing.T) {
 	if err = m.Record(context.Background(), public.Event{}); err != nil {
 		t.Fatal(err)
 	}
-	if err = m.Record(context.Background(), public.Event{}); !errors.Is(err, ErrFull) {
+	if err = m.Record(context.Background(), public.Event{Action: "newest"}); !errors.Is(err, ErrFull) {
 		t.Fatal(err)
 	}
 	events, dropped := m.Snapshot()
-	if len(events) != 1 || dropped != 1 {
+	if len(events) != 1 || events[0].Action != "newest" || dropped != 1 {
 		t.Fatal(events, dropped)
 	}
 }

@@ -1,6 +1,29 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, errorMessage } from "./api";
-import type { BuildInfo, TrafficPage } from "./api";
+import type {
+  BuildInfo,
+  TrafficHistory,
+  TrafficPage,
+  TrafficSeries,
+  TrafficSummary,
+} from "./api";
+
+export function mergeTraffic(
+  history: TrafficHistory["items"],
+  live: NonNullable<TrafficPage["events"]>,
+): NonNullable<TrafficPage["events"]> {
+  const records = new Map<string, TrafficHistory["items"][number]>();
+  for (const event of [...history, ...live]) {
+    records.set(
+      `${event.request_id}:${event.connection_id}:${event.at}`,
+      event,
+    );
+  }
+  return Array.from(records.values()).sort((left, right) => {
+    const byTime = Date.parse(right.at) - Date.parse(left.at);
+    return byTime || right.request_id.localeCompare(left.request_id);
+  });
+}
 
 export function useLiveData(paused: boolean, onExpired: () => void) {
   const [data, setData] = useState<TrafficPage | null>(null);
@@ -12,9 +35,36 @@ export function useLiveData(paused: boolean, onExpired: () => void) {
     let timer: ReturnType<typeof setTimeout>;
     async function refresh() {
       try {
-        const next = await api<TrafficPage>("/api/v1/traffic/live", {
-          signal: controller.signal,
+        const until = new Date();
+        until.setUTCMinutes(0, 0, 0);
+        until.setUTCHours(until.getUTCHours() + 1);
+        const from = new Date(until.getTime() - 24 * 60 * 60 * 1000);
+        const range = new URLSearchParams({
+          from: from.toISOString(),
+          until: until.toISOString(),
         });
+        const [live, history, summary, series] = await Promise.all([
+          api<TrafficPage>("/api/v1/traffic/live", {
+            signal: controller.signal,
+          }),
+          api<TrafficHistory>("/api/v1/traffic/history?limit=100", {
+            signal: controller.signal,
+          }),
+          api<TrafficSummary>(`/api/v1/traffic/summary?${range}`, {
+            signal: controller.signal,
+          }),
+          api<TrafficSeries>(
+            `/api/v1/traffic/timeseries?${range}&granularity=hour`,
+            { signal: controller.signal },
+          ),
+        ]);
+        const next: TrafficPage = {
+          events: mergeTraffic(history.items, live.events ?? []),
+          dropped: live.dropped,
+          summary,
+          series,
+          ...(live.durable ? { durable: live.durable } : {}),
+        };
         if (!controller.signal.aborted) {
           setData(next);
           setUpdated(new Date());

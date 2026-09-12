@@ -3,6 +3,11 @@ package budget
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"slices"
+	"sync/atomic"
+
+	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	"github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/traffic"
@@ -22,17 +27,93 @@ func TestReservationsAreAtomicAndReconciled(t *testing.T) {
 	if _, err = m.Reserve(context.Background(), []model.ID{"system", "client"}, 50); !errors.Is(err, budget.ErrExceeded) {
 		t.Fatal(err)
 	}
-	allowed, err := first.Consume(40)
+	allowed, err := first.Consume(t.Context(), 40)
 	if err != nil || allowed != 40 {
 		t.Fatal(allowed, err)
 	}
-	if err = first.Close(); err != nil {
+	if err = first.Close(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"system", "client"} {
 		usage, _ := m.Usage(model.ID(id))
 		if usage.Used != 40 || usage.Reserved != 0 {
 			t.Fatal(id, usage)
+		}
+	}
+}
+
+func TestPersistentReservationsRecoverConservatively(t *testing.T) {
+	store, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "budgets.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	configs := []budget.Config{{ID: "system", Name: "System", Scope: budget.ScopeSystem, Limit: 100, Hard: true, Action: budget.ActionReject}}
+	manager, err := NewPersistent(configs, 100, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := manager.Reserve(t.Context(), []model.ID{"system"}, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lease.Consume(t.Context(), 40); err != nil {
+		t.Fatal(err)
+	}
+	// A new process charges the outstanding 20-byte reservation rather than
+	// clearing it and making a restart bypass the hard limit.
+	manager, err = NewPersistent(configs, 100, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := manager.UsageContext(t.Context(), "system")
+	if err != nil || usage.Used != 60 || usage.Reserved != 0 {
+		t.Fatal(usage, err)
+	}
+	if _, err = manager.Reserve(t.Context(), []model.ID{"system"}, 41); !errors.Is(err, budget.ErrExceeded) {
+		t.Fatal(err)
+	}
+}
+
+func TestPersistentConcurrentReservationsAndScopes(t *testing.T) {
+	store, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "concurrent-budgets.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	configs := []budget.Config{
+		{ID: "system", Name: "System", Scope: budget.ScopeSystem, Limit: 1000, Hard: true, Action: budget.ActionReject},
+		{ID: "client-a", Name: "Client A", Scope: budget.ScopeClient, ScopeID: "client", Limit: 1000, Hard: true, Action: budget.ActionReject},
+	}
+	manager, err := NewPersistent(configs, 10, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := manager.ApplicableIDs("client", "pool", "proxy"); !slices.Equal(got, []model.ID{"client-a", "system"}) {
+		t.Fatal(got)
+	}
+	var granted atomic.Int64
+	var group sync.WaitGroup
+	for range 200 {
+		group.Go(func() {
+			lease, reserveErr := manager.Reserve(t.Context(), []model.ID{"system", "client-a"}, 10)
+			if reserveErr != nil {
+				return
+			}
+			if allowed, consumeErr := lease.Consume(t.Context(), 10); consumeErr == nil && allowed == 10 {
+				granted.Add(10)
+			}
+			_ = lease.Close(t.Context())
+		})
+	}
+	group.Wait()
+	if granted.Load() != 1000 {
+		t.Fatal(granted.Load())
+	}
+	for _, id := range []model.ID{"system", "client-a"} {
+		usage, usageErr := manager.UsageContext(t.Context(), id)
+		if usageErr != nil || usage.Used != 1000 || usage.Reserved != 0 {
+			t.Fatal(id, usage, usageErr)
 		}
 	}
 }
@@ -45,8 +126,8 @@ func TestConcurrentReservationsCannotOverspend(t *testing.T) {
 		group.Go(func() {
 			lease, err := m.Reserve(context.Background(), []model.ID{"system"}, 10)
 			if err == nil {
-				_, _ = lease.Consume(10)
-				_ = lease.Close()
+				_, _ = lease.Consume(t.Context(), 10)
+				_ = lease.Close(t.Context())
 				lock.Lock()
 				granted += 10
 				lock.Unlock()
@@ -62,14 +143,14 @@ func TestConcurrentReservationsCannotOverspend(t *testing.T) {
 func TestLeaseNeverGrantsPastReservation(t *testing.T) {
 	m, _ := New([]budget.Config{{ID: "system", Name: "System", Limit: 20, Hard: true, Action: budget.ActionReject}}, 20)
 	lease, _ := m.Reserve(context.Background(), []model.ID{"system"}, 10)
-	allowed, err := lease.Consume(15)
+	allowed, err := lease.Consume(t.Context(), 15)
 	if !errors.Is(err, budget.ErrExceeded) || allowed != 10 {
 		t.Fatal(allowed, err)
 	}
-	if err := lease.Close(); err != nil {
+	if err := lease.Close(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lease.Consume(1); !errors.Is(err, budget.ErrClosed) {
+	if _, err := lease.Consume(t.Context(), 1); !errors.Is(err, budget.ErrClosed) {
 		t.Fatal(err)
 	}
 	if _, err := m.Reserve(context.Background(), []model.ID{"system"}, 11); !errors.Is(err, budget.ErrExceeded) {

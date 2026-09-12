@@ -35,6 +35,8 @@ export interface ProxyPage {
 export interface TrafficEvent {
   at: string;
   request_id: string;
+  connection_id: string;
+  client_id: string;
   host: string;
   protocol: string;
   action: string;
@@ -46,10 +48,76 @@ export interface TrafficEvent {
   upstream_upload_bytes: number;
   upstream_download_bytes: number;
   direct_bytes: number;
+  cache_served_bytes: number;
+  health_check_bytes: number;
+  estimated_avoided_bytes: number;
+  configured_cost?: CostSnapshot;
+}
+export interface Money {
+  currency: string;
+  micros: number;
+}
+export interface Rate {
+  price: Money;
+  unit_bytes: number;
+  download_only: boolean;
+  effective_at: string;
+}
+export interface CostSnapshot {
+  amount: Money;
+  rate: Rate;
+}
+export interface CostTotal {
+  amount: Money;
+  priced_upstream_upload_bytes: number;
+  priced_upstream_download_bytes: number;
 }
 export interface TrafficPage {
   events: TrafficEvent[] | null;
   dropped: number;
+  durable?: TrafficDurableStatus;
+  summary?: TrafficSummary;
+  series?: TrafficSeries;
+}
+export interface TrafficDurableStatus {
+  accepted: number;
+  written: number;
+  queue_dropped: number;
+  failed_events: number;
+  write_failures: number;
+  queued: number;
+  stopped: boolean;
+}
+export interface TrafficHistory {
+  items: TrafficEvent[];
+}
+export interface TrafficTotals {
+  request_count: number;
+  client_upload_bytes: number;
+  client_download_bytes: number;
+  upstream_upload_bytes: number;
+  upstream_download_bytes: number;
+  direct_bytes: number;
+  cache_served_bytes: number;
+  health_check_bytes: number;
+  estimated_avoided_bytes: number;
+}
+export interface TrafficSummary {
+  from: string;
+  until: string;
+  totals: TrafficTotals;
+  configured_costs?: CostTotal[];
+}
+export interface TrafficPoint {
+  bucket_start: string;
+  totals: TrafficTotals;
+  configured_costs?: CostTotal[];
+}
+export interface TrafficSeries {
+  from: string;
+  until: string;
+  granularity: "minute" | "hour" | "day";
+  points: TrafficPoint[];
 }
 export interface Preview {
   valid: number;
@@ -160,4 +228,24 @@ export function formatBytes(value: number): string {
     index++;
   }
   return `${n.toFixed(1)} ${units[index]}`;
+}
+
+export function formatConfiguredCosts(costs: CostTotal[] | undefined): string {
+  if (!costs?.length) return "—";
+  return costs
+    .map(({ amount }) => {
+      if (!Number.isSafeInteger(amount.micros) || amount.micros < 0)
+        return `${amount.currency} —`;
+      try {
+        return new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: amount.currency,
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 6,
+        }).format(amount.micros / 1_000_000);
+      } catch {
+        return `${amount.currency} ${(amount.micros / 1_000_000).toFixed(6)}`;
+      }
+    })
+    .join(" · ");
 }

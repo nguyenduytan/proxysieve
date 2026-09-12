@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,33 +20,57 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/audit"
 	"github.com/nguyenduytan/proxysieve/internal/buildinfo"
 	"github.com/nguyenduytan/proxysieve/internal/keys"
+	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
+	publictraffic "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
 const sessionCookie = "proxysieve_session"
 const csrfCookie = "proxysieve_csrf"
 const maxBodyBytes = 64 << 10
 
+//go:embed openapi.yaml
+var openAPISpec []byte
+
 type Server struct {
-	admin        *admin.Service
-	traffic      *internaltraffic.Memory
-	endpoints    store.Endpoints
-	clients      ClientStore
-	audit        audit.Writer
-	now          func() time.Time
-	ui           http.Handler
-	limitMu      sync.Mutex
-	windowStart  time.Time
-	authAttempts int
+	admin         *admin.Service
+	traffic       *internaltraffic.Memory
+	endpoints     store.Endpoints
+	clients       ClientStore
+	trafficStore  TrafficStore
+	trafficStatus TrafficStatus
+	audit         audit.Writer
+	now           func() time.Time
+	ui            http.Handler
+	limitMu       sync.Mutex
+	windowStart   time.Time
+	authAttempts  int
 }
 
 type ClientStore interface {
 	CreateClient(context.Context, auth.Client) error
 	CreateAPIKey(context.Context, auth.APIKey, [32]byte) (auth.APIKey, error)
+}
+
+type ClientReader interface {
+	ListClients(context.Context, int) ([]auth.Client, error)
+	ListAPIKeys(context.Context, model.ID, int) ([]auth.APIKey, error)
+}
+
+type APIKeyRevoker interface {
+	RevokeAPIKey(context.Context, model.ID, model.ID, time.Time) error
+}
+type TrafficStore interface {
+	ListTraffic(context.Context, sqlite.TrafficPage) ([]publictraffic.Event, error)
+	TrafficSummary(context.Context, sqlite.TrafficQuery) (publictraffic.Summary, error)
+	TrafficTimeseries(context.Context, sqlite.TrafficQuery) (publictraffic.Series, error)
+}
+type TrafficStatus interface {
+	Stats() internaltraffic.AsyncStats
 }
 
 func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints store.Endpoints, auditWriter audit.Writer, clientStores ...ClientStore) (*Server, error) {
@@ -56,9 +81,14 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 	if len(clientStores) > 0 {
 		clients = clientStores[0]
 	}
-	return &Server{admin: service, traffic: traffic, endpoints: endpoints, clients: clients, audit: auditWriter, ui: dashboardHandler(), now: func() time.Time { return time.Now().UTC() }}, nil
+	var durable TrafficStore
+	if source, ok := endpoints.(TrafficStore); ok {
+		durable = source
+	}
+	return &Server{admin: service, traffic: traffic, endpoints: endpoints, clients: clients, trafficStore: durable, audit: auditWriter, ui: dashboardHandler(), now: func() time.Time { return time.Now().UTC() }}, nil
 }
-func (s *Server) Handler() http.Handler { return securityHeaders(http.HandlerFunc(s.handle)) }
+func (s *Server) Handler() http.Handler                 { return securityHeaders(http.HandlerFunc(s.handle)) }
+func (s *Server) SetTrafficStatus(status TrafficStatus) { s.trafficStatus = status }
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	if !safeHost(r.Host) {
 		writeError(w, http.StatusBadRequest, "INVALID_HOST", "The request host is not allowed.")
@@ -94,6 +124,14 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	case "/api/v1/openapi.yaml":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
+		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(openAPISpec)
 	case "/api/v1/system/info":
 		s.require(w, r, auth.RoleViewer, func(user auth.User) {
 			writeJSON(w, http.StatusOK, map[string]any{"build": buildinfo.Current(), "user": user})
@@ -116,29 +154,118 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(user auth.User) { writeJSON(w, http.StatusOK, user) })
 	case "/api/v1/traffic/live":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.liveTraffic(w) })
+	case "/api/v1/traffic/history":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficHistory(w, r) })
+	case "/api/v1/traffic/summary":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficSummary(w, r) })
+	case "/api/v1/traffic/timeseries":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficTimeseries(w, r) })
 	case "/api/v1/audit":
 		s.require(w, r, auth.RoleAdmin, func(_ auth.User) { s.listAudit(w, r) })
 	case "/api/v1/proxies":
 		if r.Method == http.MethodGet {
 			s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.listProxies(w, r) })
-		} else {
+		} else if r.Method == http.MethodPost {
 			s.createProxy(w, r)
+		} else {
+			methodNotAllowed(w)
 		}
 	case "/api/v1/proxies/import/preview":
 		s.previewImport(w, r)
 	case "/api/v1/clients":
-		if r.Method == http.MethodPost {
+		if r.Method == http.MethodGet {
+			s.listClients(w, r)
+		} else if r.Method == http.MethodPost {
 			s.createClient(w, r)
 		} else {
 			methodNotAllowed(w)
 		}
 	default:
 		if strings.HasPrefix(r.URL.Path, "/api/v1/clients/") && strings.HasSuffix(r.URL.Path, "/api-keys") {
-			s.createAPIKey(w, r)
+			if r.Method == http.MethodGet {
+				s.listAPIKeys(w, r)
+			} else if r.Method == http.MethodPost {
+				s.createAPIKey(w, r)
+			} else {
+				methodNotAllowed(w)
+			}
+		} else if strings.Contains(r.URL.Path, "/api-keys/") {
+			if r.Method != http.MethodDelete {
+				methodNotAllowed(w)
+				return
+			}
+			s.revokeAPIKey(w, r)
 		} else {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "The requested API resource was not found.")
 		}
 	}
+}
+func (s *Server) listClients(w http.ResponseWriter, r *http.Request) {
+	s.require(w, r, auth.RoleAdmin, func(_ auth.User) {
+		reader, ok := s.clients.(ClientReader)
+		if !ok {
+			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+			return
+		}
+		limit := 100
+		if raw := r.URL.Query().Get("limit"); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 1 || value > 1000 {
+				writeError(w, http.StatusBadRequest, "INVALID_PAGE", "Pagination values were not accepted.")
+				return
+			}
+			limit = value
+		}
+		clients, err := reader.ListClients(r.Context(), limit)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": clients})
+	})
+}
+
+func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
+	s.require(w, r, auth.RoleAdmin, func(_ auth.User) {
+		reader, ok := s.clients.(ClientReader)
+		if !ok {
+			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+			return
+		}
+		clientID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/clients/"), "/api-keys")
+		if !model.ID(clientID).Valid() {
+			writeError(w, http.StatusBadRequest, "INVALID_CLIENT", "Client ID was not accepted.")
+			return
+		}
+		keys, err := reader.ListAPIKeys(r.Context(), model.ID(clientID), 100)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": keys})
+	})
+}
+
+func (s *Server) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
+	s.requireMutation(w, r, auth.RoleAdmin, func(user auth.User) {
+		revoker, ok := s.clients.(APIKeyRevoker)
+		if !ok {
+			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+			return
+		}
+		path := strings.TrimPrefix(r.URL.Path, "/api/v1/clients/")
+		parts := strings.Split(path, "/api-keys/")
+		if len(parts) != 2 || !model.ID(parts[0]).Valid() || !model.ID(parts[1]).Valid() {
+			writeError(w, http.StatusBadRequest, "INVALID_KEY", "API key identity was not accepted.")
+			return
+		}
+		if err := revoker.RevokeAPIKey(r.Context(), model.ID(parts[0]), model.ID(parts[1]), s.now()); err != nil {
+			writeError(w, http.StatusNotFound, "KEY_NOT_FOUND", "The API key was not found or was already revoked.")
+			return
+		}
+		s.record(r.Context(), user, "api_key.revoked", "client", parts[0])
+		w.WriteHeader(http.StatusNoContent)
+	})
 }
 func (s *Server) createClient(w http.ResponseWriter, r *http.Request) {
 	s.requireMutation(w, r, auth.RoleAdmin, func(user auth.User) {
@@ -269,7 +396,7 @@ func (s *Server) require(w http.ResponseWriter, r *http.Request, role auth.Role,
 	next(user)
 }
 func (s *Server) requireMutation(w http.ResponseWriter, r *http.Request, role auth.Role, next func(auth.User)) {
-	if r.Method != http.MethodPost {
+	if r.Method != http.MethodPost && r.Method != http.MethodPatch && r.Method != http.MethodDelete {
 		methodNotAllowed(w)
 		return
 	}
@@ -289,12 +416,128 @@ func (s *Server) requireMutation(w http.ResponseWriter, r *http.Request, role au
 	next(user)
 }
 func (s *Server) liveTraffic(w http.ResponseWriter) {
+	durable := internaltraffic.AsyncStats{}
+	if s.trafficStatus != nil {
+		durable = s.trafficStatus.Stats()
+	}
 	if s.traffic == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"events": []any{}, "dropped": 0})
+		writeJSON(w, http.StatusOK, map[string]any{"events": []any{}, "dropped": 0, "durable": durable})
 		return
 	}
 	events, dropped := s.traffic.Snapshot()
-	writeJSON(w, http.StatusOK, map[string]any{"events": events, "dropped": dropped})
+	writeJSON(w, http.StatusOK, map[string]any{"events": events, "dropped": dropped, "durable": durable})
+}
+func (s *Server) trafficHistory(w http.ResponseWriter, r *http.Request) {
+	if s.trafficStore == nil {
+		writeJSON(w, 200, map[string]any{"items": []any{}})
+		return
+	}
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 1000 {
+			writeError(w, 400, "INVALID_PAGE", "Pagination values were not accepted.")
+			return
+		}
+		limit = value
+	}
+	events, err := s.trafficStore.ListTraffic(r.Context(), sqlite.TrafficPage{Limit: limit})
+	if err != nil {
+		writeError(w, 503, "TRAFFIC_UNAVAILABLE", "Traffic storage is unavailable.")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"items": events})
+}
+
+func (s *Server) trafficSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	query, ok := s.parseTrafficQuery(r, false)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "INVALID_RANGE", "The traffic query range or filters were not accepted.")
+		return
+	}
+	if s.trafficStore == nil {
+		writeError(w, http.StatusServiceUnavailable, "TRAFFIC_UNAVAILABLE", "Traffic storage is unavailable.")
+		return
+	}
+	summary, err := s.trafficStore.TrafficSummary(r.Context(), query)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "TRAFFIC_UNAVAILABLE", "Traffic storage is unavailable.")
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) trafficTimeseries(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	query, ok := s.parseTrafficQuery(r, true)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "INVALID_RANGE", "The traffic query range, granularity or filters were not accepted.")
+		return
+	}
+	if s.trafficStore == nil {
+		writeError(w, http.StatusServiceUnavailable, "TRAFFIC_UNAVAILABLE", "Traffic storage is unavailable.")
+		return
+	}
+	series, err := s.trafficStore.TrafficTimeseries(r.Context(), query)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "TRAFFIC_UNAVAILABLE", "Traffic storage is unavailable.")
+		return
+	}
+	writeJSON(w, http.StatusOK, series)
+}
+
+func (s *Server) parseTrafficQuery(r *http.Request, series bool) (sqlite.TrafficQuery, bool) {
+	values := r.URL.Query()
+	granularity := time.Duration(0)
+	if series {
+		switch values.Get("granularity") {
+		case "", "hour":
+			granularity = time.Hour
+		case "minute":
+			granularity = time.Minute
+		case "day":
+			granularity = 24 * time.Hour
+		default:
+			return sqlite.TrafficQuery{}, false
+		}
+	}
+	width := granularity
+	if width == 0 {
+		width = time.Minute
+	}
+	until := s.now().UTC().Truncate(width).Add(width)
+	from := until.Add(-24 * time.Hour)
+	rawFrom, rawUntil := values.Get("from"), values.Get("until")
+	if rawFrom != "" || rawUntil != "" {
+		if rawFrom == "" || rawUntil == "" {
+			return sqlite.TrafficQuery{}, false
+		}
+		var err error
+		from, err = time.Parse(time.RFC3339Nano, rawFrom)
+		if err != nil {
+			return sqlite.TrafficQuery{}, false
+		}
+		until, err = time.Parse(time.RFC3339Nano, rawUntil)
+		if err != nil {
+			return sqlite.TrafficQuery{}, false
+		}
+	}
+	query := sqlite.TrafficQuery{
+		From: from.UTC(), Until: until.UTC(), Granularity: granularity,
+		ClientID: model.ID(values.Get("client_id")), PoolID: model.ID(values.Get("pool_id")), ProxyID: model.ID(values.Get("proxy_id")),
+		Action: values.Get("action"), Protocol: values.Get("protocol"),
+	}
+	if series {
+		return query, query.ValidSeries()
+	}
+	return query, query.ValidSummary()
 }
 func (s *Server) listProxies(w http.ResponseWriter, r *http.Request) {
 	if s.endpoints == nil {

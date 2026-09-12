@@ -4,6 +4,13 @@
 
 ### Added
 
+- Authenticated responsive Admin Panel with API-backed Overview, Traffic, Proxies
+  and System destinations; duplicate/inert Alerts navigation was removed.
+- Bounded asynchronous traffic persistence, HTTP/CONNECT/SOCKS5 application-stream
+  accounting, tiered rollups/retention, configured-cost snapshots and durable hard
+  byte budgets with restart-safe reservations.
+- Audited client/API-key lifecycle endpoints, one-time raw token creation, list and
+  revoke operations, plus an embedded OpenAPI contract at `/api/v1/openapi.yaml`.
 - M1 domain contracts, bounded YAML configuration with provenance and CLI inspection.
 - SQLite migrations and endpoint repositories with revision-based concurrency,
   transaction rollback, keyset pagination and matching in-memory behavior.

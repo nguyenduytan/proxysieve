@@ -17,6 +17,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	"github.com/nguyenduytan/proxysieve/internal/storage/contract"
 	"github.com/nguyenduytan/proxysieve/internal/storage/memory"
+	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
@@ -136,7 +137,7 @@ func TestSetupAndAuthenticatedAPI(t *testing.T) {
 		t.Fatal(me.Code, me.Body.String())
 	}
 	traffic := request(handler, http.MethodGet, "/api/v1/traffic/live", nil, cookies)
-	if traffic.Code != http.StatusOK || !bytes.Contains(traffic.Body.Bytes(), []byte(`"host":"example.invalid"`)) {
+	if traffic.Code != http.StatusOK || !bytes.Contains(traffic.Body.Bytes(), []byte(`"host":"example.invalid"`)) || !bytes.Contains(traffic.Body.Bytes(), []byte(`"durable":`)) {
 		t.Fatal(traffic.Code, traffic.Body.String())
 	}
 	logout := request(handler, http.MethodPost, "/api/v1/auth/logout", nil, cookies)
@@ -304,6 +305,134 @@ func TestClientAndAPIKeyAreCreatedWithoutPersistingToken(t *testing.T) {
 	}
 	if !keys.Valid(value.Token) || value.APIKey.Prefix != value.Token[:12] || strings.Contains(marshal(clients.keys), value.Token) {
 		t.Fatal(value)
+	}
+}
+
+func TestClientAndAPIKeyLifecycleUsesDurableStore(t *testing.T) {
+	durable, err := sqlite.Open(t.Context(), t.TempDir()+"/clients.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = durable.Close() })
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	audits, _ := audit.NewMemory(20)
+	server, _ := New(service, nil, nil, audits, durable)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+
+	createdClient := mutationRequest(handler, http.MethodPost, "/api/v1/clients", map[string]string{"name": "Durable client"}, cookies)
+	if createdClient.Code != http.StatusCreated {
+		t.Fatal(createdClient.Code, createdClient.Body.String())
+	}
+	var client auth.Client
+	if err := json.Unmarshal(createdClient.Body.Bytes(), &client); err != nil {
+		t.Fatal(err)
+	}
+	createdKey := mutationRequest(handler, http.MethodPost, "/api/v1/clients/"+string(client.ID)+"/api-keys", map[string]string{}, cookies)
+	if createdKey.Code != http.StatusCreated {
+		t.Fatal(createdKey.Code, createdKey.Body.String())
+	}
+	var keyResponse struct {
+		APIKey auth.APIKey `json:"api_key"`
+		Token  string      `json:"token"`
+	}
+	if err := json.Unmarshal(createdKey.Body.Bytes(), &keyResponse); err != nil {
+		t.Fatal(err)
+	}
+	if !keys.Valid(keyResponse.Token) {
+		t.Fatal("generated API token was invalid")
+	}
+
+	listedClients := request(handler, http.MethodGet, "/api/v1/clients", nil, cookies)
+	if listedClients.Code != http.StatusOK || !bytes.Contains(listedClients.Body.Bytes(), []byte(string(client.ID))) || bytes.Contains(listedClients.Body.Bytes(), []byte(keyResponse.Token)) {
+		t.Fatal(listedClients.Code, listedClients.Body.String())
+	}
+	listedKeys := request(handler, http.MethodGet, "/api/v1/clients/"+string(client.ID)+"/api-keys", nil, cookies)
+	if listedKeys.Code != http.StatusOK || !bytes.Contains(listedKeys.Body.Bytes(), []byte(string(keyResponse.APIKey.ID))) || bytes.Contains(listedKeys.Body.Bytes(), []byte(keyResponse.Token)) {
+		t.Fatal(listedKeys.Code, listedKeys.Body.String())
+	}
+
+	wrongClient := mutationRequest(handler, http.MethodDelete, "/api/v1/clients/wrong-client/api-keys/"+string(keyResponse.APIKey.ID), nil, cookies)
+	if wrongClient.Code != http.StatusNotFound {
+		t.Fatal("key revoked through mismatched client path", wrongClient.Code, wrongClient.Body.String())
+	}
+	revoked := mutationRequest(handler, http.MethodDelete, "/api/v1/clients/"+string(client.ID)+"/api-keys/"+string(keyResponse.APIKey.ID), nil, cookies)
+	if revoked.Code != http.StatusNoContent {
+		t.Fatal(revoked.Code, revoked.Body.String())
+	}
+	listedKeys = request(handler, http.MethodGet, "/api/v1/clients/"+string(client.ID)+"/api-keys", nil, cookies)
+	if listedKeys.Code != http.StatusOK || !bytes.Contains(listedKeys.Body.Bytes(), []byte("revoked_at")) {
+		t.Fatal(listedKeys.Code, listedKeys.Body.String())
+	}
+	auditResponse := request(handler, http.MethodGet, "/api/v1/audit", nil, cookies)
+	if auditResponse.Code != http.StatusOK || !bytes.Contains(auditResponse.Body.Bytes(), []byte("api_key.revoked")) {
+		t.Fatal(auditResponse.Code, auditResponse.Body.String())
+	}
+	if method := request(handler, http.MethodPatch, "/api/v1/clients", nil, cookies); method.Code != http.StatusMethodNotAllowed {
+		t.Fatal("PATCH clients", method.Code, method.Body.String())
+	}
+}
+
+func TestTrafficHistoryUsesDurableStoreWhenAvailable(t *testing.T) {
+	durable, err := sqlite.Open(t.Context(), t.TempDir()+"/traffic.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = durable.Close() })
+	service, _ := admin.New(&memoryUsers{users: map[string]userRecord{}}, security.DefaultPasswordParams())
+	server, _ := New(service, nil, durable, nil)
+	event := publictraffic.Event{At: time.Now().UTC(), RequestID: "request", ConnectionID: "connection", Host: "example.invalid", Protocol: "http", Action: "proxy", StatusCode: 200, UpstreamDownload: 8}
+	if err = durable.RecordTraffic(t.Context(), event); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := service.SetupToken(t.Context())
+	setup := request(server.Handler(), http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	response := request(server.Handler(), http.MethodGet, "/api/v1/traffic/history", nil, cookiesFor(setup))
+	if response.Code != 200 || !bytes.Contains(response.Body.Bytes(), []byte(`"host":"example.invalid"`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+}
+
+func TestTrafficAnalyticsAreBoundedAndAuthenticated(t *testing.T) {
+	durable, err := sqlite.Open(t.Context(), t.TempDir()+"/analytics.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = durable.Close() })
+	service, _ := admin.New(&memoryUsers{users: map[string]userRecord{}}, security.DefaultPasswordParams())
+	server, _ := New(service, nil, durable, nil)
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	server.now = func() time.Time { return base.Add(30 * time.Minute) }
+	event := publictraffic.Event{At: base.Add(5 * time.Minute), RequestID: "request", ConnectionID: "connection", ClientID: "client-a", Host: "example.invalid", Protocol: "http", Action: "proxy", StatusCode: 200, UpstreamDownload: 8}
+	if err = durable.RecordTraffic(t.Context(), event); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := service.SetupToken(t.Context())
+	setup := request(server.Handler(), http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+	unauthenticated := request(server.Handler(), http.MethodGet, "/api/v1/traffic/summary", nil, "")
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatal(unauthenticated.Code, unauthenticated.Body.String())
+	}
+	query := "?from=2026-09-01T00:00:00Z&until=2026-09-01T01:00:00Z&client_id=client-a"
+	summary := request(server.Handler(), http.MethodGet, "/api/v1/traffic/summary"+query, nil, cookies)
+	if summary.Code != http.StatusOK || !bytes.Contains(summary.Body.Bytes(), []byte(`"request_count":1`)) || !bytes.Contains(summary.Body.Bytes(), []byte(`"upstream_download_bytes":8`)) {
+		t.Fatal(summary.Code, summary.Body.String())
+	}
+	series := request(server.Handler(), http.MethodGet, "/api/v1/traffic/timeseries"+query+"&granularity=hour", nil, cookies)
+	if series.Code != http.StatusOK || !bytes.Contains(series.Body.Bytes(), []byte(`"granularity":"hour"`)) || !bytes.Contains(series.Body.Bytes(), []byte(`"bucket_start":"2026-09-01T00:00:00Z"`)) {
+		t.Fatal(series.Code, series.Body.String())
+	}
+	invalid := request(server.Handler(), http.MethodGet, "/api/v1/traffic/timeseries?granularity=week", nil, cookies)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatal(invalid.Code, invalid.Body.String())
+	}
+	wrongMethod := request(server.Handler(), http.MethodPost, "/api/v1/traffic/summary", nil, cookies)
+	if wrongMethod.Code != http.StatusMethodNotAllowed {
+		t.Fatal(wrongMethod.Code, wrongMethod.Body.String())
 	}
 }
 func request(handler http.Handler, method, path string, body any, cookies string) *httptest.ResponseRecorder {

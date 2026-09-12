@@ -1,0 +1,249 @@
+openapi: 3.1.0
+info:
+  title: ProxySieve local control-plane API
+  version: 0.1.0
+  description: >-
+    The authenticated local Admin API exposed by ProxySieve. This contract
+    describes the implemented surface; planned resources are intentionally omitted.
+servers:
+  - url: http://127.0.0.1:9090
+    description: Default local-only listener
+tags:
+  - name: Auth
+  - name: System
+  - name: Traffic
+  - name: Proxies
+  - name: Clients
+  - name: Audit
+paths:
+  /health:
+    get:
+      tags: [System]
+      security: []
+      responses:
+        '200': {description: Healthy}
+  /ready:
+    get:
+      tags: [System]
+      security: []
+      responses:
+        '200': {description: Ready}
+  /api/v1/openapi.yaml:
+    get:
+      tags: [System]
+      security: []
+      responses:
+        '200':
+          description: OpenAPI contract
+          content:
+            application/yaml: {schema: {type: string}}
+  /api/v1/auth/setup-status:
+    get:
+      tags: [Auth]
+      security: []
+      responses:
+        '200':
+          description: Whether first-run setup is required
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/SetupStatus'}}
+  /api/v1/auth/setup:
+    post:
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, username, password]
+              properties:
+                token: {type: string}
+                username: {type: string, minLength: 3, maxLength: 64}
+                password: {type: string, format: password, minLength: 12}
+      responses:
+        '201': {description: Administrator created, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: {type: string}
+                password: {type: string, format: password}
+      responses:
+        '200': {description: Authenticated user, headers: {Set-Cookie: {$ref: '#/components/headers/SetCookie'}}, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      security: [sessionCookie: [], csrfToken: []]
+      responses:
+        '204': {description: Session ended}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      responses:
+        '200': {description: Current user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/system/info:
+    get:
+      tags: [System]
+      responses:
+        '200': {description: Build and current user information}
+  /api/v1/traffic/live:
+    get:
+      tags: [Traffic]
+      responses:
+        '200': {description: Bounded live event buffer and persistence stats}
+  /api/v1/traffic/history:
+    get:
+      tags: [Traffic]
+      parameters: [{$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: Recent durable events}
+  /api/v1/traffic/summary:
+    get:
+      tags: [Traffic]
+      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}]
+      responses:
+        '200': {description: Bounded traffic summary}
+  /api/v1/traffic/timeseries:
+    get:
+      tags: [Traffic]
+      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}, {name: granularity, in: query, required: true, schema: {type: string, enum: [minute, hour, day]}}]
+      responses:
+        '200': {description: Bounded traffic series}
+  /api/v1/audit:
+    get:
+      tags: [Audit]
+      parameters: [{$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: Sanitized administrator audit events}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/proxies:
+    get:
+      tags: [Proxies]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {name: after, in: query, schema: {type: string}}]
+      responses:
+        '200': {description: Proxy inventory}
+    post:
+      tags: [Proxies]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {type: object, required: [endpoint], properties: {endpoint: {type: object}}}}
+      responses:
+        '201': {description: Proxy inventory record created}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/proxies/import/preview:
+    post:
+      tags: [Proxies]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [input], properties: {input: {type: string}}}}}
+      responses:
+        '200': {description: Parsed proxy import preview}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/clients:
+    get:
+      tags: [Clients]
+      parameters: [{$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: Logical clients, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Client'}}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [Clients]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [name], properties: {name: {type: string, minLength: 1, maxLength: 256}}}}}
+      responses:
+        '201': {description: Client created, content: {application/json: {schema: {$ref: '#/components/schemas/Client'}}}}
+  /api/v1/clients/{clientId}/api-keys:
+    parameters: [{name: clientId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Clients]
+      responses:
+        '200': {description: API-key metadata; raw tokens are never returned}
+    post:
+      tags: [Clients]
+      security: [sessionCookie: [], csrfToken: []]
+      responses:
+        '201': {description: Created key metadata and one-time raw token}
+  /api/v1/clients/{clientId}/api-keys/{keyId}:
+    parameters: [{name: clientId, in: path, required: true, schema: {type: string}}, {name: keyId, in: path, required: true, schema: {type: string}}]
+    delete:
+      tags: [Clients]
+      security: [sessionCookie: [], csrfToken: []]
+      responses:
+        '204': {description: API key revoked}
+        '404': {description: Key not found or already revoked}
+components:
+  securitySchemes:
+    sessionCookie: {type: apiKey, in: cookie, name: proxysieve_session}
+    csrfToken: {type: apiKey, in: header, name: X-CSRF-Token}
+  headers:
+    SetCookie: {schema: {type: string}, description: Session and CSRF cookies}
+  parameters:
+    Limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 1000, default: 100}}
+    From: {name: from, in: query, required: true, schema: {type: string, format: date-time}}
+    Until: {name: until, in: query, required: true, schema: {type: string, format: date-time}}
+    ClientID: {name: client_id, in: query, schema: {type: string}}
+    PoolID: {name: pool_id, in: query, schema: {type: string}}
+    ProxyID: {name: proxy_id, in: query, schema: {type: string}}
+    Action: {name: action, in: query, schema: {type: string}}
+    Protocol: {name: protocol, in: query, schema: {type: string}}
+  responses:
+    BadRequest: {description: Request was not accepted, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Unauthorized: {description: Authentication required, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Forbidden: {description: Request was forbidden, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: {type: object, required: [code, message], properties: {code: {type: string}, message: {type: string}}}
+    SetupStatus:
+      type: object
+      required: [setup_required]
+      properties: {setup_required: {type: boolean}}
+    User:
+      type: object
+      required: [id, username, role, enabled, created_at]
+      properties:
+        id: {type: string}
+        username: {type: string}
+        role: {type: string, enum: [admin, operator, viewer]}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        last_login_at: {type: string, format: date-time}
+    Client:
+      type: object
+      required: [id, name, enabled, auth_method, created_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        enabled: {type: boolean}
+        auth_method: {type: string}
+        created_at: {type: string, format: date-time}
+        last_seen_at: {type: string, format: date-time}
+    APIKey:
+      type: object
+      required: [id, client_id, prefix, created_at]
+      properties:
+        id: {type: string}
+        client_id: {type: string}
+        prefix: {type: string}
+        created_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time}
