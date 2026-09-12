@@ -543,6 +543,25 @@ func TestAuditTrailIsAdminOnlyAndSanitized(t *testing.T) {
 		t.Fatal(result.Code, result.Body.String())
 	}
 }
+
+func TestAuditTrailWithoutReaderReturnsStablePageShape(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	server, _ := New(service, nil, nil, nil)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	result := request(handler, http.MethodGet, "/api/v1/audit", nil, cookiesFor(setup))
+	var page struct {
+		Items        []audit.Event `json:"items"`
+		NextBefore   string        `json:"next_before"`
+		NextBeforeID string        `json:"next_before_id"`
+	}
+	if result.Code != http.StatusOK || json.Unmarshal(result.Body.Bytes(), &page) != nil || len(page.Items) != 0 || page.NextBefore != "" || page.NextBeforeID != "" {
+		t.Fatal(result.Code, result.Body.String())
+	}
+}
+
 func TestClientAndAPIKeyAreCreatedWithoutPersistingToken(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())

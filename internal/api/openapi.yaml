@@ -128,7 +128,9 @@ paths:
       tags: [Audit]
       parameters: [{$ref: '#/components/parameters/Limit'}, {name: before, in: query, schema: {type: string, format: date-time}}, {name: before_id, in: query, schema: {type: string}}]
       responses:
-        '200': {description: Sanitized administrator audit events with a stable timestamp/id cursor}
+        '200':
+          description: Sanitized administrator audit events with a stable timestamp/id cursor
+          content: {application/json: {schema: {$ref: '#/components/schemas/AuditPage'}}}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/proxies:
     get:
@@ -462,6 +464,24 @@ components:
       properties:
         api_key: {$ref: '#/components/schemas/APIKey'}
         token: {type: string, writeOnly: true, description: Returned once and never stored in plaintext}
+    AuditEvent:
+      type: object
+      required: [id, at, action, target_type]
+      properties:
+        id: {type: string}
+        at: {type: string, format: date-time}
+        actor_id: {type: string}
+        action: {type: string}
+        target_type: {type: string}
+        target_id: {type: string}
+        request_id: {type: string}
+    AuditPage:
+      type: object
+      required: [items, next_before, next_before_id]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}
+        next_before: {type: string, format: date-time}
+        next_before_id: {type: string}
     ProxyEndpoint:
       type: object
       required: [id, name, protocol, host, port, enabled]

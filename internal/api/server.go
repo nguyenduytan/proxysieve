@@ -975,7 +975,7 @@ func (s *Server) previewImport(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 	reader, ok := s.audit.(audit.Reader)
 	if !ok {
-		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}})
+		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "next_before": "", "next_before_id": ""})
 		return
 	}
 	limit := 100
