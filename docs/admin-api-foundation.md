@@ -27,6 +27,11 @@ POST /api/v1/proxies/import
 GET  /api/v1/proxies/{id}
 PATCH /api/v1/proxies/{id}
 DELETE /api/v1/proxies/{id}
+GET  /api/v1/sources
+POST /api/v1/sources
+GET  /api/v1/sources/{id}
+PATCH /api/v1/sources/{id}
+DELETE /api/v1/sources/{id}
 GET  /api/v1/clients
 POST /api/v1/clients
 GET  /api/v1/clients/{id}/api-keys
@@ -80,6 +85,13 @@ transaction. Its optional `mode` is `skip` (default), `update`, or `create`; mal
 lines are ignored after validation and the response reports created, updated and
 skipped counts. The import never persists credentials embedded in source text.
 
+Proxy source records use the same optimistic revision discipline. Viewer sessions
+may list and inspect sources; operators may create, replace or delete source
+metadata with a valid CSRF token. `last_refresh_at` and `last_refresh_status` are
+server-managed fields, so PATCH requests cannot forge refresh results. Source
+`config` is bounded non-secret metadata; credentials belong in `credential_ref`.
+The CRUD surface does not fetch or activate a source yet.
+
 ## Client API Keys
 
 An admin may create an enabled logical client with `POST /api/v1/clients`, then
@@ -102,6 +114,6 @@ clients, so use the documented loopback local mode for SOCKS during development.
 ## Audit Events
 
 The SQLite audit trail records actor, action, target, request ID and timestamp for
-setup, login, logout and proxy/client/key mutations. It intentionally excludes raw
+setup, login, logout and proxy/source/client/key mutations. It intentionally excludes raw
 passwords, setup tokens, cookies, API keys and request/response bodies. `/api/v1/audit`
 is administrator-only; retention/export and a dashboard audit page are pending.

@@ -39,6 +39,10 @@ type memoryClients struct {
 	clients map[string]auth.Client
 	keys    map[string]auth.APIKey
 }
+type memoryControlStore struct {
+	*memory.Endpoints
+	*memory.Sources
+}
 
 func (m *memoryClients) CreateClient(_ context.Context, client auth.Client) error {
 	if _, ok := m.clients[string(client.ID)]; ok {
@@ -283,6 +287,88 @@ func TestProxyLifecycleUsesOptimisticRevision(t *testing.T) {
 	missing := request(handler, http.MethodGet, "/api/v1/proxies/proxy", nil, cookies)
 	if missing.Code != http.StatusNotFound {
 		t.Fatal(missing.Code, missing.Body.String())
+	}
+}
+
+func TestSourceLifecycleUsesRBACCSRFAndOptimisticRevision(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	endpoints, _ := memory.NewEndpoints(10)
+	sources, _ := memory.NewSources(10)
+	controlStore := &memoryControlStore{Endpoints: endpoints, Sources: sources}
+	audits, _ := audit.NewMemory(20)
+	server, _ := New(service, nil, controlStore, audits)
+	handler := server.Handler()
+
+	if response := request(handler, http.MethodGet, "/api/v1/sources", nil, ""); response.Code != http.StatusUnauthorized {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+	source := contract.Source("source")
+	viewerToken, _ := service.CreateSession(auth.User{ID: "viewer", Username: "viewer", Role: auth.RoleViewer, Enabled: true, CreatedAt: time.Now().UTC()})
+	viewerCookies := sessionCookie + "=" + viewerToken + "; " + csrfCookie + "=" + service.CSRFToken(viewerToken)
+	viewerMutation := mutationRequest(handler, http.MethodPost, "/api/v1/sources", map[string]any{"source": source}, viewerCookies)
+	if viewerMutation.Code != http.StatusForbidden {
+		t.Fatal(viewerMutation.Code, viewerMutation.Body.String())
+	}
+
+	missingCSRF := request(handler, http.MethodPost, "/api/v1/sources", map[string]any{"source": source}, cookies)
+	if missingCSRF.Code != http.StatusForbidden {
+		t.Fatal(missingCSRF.Code, missingCSRF.Body.String())
+	}
+	unsafe := source.Clone()
+	unsafe.ID = "unsafe"
+	unsafe.Config["api_token"] = "must-not-be-stored"
+	unsafeResponse := mutationRequest(handler, http.MethodPost, "/api/v1/sources", map[string]any{"source": unsafe}, cookies)
+	if unsafeResponse.Code != http.StatusBadRequest {
+		t.Fatal(unsafeResponse.Code, unsafeResponse.Body.String())
+	}
+	created := mutationRequest(handler, http.MethodPost, "/api/v1/sources", map[string]any{"source": source}, cookies)
+	if created.Code != http.StatusCreated || !bytes.Contains(created.Body.Bytes(), []byte(`"revision":1`)) {
+		t.Fatal(created.Code, created.Body.String())
+	}
+	listed := request(handler, http.MethodGet, "/api/v1/sources?limit=1", nil, cookies)
+	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(`"id":"source"`)) {
+		t.Fatal(listed.Code, listed.Body.String())
+	}
+	got := request(handler, http.MethodGet, "/api/v1/sources/source", nil, cookies)
+	if got.Code != http.StatusOK || !bytes.Contains(got.Body.Bytes(), []byte(`"url":"https://source.example.invalid/list"`)) {
+		t.Fatal(got.Code, got.Body.String())
+	}
+
+	source.Name = "Updated source"
+	source.LastRefreshAt = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	source.LastRefreshStatus = "forged"
+	updated := mutationRequest(handler, http.MethodPatch, "/api/v1/sources/source", map[string]any{"source": source, "revision": 1}, cookies)
+	if updated.Code != http.StatusOK || !bytes.Contains(updated.Body.Bytes(), []byte(`"revision":2`)) || bytes.Contains(updated.Body.Bytes(), []byte("forged")) {
+		t.Fatal(updated.Code, updated.Body.String())
+	}
+	stale := mutationRequest(handler, http.MethodPatch, "/api/v1/sources/source", map[string]any{"source": source, "revision": 1}, cookies)
+	if stale.Code != http.StatusConflict || !bytes.Contains(stale.Body.Bytes(), []byte("SOURCE_CONFLICT")) {
+		t.Fatal(stale.Code, stale.Body.String())
+	}
+	staleDelete := mutationRequest(handler, http.MethodDelete, "/api/v1/sources/source", map[string]any{"revision": 1}, cookies)
+	if staleDelete.Code != http.StatusConflict {
+		t.Fatal(staleDelete.Code, staleDelete.Body.String())
+	}
+	deleted := mutationRequest(handler, http.MethodDelete, "/api/v1/sources/source", map[string]any{"revision": 2}, cookies)
+	if deleted.Code != http.StatusNoContent {
+		t.Fatal(deleted.Code, deleted.Body.String())
+	}
+	events, err := audits.ListAudit(t.Context(), audit.Page{Limit: 20})
+	if err != nil {
+		t.Fatal(events, err)
+	}
+	sourceEvents := 0
+	for _, event := range events {
+		if event.TargetType == "source" {
+			sourceEvents++
+		}
+	}
+	if sourceEvents != 3 {
+		t.Fatal(events)
 	}
 }
 

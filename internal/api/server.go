@@ -40,6 +40,7 @@ type Server struct {
 	admin         *admin.Service
 	traffic       *internaltraffic.Memory
 	endpoints     store.Endpoints
+	sources       store.Sources
 	clients       ClientStore
 	trafficStore  TrafficStore
 	trafficStatus TrafficStatus
@@ -85,7 +86,11 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 	if source, ok := endpoints.(TrafficStore); ok {
 		durable = source
 	}
-	return &Server{admin: service, traffic: traffic, endpoints: endpoints, clients: clients, trafficStore: durable, audit: auditWriter, ui: dashboardHandler(), now: func() time.Time { return time.Now().UTC() }}, nil
+	var sources store.Sources
+	if sourceStore, ok := endpoints.(store.Sources); ok {
+		sources = sourceStore
+	}
+	return &Server{admin: service, traffic: traffic, endpoints: endpoints, sources: sources, clients: clients, trafficStore: durable, audit: auditWriter, ui: dashboardHandler(), now: func() time.Time { return time.Now().UTC() }}, nil
 }
 func (s *Server) Handler() http.Handler                 { return securityHeaders(http.HandlerFunc(s.handle)) }
 func (s *Server) SetTrafficStatus(status TrafficStatus) { s.trafficStatus = status }
@@ -175,6 +180,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.importProxies(w, r)
 	case "/api/v1/proxies/import/preview":
 		s.previewImport(w, r)
+	case "/api/v1/sources":
+		s.sourcesCollection(w, r)
 	case "/api/v1/clients":
 		switch r.Method {
 		case http.MethodGet:
@@ -202,6 +209,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.revokeAPIKey(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/proxies/") {
 			s.proxyByID(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/sources/") {
+			s.sourceByID(w, r)
 		} else {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "The requested API resource was not found.")
 		}

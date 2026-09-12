@@ -13,6 +13,7 @@ tags:
   - name: System
   - name: Traffic
   - name: Proxies
+  - name: Sources
   - name: Clients
   - name: Audit
 paths:
@@ -213,6 +214,68 @@ paths:
         '204': {description: Proxy inventory record deleted}
         '409': {description: Stale proxy revision}
         '404': {description: Proxy not found}
+  /api/v1/sources:
+    get:
+      tags: [Sources]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {name: after, in: query, schema: {type: string}}]
+      responses:
+        '200': {description: Proxy source inventory}
+    post:
+      tags: [Sources]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source: {$ref: '#/components/schemas/ProxySource'}
+      responses:
+        '201': {description: Proxy source created}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {description: Source ID already exists}
+  /api/v1/sources/{sourceId}:
+    parameters: [{name: sourceId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Sources]
+      responses:
+        '200': {description: Proxy source record}
+        '404': {description: Source not found}
+    patch:
+      tags: [Sources]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, revision]
+              properties:
+                source: {$ref: '#/components/schemas/ProxySource'}
+                revision: {type: integer, minimum: 1}
+      responses:
+        '200': {description: Proxy source updated}
+        '409': {description: Stale source revision}
+        '404': {description: Source not found}
+    delete:
+      tags: [Sources]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: {type: integer, minimum: 1}
+      responses:
+        '204': {description: Proxy source deleted}
+        '409': {description: Stale source revision}
+        '404': {description: Source not found}
   /api/v1/clients:
     get:
       tags: [Clients]
@@ -326,3 +389,17 @@ components:
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
         metadata: {type: object, additionalProperties: {type: string}}
+    ProxySource:
+      type: object
+      required: [id, name, type, refresh_interval_ns, enabled]
+      properties:
+        id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 256}
+        type: {type: string, enum: [manual, file, api, provider, rotating]}
+        provider_id: {type: string}
+        config: {type: object, maxProperties: 32, additionalProperties: {type: string, maxLength: 4096}}
+        refresh_interval_ns: {type: integer, minimum: 0, maximum: 2592000000000000}
+        last_refresh_at: {type: string, format: date-time, readOnly: true}
+        last_refresh_status: {type: string, maxLength: 256, readOnly: true}
+        credential_ref: {type: string}
+        enabled: {type: boolean}

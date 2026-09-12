@@ -24,6 +24,7 @@ var migrations embed.FS
 type Store struct {
 	db *sql.DB
 	endpoints
+	sources
 }
 
 // Open accepts a filesystem path, never caller-controlled SQLite URI parameters.
@@ -70,7 +71,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	s := &Store{db: db, endpoints: endpoints{q: db}}
+	s := &Store{db: db, endpoints: endpoints{q: db}, sources: sources{q: db}}
 	if err = db.PingContext(ctx); err == nil {
 		_, err = db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
 	}
@@ -105,6 +106,7 @@ func (s *Store) WithinTransaction(ctx context.Context, fn func(store.Endpoints) 
 type Status struct {
 	SchemaVersion int    `json:"schema_version"`
 	EndpointCount int    `json:"endpoint_count"`
+	SourceCount   int    `json:"source_count"`
 	JournalMode   string `json:"journal_mode"`
 }
 
@@ -114,6 +116,9 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 		return Status{}, safeError(ctx, err)
 	}
 	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM proxy_endpoints").Scan(&status.EndpointCount); err != nil {
+		return Status{}, safeError(ctx, err)
+	}
+	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM proxy_sources").Scan(&status.SourceCount); err != nil {
 		return Status{}, safeError(ctx, err)
 	}
 	if err := s.db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&status.JournalMode); err != nil {
@@ -203,3 +208,4 @@ func safeError(ctx context.Context, err error) error {
 }
 
 var _ store.EndpointStore = (*Store)(nil)
+var _ store.Sources = (*Store)(nil)

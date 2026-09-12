@@ -1,7 +1,9 @@
 package sqlite
 
 import (
+	"database/sql"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,6 +24,17 @@ func TestContract(t *testing.T) {
 		return s
 	})
 }
+func TestSourceContract(t *testing.T) {
+	contract.RunSources(t, func(t *testing.T) store.Sources {
+		t.Helper()
+		repository, err := Open(t.Context(), filepath.Join(t.TempDir(), "sources.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = repository.Close() })
+		return repository
+	})
+}
 func TestPersistenceAndMigrationChecksums(t *testing.T) {
 	// '#' and spaces exercise SQLite URI escaping on every supported OS.
 	path := filepath.Join(t.TempDir(), "store with spaces #.db")
@@ -32,8 +45,11 @@ func TestPersistenceAndMigrationChecksums(t *testing.T) {
 	if _, err = s.Put(t.Context(), contract.Endpoint("a"), 0); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = s.PutSource(t.Context(), contract.Source("source"), 0); err != nil {
+		t.Fatal(err)
+	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 10 || status.JournalMode != "wal" || status.EndpointCount != 1 {
+	if err != nil || status.SchemaVersion != 11 || status.JournalMode != "wal" || status.EndpointCount != 1 || status.SourceCount != 1 {
 		t.Fatalf("%+v %v", status, err)
 	}
 	if err = s.Close(); err != nil {
@@ -44,6 +60,9 @@ func TestPersistenceAndMigrationChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = s.Get(t.Context(), "a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.GetSource(t.Context(), "source"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.db.Exec("UPDATE schema_migrations SET checksum='tampered'"); err != nil {
@@ -63,7 +82,7 @@ func TestFutureSchemaRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (11,'future','unknown')"); err != nil {
+	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (12,'future','unknown')"); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.Close()
@@ -72,6 +91,51 @@ func TestFutureSchemaRejected(t *testing.T) {
 			_ = s.Close()
 		}
 		t.Fatal(err)
+	}
+}
+func TestSchemaTenUpgradePreservesEndpointsAndAddsSources(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schema-ten.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := &Store{db: database, endpoints: endpoints{q: database}}
+	names, err := fs.Glob(migrations, "migrations/*.sql")
+	if err != nil || len(names) != 11 {
+		t.Fatal(names, err)
+	}
+	files := fstest.MapFS{}
+	for _, name := range names[:10] {
+		data, readErr := migrations.ReadFile(name)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		files[name] = &fstest.MapFile{Data: data}
+	}
+	if err = old.migrate(t.Context(), files); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = old.Put(t.Context(), contract.Endpoint("preserved"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	repository, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = repository.Close() }()
+	if _, err = repository.Get(t.Context(), "preserved"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repository.PutSource(t.Context(), contract.Source("source"), 0); err != nil {
+		t.Fatal(err)
+	}
+	status, err := repository.Status(t.Context())
+	if err != nil || status.SchemaVersion != 11 || status.EndpointCount != 1 || status.SourceCount != 1 {
+		t.Fatal(status, err)
 	}
 }
 func TestMigrationAtomicity(t *testing.T) {
@@ -96,7 +160,7 @@ func TestMigrationAtomicity(t *testing.T) {
 		t.Fatalf("table survived rollback: %d %v", n, err)
 	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 10 {
+	if err != nil || status.SchemaVersion != 11 {
 		t.Fatalf("%+v %v", status, err)
 	}
 }

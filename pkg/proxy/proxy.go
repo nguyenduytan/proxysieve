@@ -135,26 +135,42 @@ const (
 )
 
 type Source struct {
-	ID                model.ID      `json:"id" yaml:"id"`
-	Name              string        `json:"name" yaml:"name"`
-	Type              SourceType    `json:"type" yaml:"type"`
-	ProviderID        model.ID      `json:"provider_id,omitempty" yaml:"provider_id,omitempty"`
-	RefreshInterval   time.Duration `json:"refresh_interval_ns" yaml:"refresh_interval"`
-	LastRefreshAt     time.Time     `json:"last_refresh_at" yaml:"last_refresh_at"`
-	LastRefreshStatus string        `json:"last_refresh_status" yaml:"last_refresh_status"`
-	CredentialRef     secret.Ref    `json:"credential_ref,omitempty" yaml:"credential_ref,omitempty"`
-	Enabled           bool          `json:"enabled" yaml:"enabled"`
+	ID                model.ID          `json:"id" yaml:"id"`
+	Name              string            `json:"name" yaml:"name"`
+	Type              SourceType        `json:"type" yaml:"type"`
+	ProviderID        model.ID          `json:"provider_id,omitempty" yaml:"provider_id,omitempty"`
+	Config            map[string]string `json:"config,omitempty" yaml:"config,omitempty"`
+	RefreshInterval   time.Duration     `json:"refresh_interval_ns" yaml:"refresh_interval"`
+	LastRefreshAt     time.Time         `json:"last_refresh_at" yaml:"last_refresh_at"`
+	LastRefreshStatus string            `json:"last_refresh_status" yaml:"last_refresh_status"`
+	CredentialRef     secret.Ref        `json:"credential_ref,omitempty" yaml:"credential_ref,omitempty"`
+	Enabled           bool              `json:"enabled" yaml:"enabled"`
 }
 
 func (s Source) Validate() error {
-	if !s.ID.Valid() || len(s.Name) > 256 || s.RefreshInterval < 0 || s.RefreshInterval > 30*24*time.Hour {
+	if !s.ID.Valid() || len(s.Name) == 0 || len(s.Name) > 256 || len(s.Config) > 32 || len(s.LastRefreshStatus) > 256 || s.RefreshInterval < 0 || s.RefreshInterval > 30*24*time.Hour {
 		return model.ErrInvalid
 	}
 	if s.Type != ManualSource && s.Type != FileSource && s.Type != APISource && s.Type != ProviderSource && s.Type != RotatingSource {
 		return model.ErrInvalid
 	}
-	if s.ProviderID != "" && !s.ProviderID.Valid() || s.CredentialRef != "" && !s.CredentialRef.Valid() {
+	if (s.ProviderID != "" && !s.ProviderID.Valid()) || (s.CredentialRef != "" && !s.CredentialRef.Valid()) {
 		return model.ErrInvalid
 	}
+	for key, value := range s.Config {
+		if len(key) == 0 || len(key) > 64 || len(value) > 4096 || sensitiveConfigKey(key) {
+			return model.ErrInvalid
+		}
+	}
 	return nil
+}
+
+func sensitiveConfigKey(key string) bool {
+	lower := strings.ToLower(key)
+	return strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "api_key") || strings.Contains(lower, "apikey") || strings.Contains(lower, "credential")
+}
+
+func (s Source) Clone() Source {
+	s.Config = maps.Clone(s.Config)
+	return s
 }
