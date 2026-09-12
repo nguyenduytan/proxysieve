@@ -264,8 +264,7 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
             </section>
             <p className="scope-notice">
               This is a development build, not a stable release. Configuration
-              editing, operational audit views and production release checks are
-              still in progress.
+              editing and production release checks are still in progress.
             </p>
           </div>
         )}
