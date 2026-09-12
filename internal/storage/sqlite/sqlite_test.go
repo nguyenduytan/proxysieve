@@ -35,6 +35,45 @@ func TestSourceContract(t *testing.T) {
 		return repository
 	})
 }
+
+func TestInventoryTransactionRollsBackEndpointsAndSources(t *testing.T) {
+	repository, err := Open(t.Context(), filepath.Join(t.TempDir(), "inventory-transaction.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repository.Close() })
+	endpoint := contract.Endpoint("endpoint")
+	source := contract.Source("source")
+	if _, err = repository.Put(t.Context(), endpoint, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repository.PutSource(t.Context(), source, 0); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := errors.New("force rollback")
+	err = repository.WithinInventoryTransaction(t.Context(), func(endpoints store.Endpoints, sources store.Sources) error {
+		endpoint.Name = "changed"
+		if _, putErr := endpoints.Put(t.Context(), endpoint, 1); putErr != nil {
+			return putErr
+		}
+		source.LastRefreshStatus = "changed"
+		if _, putErr := sources.PutSource(t.Context(), source, 1); putErr != nil {
+			return putErr
+		}
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatal(err)
+	}
+	storedEndpoint, endpointErr := repository.Get(t.Context(), endpoint.ID)
+	storedSource, sourceErr := repository.GetSource(t.Context(), source.ID)
+	if endpointErr != nil || sourceErr != nil || storedEndpoint.Revision != 1 || storedEndpoint.Endpoint.Name == "changed" || storedSource.Revision != 1 || storedSource.Source.LastRefreshStatus != "" {
+		t.Fatal(storedEndpoint, storedSource, endpointErr, sourceErr)
+	}
+	if err = repository.WithinInventoryTransaction(t.Context(), nil); !errors.Is(err, store.ErrInvalid) {
+		t.Fatal(err)
+	}
+}
 func TestPersistenceAndMigrationChecksums(t *testing.T) {
 	// '#' and spaces exercise SQLite URI escaping on every supported OS.
 	path := filepath.Join(t.TempDir(), "store with spaces #.db")

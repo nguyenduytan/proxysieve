@@ -103,6 +103,24 @@ func (s *Store) WithinTransaction(ctx context.Context, fn func(store.Endpoints) 
 	return safeError(ctx, tx.Commit())
 }
 
+func (s *Store) WithinInventoryTransaction(ctx context.Context, fn func(store.Endpoints, store.Sources) error) error {
+	if fn == nil {
+		return store.ErrInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return safeError(ctx, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err = fn(&endpoints{q: tx}, &sources{q: tx}); err != nil {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	return safeError(ctx, tx.Commit())
+}
+
 type Status struct {
 	SchemaVersion int    `json:"schema_version"`
 	EndpointCount int    `json:"endpoint_count"`
@@ -209,3 +227,4 @@ func safeError(ctx context.Context, err error) error {
 
 var _ store.EndpointStore = (*Store)(nil)
 var _ store.Sources = (*Store)(nil)
+var _ store.InventoryStore = (*Store)(nil)

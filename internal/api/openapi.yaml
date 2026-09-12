@@ -276,6 +276,43 @@ paths:
         '204': {description: Proxy source deleted}
         '409': {description: Stale source revision}
         '404': {description: Source not found}
+  /api/v1/sources/{sourceId}/refresh:
+    parameters: [{name: sourceId, in: path, required: true, schema: {type: string}}]
+    post:
+      tags: [Sources]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: Source fetched and endpoint inventory reconciled atomically
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [source, created, updated, skipped, invalid]
+                properties:
+                  source:
+                    type: object
+                    required: [source, revision]
+                    properties:
+                      source: {$ref: '#/components/schemas/ProxySource'}
+                      revision: {type: integer, minimum: 1}
+                  created: {type: integer, minimum: 0}
+                  updated: {type: integer, minimum: 0}
+                  skipped: {type: integer, minimum: 0}
+                  invalid: {type: integer, minimum: 0}
+        '409': {description: Source disabled or revision changed during refresh}
+        '422': {description: Source type, configuration or proxy input is unsupported or invalid}
+        '502': {description: Source fetch rejected or failed}
+        '503': {description: Atomic inventory storage unavailable}
   /api/v1/clients:
     get:
       tags: [Clients]

@@ -21,3 +21,12 @@ type Sources interface {
 	DeleteSource(context.Context, model.ID, int64) error
 	ListSources(context.Context, Page) ([]SourceRecord, error)
 }
+
+// InventoryStore coordinates source metadata and endpoint inventory in one
+// transaction. Network fetches and parsing must complete before entering the
+// callback so the storage transaction stays short and deterministic.
+type InventoryStore interface {
+	EndpointStore
+	Sources
+	WithinInventoryTransaction(context.Context, func(Endpoints, Sources) error) error
+}

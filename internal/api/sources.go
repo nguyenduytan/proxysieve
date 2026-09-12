@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
@@ -84,9 +85,19 @@ func (s *Server) createSource(w http.ResponseWriter, r *http.Request, user auth.
 }
 
 func (s *Server) sourceByID(w http.ResponseWriter, r *http.Request) {
-	id := model.ID(strings.TrimPrefix(r.URL.Path, "/api/v1/sources/"))
+	tail := strings.TrimPrefix(r.URL.Path, "/api/v1/sources/")
+	parts := strings.Split(tail, "/")
+	id := model.ID(parts[0])
 	if !id.Valid() {
 		writeError(w, http.StatusBadRequest, "INVALID_SOURCE", "Source ID was not accepted.")
+		return
+	}
+	if len(parts) == 2 && parts[1] == "refresh" {
+		s.requireMutation(w, r, auth.RoleOperator, func(user auth.User) { s.refreshSource(w, r, id, user) })
+		return
+	}
+	if len(parts) != 1 {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "The requested API resource was not found.")
 		return
 	}
 	switch r.Method {
@@ -98,6 +109,56 @@ func (s *Server) sourceByID(w http.ResponseWriter, r *http.Request) {
 		s.requireMutation(w, r, auth.RoleOperator, func(user auth.User) { s.deleteSource(w, r, id, user) })
 	default:
 		methodNotAllowed(w)
+	}
+}
+
+func (s *Server) refreshSource(w http.ResponseWriter, r *http.Request, id model.ID, user auth.User) {
+	inventory, ok := s.endpoints.(store.InventoryStore)
+	if !ok || s.sources == nil {
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Source refresh requires atomic inventory storage.")
+		return
+	}
+	var input struct {
+		Revision int64 `json:"revision"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.Revision < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_REVISION", "Source revision was not accepted.")
+		return
+	}
+	result, err := internalsource.RefreshHTTP(r.Context(), internalsource.RefreshRequest{
+		ID: id, Revision: input.Revision, Store: inventory,
+		Resolver: s.sourceResolver, Policy: s.sourcePolicy, Now: s.now(),
+	})
+	if result.FailureRecorded {
+		s.record(r.Context(), user, "source.refresh_failed", "source", string(id))
+	}
+	if err == nil {
+		s.record(r.Context(), user, "source.refreshed", "source", string(id))
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+	switch {
+	case errors.Is(err, store.ErrInvalid):
+		writeError(w, http.StatusBadRequest, "INVALID_SOURCE", "Source refresh values were not accepted.")
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "The source was not found.")
+	case errors.Is(err, store.ErrConflict):
+		writeError(w, http.StatusConflict, "SOURCE_CONFLICT", "The source or proxy inventory changed during refresh.")
+	case errors.Is(err, internalsource.ErrDisabled):
+		writeError(w, http.StatusConflict, "SOURCE_DISABLED", "Enable the source before refreshing it.")
+	case errors.Is(err, internalsource.ErrUnsupported):
+		writeError(w, http.StatusUnprocessableEntity, "SOURCE_REFRESH_UNSUPPORTED", "This source type does not support refresh yet.")
+	case errors.Is(err, internalsource.ErrConfig):
+		writeError(w, http.StatusUnprocessableEntity, "SOURCE_CONFIG_INVALID", "The source URL configuration was not accepted.")
+	case errors.Is(err, internalsource.ErrNoEndpoints):
+		writeError(w, http.StatusUnprocessableEntity, "SOURCE_PARSE_FAILED", "The source did not contain valid proxy endpoints.")
+	case errors.Is(err, internalsource.ErrFetch):
+		writeError(w, http.StatusBadGateway, "SOURCE_FETCH_FAILED", "The source could not be fetched safely.")
+	default:
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Source refresh could not be committed.")
 	}
 }
 

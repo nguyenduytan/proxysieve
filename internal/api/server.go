@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -20,6 +21,8 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/audit"
 	"github.com/nguyenduytan/proxysieve/internal/buildinfo"
 	"github.com/nguyenduytan/proxysieve/internal/keys"
+	"github.com/nguyenduytan/proxysieve/internal/security"
+	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
@@ -37,19 +40,21 @@ const maxBodyBytes = 64 << 10
 var openAPISpec []byte
 
 type Server struct {
-	admin         *admin.Service
-	traffic       *internaltraffic.Memory
-	endpoints     store.Endpoints
-	sources       store.Sources
-	clients       ClientStore
-	trafficStore  TrafficStore
-	trafficStatus TrafficStatus
-	audit         audit.Writer
-	now           func() time.Time
-	ui            http.Handler
-	limitMu       sync.Mutex
-	windowStart   time.Time
-	authAttempts  int
+	admin          *admin.Service
+	traffic        *internaltraffic.Memory
+	endpoints      store.Endpoints
+	sources        store.Sources
+	clients        ClientStore
+	trafficStore   TrafficStore
+	trafficStatus  TrafficStatus
+	audit          audit.Writer
+	now            func() time.Time
+	sourceResolver internalsource.Resolver
+	sourcePolicy   security.DestinationPolicy
+	ui             http.Handler
+	limitMu        sync.Mutex
+	windowStart    time.Time
+	authAttempts   int
 }
 
 type ClientStore interface {
@@ -90,7 +95,19 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 	if sourceStore, ok := endpoints.(store.Sources); ok {
 		sources = sourceStore
 	}
-	return &Server{admin: service, traffic: traffic, endpoints: endpoints, sources: sources, clients: clients, trafficStore: durable, audit: auditWriter, ui: dashboardHandler(), now: func() time.Time { return time.Now().UTC() }}, nil
+	return &Server{
+		admin: service, traffic: traffic, endpoints: endpoints, sources: sources,
+		clients: clients, trafficStore: durable, audit: auditWriter, ui: dashboardHandler(),
+		now:            func() time.Time { return time.Now().UTC() },
+		sourceResolver: sourceResolver{},
+		sourcePolicy:   security.DestinationPolicy{DenyPrivate: true},
+	}, nil
+}
+
+type sourceResolver struct{}
+
+func (sourceResolver) LookupNetIP(ctx context.Context, host string) ([]netip.Addr, error) {
+	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 }
 func (s *Server) Handler() http.Handler                 { return securityHeaders(http.HandlerFunc(s.handle)) }
 func (s *Server) SetTrafficStatus(status TrafficStatus) { s.trafficStatus = status }

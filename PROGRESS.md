@@ -6,7 +6,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 
 - [ ] M0 — Repository bootstrap (local checks passed; hosted acceptance pending)
 - [ ] M1 — Domain, config, storage, secret foundations (implemented locally; acceptance review pending)
-- [ ] M2 — Proxy normalization, sources, endpoint management (parser/import, safe HTTP source fetch/preview and revisioned source CRUD locally implemented; refresh scheduler/API pending)
+- [ ] M2 — Proxy normalization, sources, endpoint management (parser/import, safe HTTP source fetch/preview, revisioned source CRUD and atomic manual refresh API locally implemented; refresh scheduler/UI pending)
 - [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local no-auth SOCKS5 CONNECT and runtime multi-listener support implemented; password auth/metrics pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator locally implemented; runtime/API simulator pending)
@@ -35,8 +35,12 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 - Added bounded proxy-source configuration, matching in-memory/SQLite revisioned
   repositories and audited operator CRUD endpoints. Refresh state remains
   server-managed and cannot be forged through source PATCH requests.
+- Added operator-only, CSRF-protected API-source refresh with default-deny private
+  destination policy, optimistic revisions, duplicate-safe reconciliation and a
+  shared SQLite transaction for endpoints plus refresh status. Fetch/parse errors
+  preserve the prior inventory and persist only bounded safe status text.
 - Updated the embedded OpenAPI contract and API foundation documentation. Source
-  refresh, pools, policies and runtime activation remain pending.
+  scheduling/UI, pools, policies and runtime activation remain pending.
 
 ## M0 verification
 
