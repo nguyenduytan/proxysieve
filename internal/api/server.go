@@ -171,6 +171,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		default:
 			methodNotAllowed(w)
 		}
+	case "/api/v1/proxies/import":
+		s.importProxies(w, r)
 	case "/api/v1/proxies/import/preview":
 		s.previewImport(w, r)
 	case "/api/v1/clients":
@@ -694,6 +696,103 @@ func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request, id model.ID
 	default:
 		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy metadata could not be deleted.")
 	}
+}
+
+func (s *Server) importProxies(w http.ResponseWriter, r *http.Request) {
+	s.requireMutation(w, r, auth.RoleOperator, func(user auth.User) {
+		endpointStore, ok := s.endpoints.(store.EndpointStore)
+		if !ok {
+			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy storage does not support atomic imports.")
+			return
+		}
+		var input struct {
+			Input string              `json:"input"`
+			Mode  proxy.DuplicateMode `json:"mode"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		if input.Mode == "" {
+			input.Mode = proxy.SkipDuplicates
+		}
+		if input.Input == "" {
+			writeError(w, http.StatusBadRequest, "INVALID_IMPORT", "Proxy import text was not accepted.")
+			return
+		}
+		var result proxy.ImportResult
+		var records []store.EndpointRecord
+		createdCount := 0
+		err := endpointStore.WithinTransaction(r.Context(), func(tx store.Endpoints) error {
+			existing, err := allEndpointRecords(r.Context(), tx)
+			if err != nil {
+				return err
+			}
+			result, err = proxy.Import(proxy.ImportRequest{Input: input.Input, Mode: input.Mode, Existing: existingByIdentity(existing)})
+			if err != nil {
+				return err
+			}
+			records = make([]store.EndpointRecord, 0, len(result.Endpoints))
+			for _, endpoint := range result.Endpoints {
+				expected := int64(0)
+				if input.Mode == proxy.UpdateDuplicates {
+					expected = existing[proxy.Identity(endpoint)].Revision
+				}
+				record, err := tx.Put(r.Context(), endpoint, expected)
+				if err != nil {
+					return err
+				}
+				if expected == 0 {
+					createdCount++
+				}
+				records = append(records, record)
+			}
+			return nil
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, proxy.ErrParse), errors.Is(err, store.ErrInvalid):
+				writeError(w, http.StatusBadRequest, "INVALID_IMPORT", "Proxy import text or mode was not accepted.")
+			case errors.Is(err, store.ErrConflict):
+				writeError(w, http.StatusConflict, "IMPORT_CONFLICT", "Proxy inventory changed during import.")
+			case errors.Is(err, store.ErrNotFound):
+				writeError(w, http.StatusNotFound, "PROXY_NOT_FOUND", "A proxy referenced by the import was not found.")
+			default:
+				writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy import could not be committed.")
+			}
+			return
+		}
+		for _, record := range records {
+			s.record(r.Context(), user, "proxy.imported", "proxy", string(record.Endpoint.ID))
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"items": records, "created": createdCount, "updated": result.Updated, "skipped": result.Skipped, "mode": input.Mode})
+	})
+}
+
+func allEndpointRecords(ctx context.Context, endpoints store.Endpoints) (map[string]store.EndpointRecord, error) {
+	const pageSize = 1000
+	rows := make(map[string]store.EndpointRecord)
+	after := model.ID("")
+	for {
+		page, err := endpoints.List(ctx, store.Page{After: after, Limit: pageSize})
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range page {
+			rows[proxy.Identity(record.Endpoint)] = record
+		}
+		if len(page) < pageSize {
+			return rows, nil
+		}
+		after = page[len(page)-1].Endpoint.ID
+	}
+}
+
+func existingByIdentity(records map[string]store.EndpointRecord) map[string]proxy.Endpoint {
+	existing := make(map[string]proxy.Endpoint, len(records))
+	for _, record := range records {
+		existing[proxy.Identity(record.Endpoint)] = record.Endpoint
+	}
+	return existing
 }
 
 func (s *Server) previewImport(w http.ResponseWriter, r *http.Request) {

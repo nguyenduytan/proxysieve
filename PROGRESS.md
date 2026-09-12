@@ -27,6 +27,8 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 - Added authenticated `GET`, optimistic-revision `PATCH` and `DELETE` endpoints
   for `/api/v1/proxies/{id}` with operator CSRF protection, audit events and
   stale-write conflict responses.
+- Added atomic `POST /api/v1/proxies/import` commits with bounded parsing and
+  `skip`/`update`/`create` duplicate modes; embedded credentials remain stripped.
 - Updated the embedded OpenAPI contract and API foundation documentation. Source
   CRUD/refresh, pools, policies and runtime activation remain pending.
 

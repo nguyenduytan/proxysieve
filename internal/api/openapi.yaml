@@ -155,6 +155,24 @@ paths:
       responses:
         '200': {description: Parsed proxy import preview}
         '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/proxies/import:
+    post:
+      tags: [Proxies]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input: {type: string, maxLength: 8388608}
+                mode: {type: string, enum: [skip, update, create], default: skip}
+      responses:
+        '201': {description: Proxy inventory import committed atomically}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {description: Inventory changed during import}
   /api/v1/proxies/{proxyId}:
     parameters: [{name: proxyId, in: path, required: true, schema: {type: string}}]
     get:

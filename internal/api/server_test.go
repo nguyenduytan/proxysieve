@@ -21,6 +21,7 @@ import (
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/secret"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 	publictraffic "github.com/nguyenduytan/proxysieve/pkg/traffic"
@@ -305,6 +306,41 @@ func TestProxyImportPreviewRequiresOperatorCSRF(t *testing.T) {
 		t.Fatal(writer.Code, writer.Body.String())
 	}
 }
+
+func TestProxyImportCommitsAtomicallyWithDuplicateModes(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	endpoints, _ := memory.NewEndpoints(10)
+	existing := contract.Endpoint("existing")
+	existing.Host = "existing.example.invalid"
+	if _, err := endpoints.Put(t.Context(), existing, 0); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := New(service, nil, endpoints, nil)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+
+	input := "http://existing.example.invalid:8080\nhttp://new.example.invalid:8080\nbad"
+	created := mutationRequest(handler, http.MethodPost, "/api/v1/proxies/import", map[string]any{"input": input}, cookies)
+	if created.Code != http.StatusCreated || !bytes.Contains(created.Body.Bytes(), []byte(`"created":1`)) || !bytes.Contains(created.Body.Bytes(), []byte(`"skipped":1`)) {
+		t.Fatal(created.Code, created.Body.String())
+	}
+	rows, err := endpoints.List(t.Context(), store.Page{Limit: 10})
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("rows=%d err=%v", len(rows), err)
+	}
+	updated := mutationRequest(handler, http.MethodPost, "/api/v1/proxies/import", map[string]any{"input": "http://existing.example.invalid:8080", "mode": proxy.UpdateDuplicates}, cookies)
+	if updated.Code != http.StatusCreated || !bytes.Contains(updated.Body.Bytes(), []byte(`"created":0`)) || !bytes.Contains(updated.Body.Bytes(), []byte(`"updated":1`)) {
+		t.Fatal(updated.Code, updated.Body.String())
+	}
+	stored, err := endpoints.Get(t.Context(), existing.ID)
+	if err != nil || stored.Endpoint.Port != 8080 || stored.Revision != 2 {
+		t.Fatalf("stored=%+v err=%v", stored, err)
+	}
+}
+
 func TestAuditTrailIsAdminOnlyAndSanitized(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())

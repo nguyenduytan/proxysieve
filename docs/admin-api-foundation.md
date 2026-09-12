@@ -23,6 +23,7 @@ GET  /api/v1/audit
 GET  /api/v1/proxies
 POST /api/v1/proxies
 POST /api/v1/proxies/import/preview
+POST /api/v1/proxies/import
 GET  /api/v1/proxies/{id}
 PATCH /api/v1/proxies/{id}
 DELETE /api/v1/proxies/{id}
@@ -73,6 +74,11 @@ Proxy inventory updates and deletes use an optimistic `revision` precondition. S
 the complete endpoint document with its current revision to `PATCH`, or the current
 revision alone to `DELETE`; stale revisions return `409 PROXY_CONFLICT`. These
 mutations remain inventory-only and require an operator session plus CSRF token.
+
+`POST /api/v1/proxies/import` commits a parser-approved text import in one storage
+transaction. Its optional `mode` is `skip` (default), `update`, or `create`; malformed
+lines are ignored after validation and the response reports created, updated and
+skipped counts. The import never persists credentials embedded in source text.
 
 ## Client API Keys
 
