@@ -52,6 +52,8 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 - Added the admin-only read-only Audit workspace with sanitized metadata,
   refresh/error/empty states and responsive mobile cards. Alerts remains absent
   from navigation until a real alert backend exists.
+- Added stable timestamp/id cursor pagination to the Audit API and a responsive
+  Load more control that appends older entries without exposing secrets.
 - Updated the embedded OpenAPI contract and API foundation documentation.
 
 ## M0 verification
