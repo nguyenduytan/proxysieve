@@ -59,6 +59,38 @@ export interface SourceRefreshResult {
   skipped: number;
   invalid: number;
 }
+export interface ClientRecord {
+  id: string;
+  name: string;
+  enabled: boolean;
+  auth_method: "api_key";
+  allowed_listeners?: string[] | null;
+  allowed_pools?: string[] | null;
+  policy_ids?: string[] | null;
+  budget_ids?: string[] | null;
+  ip_allowlist?: string[] | null;
+  created_at: string;
+  last_seen_at?: string;
+  revision: number;
+}
+export interface ClientPage {
+  items: ClientRecord[];
+  next_after: string;
+}
+export interface APIKeyRecord {
+  id: string;
+  client_id: string;
+  prefix: string;
+  created_at: string;
+  revoked_at?: string;
+}
+export interface APIKeyPage {
+  items: APIKeyRecord[];
+}
+export interface APIKeyCreation {
+  api_key: APIKeyRecord;
+  token: string;
+}
 export interface TrafficEvent {
   at: string;
   request_id: string;

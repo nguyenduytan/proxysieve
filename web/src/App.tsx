@@ -3,10 +3,11 @@ import { LogOut, Menu, Moon, ShieldCheck, Sun, X } from "lucide-react";
 import { AuthGate } from "./AuthGate";
 import { ApiError, api, discoverSession, errorMessage } from "./api";
 import type { User, SessionState } from "./api";
+import { ClientAccess } from "./ClientAccess";
 import { ProxyInventory } from "./ProxyInventory";
 import { SourceInventory } from "./SourceInventory";
 import { TrafficView } from "./TrafficView";
-import { navigationItems } from "./navigation";
+import { navigationForRole } from "./navigation";
 import type { Page } from "./navigation";
 import { useLiveData, useSystem } from "./useLiveData";
 
@@ -125,7 +126,7 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
           <span>Control plane connected</span>
         </div>
         <nav aria-label="Primary navigation">
-          {navigationItems.map(
+          {navigationForRole(user.role).map(
             ({ page: target, label, description, icon: Icon }) => (
               <button
                 key={target}
@@ -216,6 +217,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
         )}
         {page === "Sources" && (
           <SourceInventory role={user.role} onExpired={onExpired} />
+        )}
+        {page === "Clients" && user.role === "admin" && (
+          <ClientAccess onExpired={onExpired} />
         )}
         {page === "System" && (
           <div className="content">

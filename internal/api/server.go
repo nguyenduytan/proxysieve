@@ -59,17 +59,18 @@ type Server struct {
 }
 
 type ClientStore interface {
-	CreateClient(context.Context, auth.Client) error
+	GetClient(context.Context, model.ID) (store.ClientRecord, error)
+	PutClient(context.Context, auth.Client, int64) (store.ClientRecord, error)
+	DeleteClient(context.Context, model.ID, int64) error
+	ListClients(context.Context, store.Page) ([]store.ClientRecord, error)
 	CreateAPIKey(context.Context, auth.APIKey, [32]byte) (auth.APIKey, error)
-}
-
-type ClientReader interface {
-	ListClients(context.Context, int) ([]auth.Client, error)
 	ListAPIKeys(context.Context, model.ID, int) ([]auth.APIKey, error)
+	RevokeAPIKey(context.Context, model.ID, model.ID, time.Time) error
 }
 
-type APIKeyRevoker interface {
-	RevokeAPIKey(context.Context, model.ID, model.ID, time.Time) error
+type clientRepresentation struct {
+	auth.Client
+	Revision int64 `json:"revision"`
 }
 type TrafficStore interface {
 	ListTraffic(context.Context, sqlite.TrafficPage) ([]publictraffic.Event, error)
@@ -231,6 +232,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.revokeAPIKey(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/clients/") {
+			s.clientByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/proxies/") {
 			s.proxyByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/sources/") {
@@ -242,8 +245,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) listClients(w http.ResponseWriter, r *http.Request) {
 	s.require(w, r, auth.RoleAdmin, func(_ auth.User) {
-		reader, ok := s.clients.(ClientReader)
-		if !ok {
+		if s.clients == nil {
 			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
 			return
 		}
@@ -256,19 +258,31 @@ func (s *Server) listClients(w http.ResponseWriter, r *http.Request) {
 			}
 			limit = value
 		}
-		clients, err := reader.ListClients(r.Context(), limit)
+		page := store.Page{After: model.ID(r.URL.Query().Get("after")), Limit: limit}
+		if err := page.Validate(); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_PAGE", "Pagination values were not accepted.")
+			return
+		}
+		records, err := s.clients.ListClients(r.Context(), page)
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"items": clients})
+		items := make([]clientRepresentation, 0, len(records))
+		for _, record := range records {
+			items = append(items, representClient(record))
+		}
+		next := ""
+		if len(records) == limit {
+			next = string(records[len(records)-1].Client.ID)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items, "next_after": next})
 	})
 }
 
 func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 	s.require(w, r, auth.RoleAdmin, func(_ auth.User) {
-		reader, ok := s.clients.(ClientReader)
-		if !ok {
+		if s.clients == nil {
 			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
 			return
 		}
@@ -277,7 +291,7 @@ func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "INVALID_CLIENT", "Client ID was not accepted.")
 			return
 		}
-		keys, err := reader.ListAPIKeys(r.Context(), model.ID(clientID), 100)
+		keys, err := s.clients.ListAPIKeys(r.Context(), model.ID(clientID), 100)
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
 			return
@@ -288,8 +302,7 @@ func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	s.requireMutation(w, r, auth.RoleAdmin, func(user auth.User) {
-		revoker, ok := s.clients.(APIKeyRevoker)
-		if !ok {
+		if s.clients == nil {
 			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
 			return
 		}
@@ -299,7 +312,7 @@ func (s *Server) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "INVALID_KEY", "API key identity was not accepted.")
 			return
 		}
-		if err := revoker.RevokeAPIKey(r.Context(), model.ID(parts[0]), model.ID(parts[1]), s.now()); err != nil {
+		if err := s.clients.RevokeAPIKey(r.Context(), model.ID(parts[0]), model.ID(parts[1]), s.now()); err != nil {
 			writeError(w, http.StatusNotFound, "KEY_NOT_FOUND", "The API key was not found or was already revoked.")
 			return
 		}
@@ -320,13 +333,128 @@ func (s *Server) createClient(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		client := auth.Client{ID: model.NewID(), Name: input.Name, Enabled: true, AuthMethod: "api_key", CreatedAt: s.now()}
-		if err := s.clients.CreateClient(r.Context(), client); err != nil {
-			writeError(w, 400, "INVALID_CLIENT", "Client metadata was not accepted.")
-			return
+		record, err := s.clients.PutClient(r.Context(), client, 0)
+		switch {
+		case err == nil:
+			s.record(r.Context(), user, "client.created", "client", string(client.ID))
+			writeJSON(w, http.StatusCreated, representClient(record))
+		case errors.Is(err, store.ErrConflict):
+			writeError(w, http.StatusConflict, "CLIENT_EXISTS", "A client with this ID already exists.")
+		default:
+			writeError(w, http.StatusBadRequest, "INVALID_CLIENT", "Client metadata was not accepted.")
 		}
-		s.record(r.Context(), user, "client.created", "client", string(client.ID))
-		writeJSON(w, 201, client)
 	})
+}
+
+func (s *Server) clientByID(w http.ResponseWriter, r *http.Request) {
+	id := model.ID(strings.TrimPrefix(r.URL.Path, "/api/v1/clients/"))
+	if !id.Valid() {
+		writeError(w, http.StatusBadRequest, "INVALID_CLIENT", "Client ID was not accepted.")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		s.require(w, r, auth.RoleAdmin, func(_ auth.User) { s.getClient(w, r, id) })
+	case http.MethodPatch:
+		s.requireMutation(w, r, auth.RoleAdmin, func(user auth.User) { s.updateClient(w, r, id, user) })
+	case http.MethodDelete:
+		s.requireMutation(w, r, auth.RoleAdmin, func(user auth.User) { s.deleteClient(w, r, id, user) })
+	default:
+		methodNotAllowed(w)
+	}
+}
+
+func (s *Server) getClient(w http.ResponseWriter, r *http.Request, id model.ID) {
+	if s.clients == nil {
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+		return
+	}
+	record, err := s.clients.GetClient(r.Context(), id)
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, representClient(record))
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "CLIENT_NOT_FOUND", "The client was not found.")
+	default:
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+	}
+}
+
+func (s *Server) updateClient(w http.ResponseWriter, r *http.Request, id model.ID, user auth.User) {
+	if s.clients == nil {
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+		return
+	}
+	var input struct {
+		Client   auth.Client `json:"client"`
+		Revision int64       `json:"revision"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.Client.ID != id || input.Revision < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_CLIENT", "Client metadata or revision was not accepted.")
+		return
+	}
+	current, err := s.clients.GetClient(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "CLIENT_NOT_FOUND", "The client was not found.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+		return
+	}
+	input.Client.CreatedAt = current.Client.CreatedAt
+	input.Client.LastSeenAt = current.Client.LastSeenAt
+	input.Client.AuthMethod = current.Client.AuthMethod
+	record, err := s.clients.PutClient(r.Context(), input.Client, input.Revision)
+	switch {
+	case err == nil:
+		s.record(r.Context(), user, "client.updated", "client", string(id))
+		writeJSON(w, http.StatusOK, representClient(record))
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "CLIENT_NOT_FOUND", "The client was not found.")
+	case errors.Is(err, store.ErrConflict):
+		writeError(w, http.StatusConflict, "CLIENT_CONFLICT", "The client revision is stale.")
+	case errors.Is(err, store.ErrInvalid):
+		writeError(w, http.StatusBadRequest, "INVALID_CLIENT", "Client metadata or revision was not accepted.")
+	default:
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client metadata could not be stored.")
+	}
+}
+
+func (s *Server) deleteClient(w http.ResponseWriter, r *http.Request, id model.ID, user auth.User) {
+	if s.clients == nil {
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client storage is unavailable.")
+		return
+	}
+	var input struct {
+		Revision int64 `json:"revision"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.Revision < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_REVISION", "Client revision was not accepted.")
+		return
+	}
+	err := s.clients.DeleteClient(r.Context(), id, input.Revision)
+	switch {
+	case err == nil:
+		s.record(r.Context(), user, "client.deleted", "client", string(id))
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "CLIENT_NOT_FOUND", "The client was not found.")
+	case errors.Is(err, store.ErrConflict):
+		writeError(w, http.StatusConflict, "CLIENT_CONFLICT", "The client revision is stale.")
+	default:
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Client metadata could not be deleted.")
+	}
+}
+
+func representClient(record store.ClientRecord) clientRepresentation {
+	return clientRepresentation{Client: record.Client.Clone(), Revision: record.Revision}
 }
 func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 	s.requireMutation(w, r, auth.RoleAdmin, func(user auth.User) {

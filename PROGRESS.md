@@ -15,8 +15,8 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe hard byte-budget enforcement locally implemented; transport framing, billing windows, projections, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
-- [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited client/API-key lifecycle endpoints and embedded OpenAPI contract locally implemented; broader resource APIs and SSE pending)
-- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, Overview/Traffic/Proxies/Sources/System and first-run setup locally implemented; remaining resource workflows and release UX pending)
+- [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned client/API-key lifecycle endpoints and embedded OpenAPI contract locally implemented; broader resource APIs and SSE pending)
+- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, Overview/Traffic/Proxies/Sources/Clients/System and first-run setup locally implemented; remaining resource workflows and release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect
 - [ ] M15 — Backup, restore, import/export, operations (doctor command now checks effective config, data directory, SQLite schema and listener availability; backup/restore/import/export still pending)
@@ -46,6 +46,9 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
   operator create/edit, enable/disable, manual refresh, delete confirmation,
   optimistic-conflict recovery and mobile cards. Pools, policies and runtime
   activation remain pending.
+- Completed client/API-key lifecycle management: revisioned client GET/PATCH/
+  DELETE with key cascade, admin-only Clients workspace, one-time key reveal,
+  copy/dismiss handling, key listing/revocation and responsive client cards.
 - Updated the embedded OpenAPI contract and API foundation documentation.
 
 ## M0 verification

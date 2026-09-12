@@ -21,6 +21,11 @@
 - Added bounded automatic source scheduling with fair cursor rotation, per-source timeouts and overlap prevention shared with manual refresh.
 - Added a responsive Admin Sources workspace for viewer-safe listing and
   operator CRUD, enable/disable, manual refresh and schedule management.
+- Added admin-only Clients & API keys workspace with revisioned client CRUD,
+  enable/disable, one-time token reveal/copy, key listing/revocation and
+  destructive client confirmation.
+- Completed revisioned client GET/PATCH/DELETE API routes with cascade key
+  cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe
   enable/disable controls.
 - M1 domain contracts, bounded YAML configuration with provenance and CLI inspection.

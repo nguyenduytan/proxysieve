@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -36,7 +37,7 @@ type userRecord struct {
 	hash string
 }
 type memoryClients struct {
-	clients map[string]auth.Client
+	clients map[string]store.ClientRecord
 	keys    map[string]auth.APIKey
 }
 type memoryControlStore struct {
@@ -44,12 +45,71 @@ type memoryControlStore struct {
 	*memory.Sources
 }
 
-func (m *memoryClients) CreateClient(_ context.Context, client auth.Client) error {
-	if _, ok := m.clients[string(client.ID)]; ok {
+func (m *memoryClients) GetClient(_ context.Context, id model.ID) (store.ClientRecord, error) {
+	record, ok := m.clients[string(id)]
+	if !ok {
+		return store.ClientRecord{}, store.ErrNotFound
+	}
+	record.Client = record.Client.Clone()
+	return record, nil
+}
+func (m *memoryClients) PutClient(_ context.Context, client auth.Client, expected int64) (store.ClientRecord, error) {
+	record, exists := m.clients[string(client.ID)]
+	if expected == 0 {
+		if exists {
+			return store.ClientRecord{}, store.ErrConflict
+		}
+		record = store.ClientRecord{Client: client.Clone(), Revision: 1}
+		m.clients[string(client.ID)] = record
+		return record, nil
+	}
+	if !exists {
+		return store.ClientRecord{}, store.ErrNotFound
+	}
+	if record.Revision != expected {
+		return store.ClientRecord{}, store.ErrConflict
+	}
+	record = store.ClientRecord{Client: client.Clone(), Revision: expected + 1}
+	m.clients[string(client.ID)] = record
+	return record, nil
+}
+func (m *memoryClients) DeleteClient(_ context.Context, id model.ID, expected int64) error {
+	record, ok := m.clients[string(id)]
+	if !ok {
+		return store.ErrNotFound
+	}
+	if record.Revision != expected {
 		return store.ErrConflict
 	}
-	m.clients[string(client.ID)] = client
+	delete(m.clients, string(id))
+	for keyID, key := range m.keys {
+		if key.ClientID == id {
+			delete(m.keys, keyID)
+		}
+	}
 	return nil
+}
+func (m *memoryClients) ListClients(_ context.Context, page store.Page) ([]store.ClientRecord, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(m.clients))
+	for id := range m.clients {
+		if id > string(page.After) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) > page.Limit {
+		ids = ids[:page.Limit]
+	}
+	records := make([]store.ClientRecord, 0, len(ids))
+	for _, id := range ids {
+		record := m.clients[id]
+		record.Client = record.Client.Clone()
+		records = append(records, record)
+	}
+	return records, nil
 }
 func (m *memoryClients) CreateAPIKey(_ context.Context, key auth.APIKey, _ [32]byte) (auth.APIKey, error) {
 	if _, ok := m.clients[string(key.ClientID)]; !ok {
@@ -57,6 +117,24 @@ func (m *memoryClients) CreateAPIKey(_ context.Context, key auth.APIKey, _ [32]b
 	}
 	m.keys[string(key.ID)] = key
 	return key, nil
+}
+func (m *memoryClients) ListAPIKeys(_ context.Context, clientID model.ID, limit int) ([]auth.APIKey, error) {
+	items := make([]auth.APIKey, 0, limit)
+	for _, key := range m.keys {
+		if key.ClientID == clientID {
+			items = append(items, key)
+		}
+	}
+	return items, nil
+}
+func (m *memoryClients) RevokeAPIKey(_ context.Context, clientID, keyID model.ID, at time.Time) error {
+	key, ok := m.keys[string(keyID)]
+	if !ok || key.ClientID != clientID || key.RevokedAt != nil {
+		return store.ErrNotFound
+	}
+	key.RevokedAt = &at
+	m.keys[string(keyID)] = key
+	return nil
 }
 
 func (m *memoryUsers) UserCount(context.Context) (int, error) {
@@ -443,7 +521,7 @@ func TestAuditTrailIsAdminOnlyAndSanitized(t *testing.T) {
 func TestClientAndAPIKeyAreCreatedWithoutPersistingToken(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())
-	clients := &memoryClients{clients: map[string]auth.Client{}, keys: map[string]auth.APIKey{}}
+	clients := &memoryClients{clients: map[string]store.ClientRecord{}, keys: map[string]auth.APIKey{}}
 	server, _ := New(service, nil, nil, nil, clients)
 	handler := server.Handler()
 	token, _ := service.SetupToken(t.Context())
@@ -496,6 +574,28 @@ func TestClientAndAPIKeyLifecycleUsesDurableStore(t *testing.T) {
 	if err := json.Unmarshal(createdClient.Body.Bytes(), &client); err != nil {
 		t.Fatal(err)
 	}
+	if !bytes.Contains(createdClient.Body.Bytes(), []byte(`"revision":1`)) {
+		t.Fatal(createdClient.Body.String())
+	}
+	operatorToken, _ := service.CreateSession(auth.User{ID: "operator", Username: "operator", Role: auth.RoleOperator, Enabled: true, CreatedAt: time.Now().UTC()})
+	operatorCookies := sessionCookie + "=" + operatorToken + "; " + csrfCookie + "=" + service.CSRFToken(operatorToken)
+	if forbidden := request(handler, http.MethodGet, "/api/v1/clients", nil, operatorCookies); forbidden.Code != http.StatusForbidden {
+		t.Fatal("operator listed clients", forbidden.Code, forbidden.Body.String())
+	}
+	gotClient := request(handler, http.MethodGet, "/api/v1/clients/"+string(client.ID), nil, cookies)
+	if gotClient.Code != http.StatusOK || !bytes.Contains(gotClient.Body.Bytes(), []byte(`"revision":1`)) {
+		t.Fatal(gotClient.Code, gotClient.Body.String())
+	}
+	client.Name = "Updated durable client"
+	client.Enabled = false
+	updatedClient := mutationRequest(handler, http.MethodPatch, "/api/v1/clients/"+string(client.ID), map[string]any{"client": client, "revision": 1}, cookies)
+	if updatedClient.Code != http.StatusOK || !bytes.Contains(updatedClient.Body.Bytes(), []byte(`"revision":2`)) || !bytes.Contains(updatedClient.Body.Bytes(), []byte(`"enabled":false`)) {
+		t.Fatal(updatedClient.Code, updatedClient.Body.String())
+	}
+	staleClient := mutationRequest(handler, http.MethodPatch, "/api/v1/clients/"+string(client.ID), map[string]any{"client": client, "revision": 1}, cookies)
+	if staleClient.Code != http.StatusConflict || !bytes.Contains(staleClient.Body.Bytes(), []byte("CLIENT_CONFLICT")) {
+		t.Fatal(staleClient.Code, staleClient.Body.String())
+	}
 	createdKey := mutationRequest(handler, http.MethodPost, "/api/v1/clients/"+string(client.ID)+"/api-keys", map[string]string{}, cookies)
 	if createdKey.Code != http.StatusCreated {
 		t.Fatal(createdKey.Code, createdKey.Body.String())
@@ -535,6 +635,15 @@ func TestClientAndAPIKeyLifecycleUsesDurableStore(t *testing.T) {
 	auditResponse := request(handler, http.MethodGet, "/api/v1/audit", nil, cookies)
 	if auditResponse.Code != http.StatusOK || !bytes.Contains(auditResponse.Body.Bytes(), []byte("api_key.revoked")) {
 		t.Fatal(auditResponse.Code, auditResponse.Body.String())
+	}
+	if staleDelete := mutationRequest(handler, http.MethodDelete, "/api/v1/clients/"+string(client.ID), map[string]any{"revision": 1}, cookies); staleDelete.Code != http.StatusConflict {
+		t.Fatal(staleDelete.Code, staleDelete.Body.String())
+	}
+	if deleted := mutationRequest(handler, http.MethodDelete, "/api/v1/clients/"+string(client.ID), map[string]any{"revision": 2}, cookies); deleted.Code != http.StatusNoContent {
+		t.Fatal(deleted.Code, deleted.Body.String())
+	}
+	if missing := request(handler, http.MethodGet, "/api/v1/clients/"+string(client.ID), nil, cookies); missing.Code != http.StatusNotFound {
+		t.Fatal(missing.Code, missing.Body.String())
 	}
 	if method := request(handler, http.MethodPatch, "/api/v1/clients", nil, cookies); method.Code != http.StatusMethodNotAllowed {
 		t.Fatal("PATCH clients", method.Code, method.Body.String())

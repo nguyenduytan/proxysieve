@@ -316,9 +316,9 @@ paths:
   /api/v1/clients:
     get:
       tags: [Clients]
-      parameters: [{$ref: '#/components/parameters/Limit'}]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {name: after, in: query, schema: {type: string}}]
       responses:
-        '200': {description: Logical clients, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Client'}}}}}}}
+        '200': {description: Revisioned logical clients, content: {application/json: {schema: {$ref: '#/components/schemas/ClientPage'}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
     post:
       tags: [Clients]
@@ -327,18 +327,51 @@ paths:
         required: true
         content: {application/json: {schema: {type: object, required: [name], properties: {name: {type: string, minLength: 1, maxLength: 256}}}}}
       responses:
-        '201': {description: Client created, content: {application/json: {schema: {$ref: '#/components/schemas/Client'}}}}
+        '201': {description: Client created, content: {application/json: {schema: {$ref: '#/components/schemas/ClientRecord'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/clients/{clientId}:
+    parameters: [{name: clientId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Clients]
+      responses:
+        '200': {description: Revisioned logical client, content: {application/json: {schema: {$ref: '#/components/schemas/ClientRecord'}}}}
+        '404': {description: Client not found}
+    patch:
+      tags: [Clients]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client, revision]
+              properties:
+                client: {$ref: '#/components/schemas/Client'}
+                revision: {type: integer, minimum: 1}
+      responses:
+        '200': {description: Updated client, content: {application/json: {schema: {$ref: '#/components/schemas/ClientRecord'}}}}
+        '409': {description: Client revision is stale}
+    delete:
+      tags: [Clients]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [revision], properties: {revision: {type: integer, minimum: 1}}}}}
+      responses:
+        '204': {description: Client and its API keys deleted}
+        '409': {description: Client revision is stale}
   /api/v1/clients/{clientId}/api-keys:
     parameters: [{name: clientId, in: path, required: true, schema: {type: string}}]
     get:
       tags: [Clients]
       responses:
-        '200': {description: API-key metadata; raw tokens are never returned}
+        '200': {description: API-key metadata; raw tokens are never returned, content: {application/json: {schema: {$ref: '#/components/schemas/APIKeyPage'}}}}
     post:
       tags: [Clients]
       security: [sessionCookie: [], csrfToken: []]
       responses:
-        '201': {description: Created key metadata and one-time raw token}
+        '201': {description: Created key metadata and one-time raw token, content: {application/json: {schema: {$ref: '#/components/schemas/APIKeyCreation'}}}}
   /api/v1/clients/{clientId}/api-keys/{keyId}:
     parameters: [{name: clientId, in: path, required: true, schema: {type: string}}, {name: keyId, in: path, required: true, schema: {type: string}}]
     delete:
@@ -396,6 +429,19 @@ components:
         auth_method: {type: string}
         created_at: {type: string, format: date-time}
         last_seen_at: {type: string, format: date-time}
+    ClientRecord:
+      allOf:
+        - {$ref: '#/components/schemas/Client'}
+        - type: object
+          required: [revision]
+          properties:
+            revision: {type: integer, minimum: 1}
+    ClientPage:
+      type: object
+      required: [items, next_after]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/ClientRecord'}}
+        next_after: {type: string}
     APIKey:
       type: object
       required: [id, client_id, prefix, created_at]
@@ -405,6 +451,17 @@ components:
         prefix: {type: string}
         created_at: {type: string, format: date-time}
         revoked_at: {type: string, format: date-time}
+    APIKeyPage:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/APIKey'}}
+    APIKeyCreation:
+      type: object
+      required: [api_key, token]
+      properties:
+        api_key: {$ref: '#/components/schemas/APIKey'}
+        token: {type: string, writeOnly: true, description: Returned once and never stored in plaintext}
     ProxyEndpoint:
       type: object
       required: [id, name, protocol, host, port, enabled]

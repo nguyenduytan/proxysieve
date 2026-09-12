@@ -100,11 +100,13 @@ endpoints are automatically activated in runtime pools or policies.
 ## Client API Keys
 
 An admin may create an enabled logical client with `POST /api/v1/clients`, then
-create a downstream key with `POST /api/v1/clients/{id}/api-keys`. The raw key is
-returned only by its creation response. SQLite retains a SHA-256 hash and display
-prefix, never the raw token. Administrators can list clients and key metadata, and
-revoke an existing key with the CSRF-protected DELETE route. A machine-readable
-contract is available at `GET /api/v1/openapi.yaml`.
+create a downstream key with `POST /api/v1/clients/{id}/api-keys`. Client records
+use optimistic revisions for `GET`, `PATCH` and `DELETE`; deleting a client also
+deletes its issued keys. The raw key is returned only by its creation response.
+SQLite retains a SHA-256 hash and display prefix, never the raw token.
+Administrators can list clients and key metadata, revoke an existing key with the
+CSRF-protected DELETE route, and use the embedded Clients workspace for these
+operations. A machine-readable contract is available at `GET /api/v1/openapi.yaml`.
 
 For an HTTP listener configured with `auth: api_key`, downstream clients must send:
 

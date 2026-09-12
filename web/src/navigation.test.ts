@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { navigationItems } from "./navigation";
+import { navigationForRole, navigationItems } from "./navigation";
 
 describe("admin navigation", () => {
   it("contains only unique, usable destinations", () => {
@@ -12,8 +12,21 @@ describe("admin navigation", () => {
       "Traffic",
       "Proxies",
       "Sources",
+      "Clients",
       "System",
     ]);
     expect(labels).not.toContain("Alerts");
+  });
+
+  it("shows security-sensitive destinations only to admins", () => {
+    expect(navigationForRole("admin").map((item) => item.page)).toContain(
+      "Clients",
+    );
+    expect(
+      navigationForRole("operator").map((item) => item.page),
+    ).not.toContain("Clients");
+    expect(navigationForRole("viewer").map((item) => item.page)).not.toContain(
+      "Clients",
+    );
   });
 });
