@@ -23,11 +23,12 @@ Usage:
   proxysieve help
   proxysieve version [--json]
   proxysieve start [--file PATH]
+  proxysieve doctor [--file PATH] [--json]
   proxysieve config validate [--file PATH] [--set dotted.path=value]
   proxysieve config print-effective [--file PATH] [--set dotted.path=value]
 
-Status: foundation build; HTTP listener is available with a fail-closed default.
-SOCKS5, upstream proxies, dashboard, authentication and accounting are not available yet.
+Status: local development build; HTTP/SOCKS5 listeners, upstream routing,
+authenticated dashboard and traffic accounting are available with fail-closed defaults.
 `
 
 // Run executes a command and returns a process exit code: 0 success, 1 output
@@ -51,6 +52,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return runConfig(args[1:], stdout, stderr, home, environment())
+	case "doctor":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			_, _ = io.WriteString(stderr, "CONFIG_HOME_UNAVAILABLE\n")
+			return 1
+		}
+		return runDoctor(args[1:], stdout, stderr, home, environment())
 	case "help", "--help", "-h":
 		if len(args) != 1 {
 			return usageError(stderr)

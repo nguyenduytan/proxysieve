@@ -75,6 +75,7 @@ Prerequisites: Go **1.27.x** (tested 1.27.1), Node.js **24 LTS**, and pnpm
 go test ./...
 go build -trimpath -o bin/ ./cmd/proxysieve
 ./bin/proxysieve start --file config.example.yaml
+./bin/proxysieve doctor --file config.example.yaml
 ```
 
 On Windows, run `bin\proxysieve.exe start --file config.example.yaml` from
@@ -89,6 +90,10 @@ The example configuration is intentionally fail-closed. It starts the local
 listener/control plane but does not route user traffic until a policy/pool/endpoint
 configuration explicitly permits it. See [configuration](docs/configuration.md)
 and [admin API foundation](docs/admin-api-foundation.md).
+
+`proxysieve doctor` validates the effective configuration and reports data-directory,
+SQLite schema and listener-bind readiness without starting the gateway. Add `--json`
+for automation; a failed critical check returns a non-zero exit code.
 
 ## Development
 

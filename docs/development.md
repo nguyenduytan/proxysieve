@@ -21,6 +21,7 @@ go test -race ./...
 go build -trimpath -o bin/ ./cmd/proxysieve
 go run ./cmd/proxysieve version --json
 go run ./cmd/proxysieve config validate --file config.example.yaml
+go run ./cmd/proxysieve doctor --file config.example.yaml
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
 pnpm --dir web test
