@@ -22,6 +22,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/scheduler"
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
+	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/internal/transport/httpforward"
@@ -341,12 +342,14 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
+		sourceRefresher := internalsource.NewRefresher()
 		server, err := api.New(service, trafficRecorder, controlStore, controlStore, controlStore)
 		if err != nil {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
 		server.SetTrafficStatus(durableRecorder)
+		server.SetSourceRefresher(sourceRefresher)
 		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}
 		runtime.AdminBind = c.Admin.Bind
 		runtime.AdminMax = 32
@@ -356,7 +359,7 @@ func Build(c config.Config) (Runtime, error) {
 		minuteRetention := maxDuration(time.Duration(c.Traffic.MinuteRetentionDays)*24*time.Hour, rawRetention)
 		hourRetention := maxDuration(time.Duration(c.Traffic.HourRetentionDays)*24*time.Hour, minuteRetention)
 		dayRetention := maxDuration(time.Duration(c.Traffic.DayRetentionDays)*24*time.Hour, hourRetention)
-		runtime.Scheduler = scheduler.New(time.Duration(c.Traffic.AggregationInterval), scheduler.TrafficJob{
+		trafficJob := scheduler.TrafficJob{
 			Store: controlStore, Retention: rawRetention, MinuteRetention: minuteRetention,
 			HourRetention: hourRetention, DayRetention: dayRetention,
 			RetainTiers: func(ctx context.Context, retention scheduler.TierRetention) (scheduler.TierRetentionResult, error) {
@@ -366,7 +369,12 @@ func Build(c config.Config) (Runtime, error) {
 				})
 				return scheduler.TierRetentionResult{RawEvents: result.RawEvents, Minutes: result.Minutes, Hours: result.Hours, Days: result.Days}, err
 			},
-		}.Run)
+		}
+		sourceJob := &scheduler.SourceJob{
+			Store: controlStore, Refresher: sourceRefresher, Resolver: resolver{},
+			Policy: security.DestinationPolicy{DenyPrivate: true}, Audit: controlStore,
+		}
+		runtime.Scheduler = scheduler.New(time.Duration(c.Traffic.AggregationInterval), trafficJob.Run, sourceJob.Run)
 		if token, err := service.SetupToken(context.Background()); err == nil {
 			runtime.SetupToken = token
 		}

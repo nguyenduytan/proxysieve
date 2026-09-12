@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -263,6 +264,47 @@ func TestSourceRefreshParseFailureDoesNotMutateEndpoints(t *testing.T) {
 	failed, err := repository.GetSource(t.Context(), source.ID)
 	if err != nil || failed.Revision != 2 || failed.Source.LastRefreshStatus != "failed: no valid endpoints" {
 		t.Fatal(failed, err)
+	}
+}
+
+func TestSourceRefreshRejectsOverlappingRequest(t *testing.T) {
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("proxy.example.invalid:8080"))
+	}))
+	defer feed.Close()
+	handler, server, repository, _, _, cookies := refreshTestServer(t)
+	server.sourcePolicy = security.DestinationPolicy{AllowTrusted: true}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	server.sourceResolver = sourceResolverFunc(func(context.Context, string) ([]netip.Addr, error) {
+		once.Do(func() { close(entered) })
+		<-release
+		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
+	})
+	source := contract.Source("overlap")
+	source.Config["url"] = feed.URL
+	if _, err := repository.PutSource(t.Context(), source, 0); err != nil {
+		t.Fatal(err)
+	}
+	first := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		first <- mutationRequest(handler, http.MethodPost, "/api/v1/sources/overlap/refresh", map[string]int64{"revision": 1}, cookies)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first refresh did not enter resolver")
+	}
+	second := mutationRequest(handler, http.MethodPost, "/api/v1/sources/overlap/refresh", map[string]int64{"revision": 1}, cookies)
+	if second.Code != http.StatusConflict || !bytes.Contains(second.Body.Bytes(), []byte("SOURCE_REFRESH_IN_PROGRESS")) {
+		t.Fatal(second.Code, second.Body.String())
+	}
+	close(release)
+	if response := <-first; response.Code != http.StatusOK {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	if third := mutationRequest(handler, http.MethodPost, "/api/v1/sources/overlap/refresh", map[string]int64{"revision": 2}, cookies); third.Code != http.StatusOK {
+		t.Fatal(third.Code, third.Body.String())
 	}
 }
 

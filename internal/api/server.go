@@ -51,6 +51,7 @@ type Server struct {
 	now            func() time.Time
 	sourceResolver internalsource.Resolver
 	sourcePolicy   security.DestinationPolicy
+	sourceRefresh  *internalsource.Refresher
 	ui             http.Handler
 	limitMu        sync.Mutex
 	windowStart    time.Time
@@ -101,6 +102,7 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 		now:            func() time.Time { return time.Now().UTC() },
 		sourceResolver: sourceResolver{},
 		sourcePolicy:   security.DestinationPolicy{DenyPrivate: true},
+		sourceRefresh:  internalsource.NewRefresher(),
 	}, nil
 }
 
@@ -111,6 +113,11 @@ func (sourceResolver) LookupNetIP(ctx context.Context, host string) ([]netip.Add
 }
 func (s *Server) Handler() http.Handler                 { return securityHeaders(http.HandlerFunc(s.handle)) }
 func (s *Server) SetTrafficStatus(status TrafficStatus) { s.trafficStatus = status }
+func (s *Server) SetSourceRefresher(refresher *internalsource.Refresher) {
+	if refresher != nil {
+		s.sourceRefresh = refresher
+	}
+}
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	if !safeHost(r.Host) {
 		writeError(w, http.StatusBadRequest, "INVALID_HOST", "The request host is not allowed.")

@@ -128,7 +128,7 @@ func (s *Server) refreshSource(w http.ResponseWriter, r *http.Request, id model.
 		writeError(w, http.StatusBadRequest, "INVALID_REVISION", "Source revision was not accepted.")
 		return
 	}
-	result, err := internalsource.RefreshHTTP(r.Context(), internalsource.RefreshRequest{
+	result, err := s.sourceRefresh.RefreshHTTP(r.Context(), internalsource.RefreshRequest{
 		ID: id, Revision: input.Revision, Store: inventory,
 		Resolver: s.sourceResolver, Policy: s.sourcePolicy, Now: s.now(),
 	})
@@ -147,6 +147,8 @@ func (s *Server) refreshSource(w http.ResponseWriter, r *http.Request, id model.
 		writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "The source was not found.")
 	case errors.Is(err, store.ErrConflict):
 		writeError(w, http.StatusConflict, "SOURCE_CONFLICT", "The source or proxy inventory changed during refresh.")
+	case errors.Is(err, internalsource.ErrInProgress):
+		writeError(w, http.StatusConflict, "SOURCE_REFRESH_IN_PROGRESS", "A refresh is already running for this source.")
 	case errors.Is(err, internalsource.ErrDisabled):
 		writeError(w, http.StatusConflict, "SOURCE_DISABLED", "Enable the source before refreshing it.")
 	case errors.Is(err, internalsource.ErrUnsupported):

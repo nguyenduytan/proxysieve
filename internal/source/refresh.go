@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/security"
@@ -18,7 +19,19 @@ var (
 	ErrUnsupported = errors.New("proxy source type is not supported")
 	ErrConfig      = errors.New("proxy source configuration is invalid")
 	ErrNoEndpoints = errors.New("proxy source has no valid endpoints")
+	ErrInProgress  = errors.New("proxy source refresh is already in progress")
 )
+
+// Refresher prevents overlapping network refreshes for the same source while
+// allowing independent sources to refresh concurrently.
+type Refresher struct {
+	mu     sync.Mutex
+	active map[model.ID]struct{}
+}
+
+func NewRefresher() *Refresher {
+	return &Refresher{active: make(map[model.ID]struct{})}
+}
 
 type RefreshRequest struct {
 	ID       model.ID
@@ -40,10 +53,21 @@ type RefreshResult struct {
 
 // RefreshHTTP fetches and parses outside storage, then atomically reconciles
 // endpoints and source status. Failed fetches/parses never mutate endpoints.
-func RefreshHTTP(ctx context.Context, request RefreshRequest) (RefreshResult, error) {
+func (r *Refresher) RefreshHTTP(ctx context.Context, request RefreshRequest) (RefreshResult, error) {
 	if !request.ID.Valid() || request.Revision < 1 || request.Store == nil || request.Resolver == nil || request.Now.IsZero() {
 		return RefreshResult{}, store.ErrInvalid
 	}
+	if r == nil {
+		return RefreshResult{}, store.ErrInvalid
+	}
+	if !r.begin(request.ID) {
+		return RefreshResult{}, ErrInProgress
+	}
+	defer r.end(request.ID)
+	return refreshHTTP(ctx, request)
+}
+
+func refreshHTTP(ctx context.Context, request RefreshRequest) (RefreshResult, error) {
 	current, err := request.Store.GetSource(ctx, request.ID)
 	if err != nil {
 		return RefreshResult{}, err
@@ -117,6 +141,22 @@ func RefreshHTTP(ctx context.Context, request RefreshRequest) (RefreshResult, er
 		return RefreshResult{}, err
 	}
 	return result, nil
+}
+
+func (r *Refresher) begin(id model.ID) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.active[id]; exists {
+		return false
+	}
+	r.active[id] = struct{}{}
+	return true
+}
+
+func (r *Refresher) end(id model.ID) {
+	r.mu.Lock()
+	delete(r.active, id)
+	r.mu.Unlock()
 }
 
 func refreshFailure(ctx context.Context, request RefreshRequest, current store.SourceRecord, status string, cause error) (RefreshResult, error) {

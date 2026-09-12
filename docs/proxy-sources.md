@@ -23,4 +23,13 @@ retain their operator-managed fields and are only updated when source ownership
 must be attached. Repeated refreshes skip already-associated endpoints, and
 missing entries are not deleted. Fetch or parse failures leave endpoint inventory
 untouched and record only a bounded, non-sensitive failure status when the source
-revision is still current. The automatic source scheduler remains a future slice.
+revision is still current.
+
+The runtime scheduler scans source IDs through a bounded rotating cursor and
+refreshes enabled `api` sources whose positive `refresh_interval` has elapsed.
+Sources with a zero interval remain manual-only. Each scheduled source receives a
+separate timeout, each run caps pages and refresh attempts, and one failed source
+does not prevent later due sources from running. Manual and scheduled refreshes
+share a per-source coordinator, so the same source is never fetched concurrently
+inside one ProxySieve process. Scheduled success/failure audit events contain only
+the source ID and stable action name.

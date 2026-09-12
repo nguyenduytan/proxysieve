@@ -309,7 +309,7 @@ paths:
                   updated: {type: integer, minimum: 0}
                   skipped: {type: integer, minimum: 0}
                   invalid: {type: integer, minimum: 0}
-        '409': {description: Source disabled or revision changed during refresh}
+        '409': {description: Source disabled, already refreshing or revision changed during refresh}
         '422': {description: Source type, configuration or proxy input is unsupported or invalid}
         '502': {description: Source fetch rejected or failed}
         '503': {description: Atomic inventory storage unavailable}
