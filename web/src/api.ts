@@ -70,6 +70,15 @@ export type PoolStrategy =
   | "lowest-cost"
   | "cost-aware"
   | "sticky";
+export type SessionStrategy =
+  "none" | "explicit" | "client" | "destination" | "client_destination";
+export interface SessionPolicy {
+  strategy: SessionStrategy;
+  ttl_ns: number;
+  idle_ttl_ns: number;
+  max_requests: number;
+  max_bytes: number;
+}
 export interface Pool {
   id: string;
   name: string;
@@ -80,6 +89,7 @@ export interface Pool {
   country: string;
   min_health_score: number;
   max_latency_ns: number;
+  session_policy: SessionPolicy;
   enabled: boolean;
 }
 export interface PoolRecord {

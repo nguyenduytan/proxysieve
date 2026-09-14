@@ -621,7 +621,17 @@ components:
         country: {type: string, maxLength: 128}
         min_health_score: {type: integer, minimum: 0, maximum: 100}
         max_latency_ns: {type: integer, minimum: 0}
+        session_policy: {$ref: '#/components/schemas/SessionPolicy'}
         enabled: {type: boolean}
+    SessionPolicy:
+      type: object
+      required: [strategy, ttl_ns, idle_ttl_ns, max_requests, max_bytes]
+      properties:
+        strategy: {type: string, enum: [none, explicit, client, destination, client_destination]}
+        ttl_ns: {type: integer, minimum: 0, maximum: 31536000000000000}
+        idle_ttl_ns: {type: integer, minimum: 0, maximum: 31536000000000000}
+        max_requests: {type: integer, minimum: 0}
+        max_bytes: {type: integer, minimum: 0}
     Pool:
       allOf:
         - {$ref: '#/components/schemas/PoolInput'}

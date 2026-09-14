@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"net"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/scheduler"
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
+	internalsession "github.com/nguyenduytan/proxysieve/internal/session"
 	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
@@ -36,6 +38,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
+	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
@@ -60,6 +63,7 @@ type Runtime struct {
 	SetupToken string
 	Store      *sqlite.Store
 	Scheduler  *scheduler.Runner
+	Sessions   *internalsession.Manager
 }
 type resolver struct{}
 
@@ -76,6 +80,7 @@ type router struct {
 	health       *internalhealth.Manager
 	directPolicy config.Security
 	budgets      *internalbudget.Manager
+	sessions     *internalsession.Manager
 }
 
 func (r *router) Evaluate(_ context.Context, request policy.RequestContext, visibility policy.Visibility) (policy.Result, error) {
@@ -162,9 +167,59 @@ func (r *router) pinnedDial(ctx context.Context, request policy.RequestContext) 
 	}, nil
 }
 func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolID model.ID, snapshot *routingSnapshot) (gateway.Route, error) {
-	endpoint, err := r.selectEndpoint(ctx, poolID, request, snapshot)
-	if err != nil {
+	pool, ok := snapshot.pools[poolID]
+	if !ok || !pool.Enabled {
 		return gateway.Route{}, ErrPoolUnavailable
+	}
+	sessionPolicy := pool.SessionPolicy.Normalized()
+	clientID := request.ClientID
+	if !clientID.Valid() {
+		clientID = "local"
+	}
+	var endpoint proxy.Endpoint
+	var sessionID model.ID
+	var sessionHash string
+	var err error
+	if r.sessions == nil {
+		endpoint, err = r.selectEndpoint(ctx, poolID, request, snapshot)
+		if err != nil {
+			return gateway.Route{}, ErrPoolUnavailable
+		}
+	} else {
+		sessionKey, err := routingSessionKey(sessionPolicy.Strategy, clientID, request)
+		if err != nil {
+			return gateway.Route{}, gateway.ErrDenied
+		}
+		resolve := func() (internalsession.Result, error) {
+			return r.sessions.Resolve(ctx, internalsession.Request{
+				ClientID: clientID, PoolID: poolID, Key: sessionKey, Policy: sessionPolicy,
+				RuntimeRevision: snapshot.revision,
+				Select: func(ctx context.Context) (model.ID, error) {
+					endpoint, selectErr := r.selectEndpoint(ctx, poolID, request, snapshot)
+					return endpoint.ID, selectErr
+				},
+			})
+		}
+		resolved, err := resolve()
+		if err != nil {
+			return gateway.Route{}, ErrPoolUnavailable
+		}
+		if resolved.Reused {
+			if reason := r.sessionEndpointRotationReason(resolved.Session.ProxyEndpointID, poolID, snapshot); reason != "" {
+				if rotateErr := r.sessions.Rotate(ctx, resolved.Session.ID, reason); rotateErr != nil {
+					return gateway.Route{}, ErrPoolUnavailable
+				}
+				resolved, err = resolve()
+				if err != nil {
+					return gateway.Route{}, ErrPoolUnavailable
+				}
+			}
+		}
+		endpoint, ok = snapshot.endpoints[resolved.Session.ProxyEndpointID]
+		if !ok {
+			return gateway.Route{}, ErrPoolUnavailable
+		}
+		sessionID, sessionHash = resolved.Session.ID, resolved.Session.KeyHash
 	}
 	if r.destination.DenyPrivate && !endpoint.TrustedRemoteDNS {
 		return gateway.Route{}, gateway.ErrDenied
@@ -192,11 +247,77 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 			}
 		}
 	}
-	return gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, Rate: rate, Reserve: reserve, Transport: transport, Dial: func(ctx context.Context, target string) (net.Conn, error) {
+	route := gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, SessionID: sessionID, SessionHash: sessionHash, Rate: rate, Reserve: reserve, Transport: transport, Dial: func(ctx context.Context, target string) (net.Conn, error) {
 		return connector.Connect(ctx, endpoint, target)
 	}, Observe: func(success bool, status int) {
 		_, _ = r.health.Observe(endpoint.ID, publichealth.Observation{Success: success, HTTPStatus: status})
-	}}, nil
+		if !success && sessionID != "" && r.sessions != nil {
+			_ = r.sessions.Rotate(context.Background(), sessionID, publicsession.ProxyFailed)
+		}
+	}}
+	if r.sessions != nil && sessionPolicy.Strategy != publicsession.None {
+		route.Complete = func(ctx context.Context, upload, download trafficpkg.Bytes) {
+			_ = r.sessions.RecordUsage(ctx, sessionID, upload, download)
+		}
+	}
+	return route, nil
+}
+
+func routingSessionKey(strategy publicsession.Strategy, clientID model.ID, request policy.RequestContext) (string, error) {
+	switch strategy {
+	case publicsession.None:
+		return "", nil
+	case publicsession.Explicit:
+		if request.SessionKey == "" {
+			return "", internalsession.ErrInvalid
+		}
+		return request.SessionKey, nil
+	case publicsession.Client:
+		return string(clientID), nil
+	case publicsession.Destination:
+		return strings.ToLower(strings.TrimSuffix(request.Host, ".")), nil
+	case publicsession.ClientDestination:
+		return string(clientID) + "|" + strings.ToLower(strings.TrimSuffix(request.Host, ".")), nil
+	default:
+		return "", internalsession.ErrInvalid
+	}
+}
+
+func (r *router) sessionEndpointRotationReason(endpointID, poolID model.ID, snapshot *routingSnapshot) publicsession.RotationReason {
+	endpoint, ok := snapshot.endpoints[endpointID]
+	if !ok || !endpoint.Enabled {
+		return publicsession.PolicyChange
+	}
+	seen := map[model.ID]bool{}
+	var member func(model.ID) bool
+	member = func(id model.ID) bool {
+		if seen[id] {
+			return false
+		}
+		seen[id] = true
+		pool, exists := snapshot.pools[id]
+		if !exists || !pool.Enabled {
+			return false
+		}
+		for _, candidate := range pool.EndpointIDs {
+			if candidate == endpointID && matchesPool(endpoint, pool) {
+				return true
+			}
+		}
+		for _, fallback := range pool.FallbackPoolIDs {
+			if member(fallback) {
+				return true
+			}
+		}
+		return false
+	}
+	if !member(poolID) {
+		return publicsession.PolicyChange
+	}
+	if !r.health.Eligible(endpointID, time.Now().UTC()) {
+		return publicsession.HealthQuarantine
+	}
+	return ""
 }
 func (r *router) selectEndpoint(ctx context.Context, poolID model.ID, request policy.RequestContext, snapshot *routingSnapshot) (proxy.Endpoint, error) {
 	seen := map[model.ID]bool{}
@@ -219,7 +340,7 @@ func (r *router) selectEndpoint(ctx context.Context, poolID model.ID, request po
 		}
 		if len(candidates) > 0 {
 			selector := snapshot.selectors[pool.Strategy]
-			chosen, err := selector.Select(ctx, routing.SelectionContext{PoolID: id, Host: request.Host, ClientID: request.ClientID}, candidates)
+			chosen, err := selector.Select(ctx, routing.SelectionContext{PoolID: id, Host: request.Host, ClientID: request.ClientID, SessionKey: request.SessionKey}, candidates)
 			if err == nil {
 				return snapshot.endpoints[chosen], nil
 			}
@@ -309,7 +430,15 @@ func Build(c config.Config) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	runtime := Runtime{Traffic: trafficRecorder}
+	sessionSecret := make([]byte, 32)
+	if _, err = rand.Read(sessionSecret); err != nil {
+		return Runtime{}, err
+	}
+	sessionManager, err := internalsession.New(sessionSecret, 10_000, nil)
+	if err != nil {
+		return Runtime{}, err
+	}
+	runtime := Runtime{Traffic: trafficRecorder, Sessions: sessionManager}
 	var budgetManager *internalbudget.Manager
 	var routeRuntime *routingRuntime
 	if c.Admin.Enabled {
@@ -399,7 +528,7 @@ func Build(c config.Config) (Runtime, error) {
 		if listener.Auth != "local" && listener.Auth != "api_key" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
-		r := &router{policyID: model.ID(listener.Policy), runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager}
+		r := &router{policyID: model.ID(listener.Policy), runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager}
 		switch listener.Type {
 		case "http":
 			if runtime.Server != nil {

@@ -6,10 +6,12 @@ viewer-safe list/get routes and operator-only create/update/delete routes. Every
 mutation is CSRF-protected and recorded in the audit trail.
 
 A pool contains a selection strategy, zero or more proxy endpoint IDs, optional
-fallback pool IDs, tag/country/health/latency constraints and an enabled flag. The
-control plane validates referenced endpoints and fallbacks before saving, rejects
-duplicate members and fallback cycles, and uses optimistic revisions to prevent a
-stale browser from overwriting a newer edit.
+fallback pool IDs, tag/country/health/latency constraints, an optional sticky
+`session_policy`, and an enabled flag. The control plane validates referenced
+endpoints and fallbacks before saving, rejects duplicate members and fallback
+cycles, and uses optimistic revisions to prevent a stale browser from
+overwriting a newer edit. See [sticky sessions](sessions.md) for affinity
+limits and the current process-local scope.
 
 Deletion preserves references: a pool cannot be deleted while another saved pool
 uses it as a fallback, and a proxy cannot be deleted while a saved pool includes

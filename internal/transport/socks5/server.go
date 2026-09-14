@@ -73,7 +73,7 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 	if !ok {
 		return
 	}
-	request := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), Listener: "socks", Protocol: "socks5", Host: host, Port: port, Timestamp: time.Now().UTC()}
+	request := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: "local-socks", Listener: "socks", Protocol: "socks5", Host: host, Port: port, Timestamp: time.Now().UTC()}
 	result, err := s.evaluator.Evaluate(ctx, request, policy.Visibility{Host: true})
 	if err != nil {
 		recordTunnel(s.recorder, ctx, request, gateway.Route{Action: "reject"}, 2, 0, 0, 0, 0)
@@ -131,6 +131,9 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 }
 
 func recordTunnel(recorder trafficpkg.Recorder, ctx context.Context, request policy.RequestContext, route gateway.Route, status int, clientUpload, clientDownload, routeUpload, routeDownload trafficpkg.Bytes) {
+	if route.Complete != nil {
+		route.Complete(context.WithoutCancel(ctx), routeUpload, routeDownload)
+	}
 	if recorder == nil {
 		return
 	}

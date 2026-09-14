@@ -17,6 +17,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
+	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 )
 
@@ -43,7 +44,7 @@ func TestRuntimeActivationIsAtomicRevisionedAndRestartSafe(t *testing.T) {
 	if _, err = repository.Put(t.Context(), endpoint, 0); err != nil {
 		t.Fatal(err)
 	}
-	pool := routing.Pool{ID: "pool", Name: "Pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"proxy"}, Enabled: true}
+	pool := routing.Pool{ID: "pool", Name: "Pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"proxy"}, SessionPolicy: publicsession.Policy{Strategy: publicsession.Client, TTL: time.Hour, IdleTTL: time.Minute, MaxRequests: 100, MaxBytes: 1 << 20}, Enabled: true}
 	if _, err = repository.PutPool(t.Context(), pool, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +55,9 @@ func TestRuntimeActivationIsAtomicRevisionedAndRestartSafe(t *testing.T) {
 	first, err := control.ActivateRuntime(t.Context(), 0, "admin")
 	if err != nil || first.Revision != 1 {
 		t.Fatal(first, err)
+	}
+	if first.Bundle.Pools[0].SessionPolicy != pool.SessionPolicy {
+		t.Fatal("activation lost pool session policy", first.Bundle.Pools[0])
 	}
 	if staged, stagedErr := control.HasStagedRuntimeChanges(t.Context()); stagedErr != nil || staged {
 		t.Fatalf("activated inventory should be synchronized: staged=%v err=%v", staged, stagedErr)
@@ -111,7 +115,7 @@ func TestRuntimeActivationIsAtomicRevisionedAndRestartSafe(t *testing.T) {
 		t.Fatal(reloadedRecord, err)
 	}
 	reloaded, err := newRoutingRuntime(base, reloadedRecord.Bundle, reloadedRecord)
-	if err != nil || reloaded.currentRecord().Bundle.Policies[0].Name != "Proxy" {
+	if err != nil || reloaded.currentRecord().Bundle.Policies[0].Name != "Proxy" || reloaded.currentRecord().Bundle.Pools[0].SessionPolicy != pool.SessionPolicy {
 		t.Fatal(reloadedRecord, err)
 	}
 }

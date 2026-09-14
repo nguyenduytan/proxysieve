@@ -3,12 +3,14 @@ package routing
 
 import (
 	"context"
-	"github.com/nguyenduytan/proxysieve/pkg/model"
-	"github.com/nguyenduytan/proxysieve/pkg/proxy"
-	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/nguyenduytan/proxysieve/pkg/model"
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
+	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
 type Strategy string
@@ -35,16 +37,17 @@ func (s Strategy) Valid() bool {
 }
 
 type Pool struct {
-	ID              model.ID      `json:"id" yaml:"id"`
-	Name            string        `json:"name" yaml:"name"`
-	Strategy        Strategy      `json:"strategy" yaml:"strategy"`
-	EndpointIDs     []model.ID    `json:"endpoint_ids" yaml:"endpoint_ids"`
-	FallbackPoolIDs []model.ID    `json:"fallback_pool_ids" yaml:"fallback_pool_ids"`
-	RequiredTags    []string      `json:"required_tags" yaml:"required_tags"`
-	Country         string        `json:"country" yaml:"country"`
-	MinHealthScore  uint8         `json:"min_health_score" yaml:"min_health_score"`
-	MaxLatency      time.Duration `json:"max_latency_ns" yaml:"max_latency"`
-	Enabled         bool          `json:"enabled" yaml:"enabled"`
+	ID              model.ID             `json:"id" yaml:"id"`
+	Name            string               `json:"name" yaml:"name"`
+	Strategy        Strategy             `json:"strategy" yaml:"strategy"`
+	EndpointIDs     []model.ID           `json:"endpoint_ids" yaml:"endpoint_ids"`
+	FallbackPoolIDs []model.ID           `json:"fallback_pool_ids" yaml:"fallback_pool_ids"`
+	RequiredTags    []string             `json:"required_tags" yaml:"required_tags"`
+	Country         string               `json:"country" yaml:"country"`
+	MinHealthScore  uint8                `json:"min_health_score" yaml:"min_health_score"`
+	MaxLatency      time.Duration        `json:"max_latency_ns" yaml:"max_latency"`
+	SessionPolicy   publicsession.Policy `json:"session_policy" yaml:"session_policy"`
+	Enabled         bool                 `json:"enabled" yaml:"enabled"`
 }
 
 func (p Pool) Clone() Pool {
@@ -55,7 +58,7 @@ func (p Pool) Clone() Pool {
 }
 
 func (p Pool) Validate() error {
-	if !p.ID.Valid() || !p.Strategy.Valid() || strings.TrimSpace(p.Name) == "" || len(p.Name) > 256 || p.MinHealthScore > 100 || p.MaxLatency < 0 || len(p.EndpointIDs) > 1000 || len(p.FallbackPoolIDs) > 1000 || len(p.RequiredTags) > 1000 || len(p.Country) > 128 {
+	if !p.ID.Valid() || !p.Strategy.Valid() || strings.TrimSpace(p.Name) == "" || len(p.Name) > 256 || p.MinHealthScore > 100 || p.MaxLatency < 0 || p.SessionPolicy.Validate() != nil || len(p.EndpointIDs) > 1000 || len(p.FallbackPoolIDs) > 1000 || len(p.RequiredTags) > 1000 || len(p.Country) > 128 {
 		return model.ErrInvalid
 	}
 	seen := map[model.ID]bool{}

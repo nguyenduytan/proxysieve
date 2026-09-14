@@ -6,14 +6,17 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
+	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
+	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
 func Pool(id string) routing.Pool {
-	return routing.Pool{ID: model.ID(id), Name: "Primary pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"proxy"}, RequiredTags: []string{"residential"}, Enabled: true}
+	return routing.Pool{ID: model.ID(id), Name: "Primary pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"proxy"}, RequiredTags: []string{"residential"}, SessionPolicy: publicsession.Policy{Strategy: publicsession.ClientDestination, TTL: time.Hour, IdleTTL: 10 * time.Minute, MaxRequests: 50, MaxBytes: traffic.Bytes(1 << 20)}, Enabled: true}
 }
 
 func RunPools(t *testing.T, newStore func(*testing.T) store.Pools) {
@@ -53,7 +56,7 @@ func RunPools(t *testing.T, newStore func(*testing.T) store.Pools) {
 		pool.EndpointIDs[0] = "input-mutation"
 		record.Pool.RequiredTags[0] = "output-mutation"
 		stored, err := repository.GetPool(t.Context(), "b")
-		if err != nil || stored.Pool.EndpointIDs[0] != "proxy" || stored.Pool.RequiredTags[0] != "residential" {
+		if err != nil || stored.Pool.EndpointIDs[0] != "proxy" || stored.Pool.RequiredTags[0] != "residential" || stored.Pool.SessionPolicy != Pool("b").SessionPolicy {
 			t.Fatal(stored, err)
 		}
 		for _, id := range []string{"c", "a"} {

@@ -24,6 +24,8 @@ import (
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
+const sessionHeader = "X-ProxySieve-Session"
+
 type Decider func(context.Context, policy.RequestContext, policy.Visibility) (policy.Result, error)
 
 func (f Decider) Evaluate(ctx context.Context, r policy.RequestContext, v policy.Visibility) (policy.Result, error) {
@@ -82,6 +84,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.connect(w, r, clientID)
 		return
 	}
+	if len(r.Header.Get(sessionHeader)) > 4096 {
+		http.Error(w, "INVALID_SESSION_KEY", http.StatusBadRequest)
+		return
+	}
 	if r.URL == nil || !r.URL.IsAbs() || r.URL.Host == "" || r.URL.User != nil || r.Host == "" || defaultPort(r.URL.Scheme) == 0 {
 		http.Error(w, "INVALID_PROXY_REQUEST", http.StatusBadRequest)
 		return
@@ -104,7 +110,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "INVALID_DESTINATION", http.StatusBadRequest)
 		return
 	}
-	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "http", Scheme: r.URL.Scheme, Host: host, Port: port, Method: model.Optional[string]{Known: true, Value: r.Method}, Path: model.Optional[string]{Known: true, Value: r.URL.EscapedPath()}, Headers: model.Optional[map[string][]string]{Known: true, Value: cloneHeader(r.Header)}, Timestamp: time.Now().UTC()}
+	visibleHeaders := cloneHeader(r.Header)
+	delete(visibleHeaders, sessionHeader)
+	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "http", Scheme: r.URL.Scheme, Host: host, SessionKey: r.Header.Get(sessionHeader), Port: port, Method: model.Optional[string]{Known: true, Value: r.Method}, Path: model.Optional[string]{Known: true, Value: r.URL.EscapedPath()}, Headers: model.Optional[map[string][]string]{Known: true, Value: visibleHeaders}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true, Path: true, Headers: true})
 	if err != nil {
 		recordHTTP(h.recorder, r, ctx, gateway.Route{Action: "reject"}, host, 0, 0, 0, http.StatusForbidden, 0)
@@ -135,13 +143,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "BUDGET_EXCEEDED", http.StatusTooManyRequests)
 		return
 	}
-	cacheKey := cacheKeyFor(route, r)
+	cacheKey := cacheKeyFor(route, ctx, r)
 	if h.responseCache != nil && cachepkg.CheckRequest(r).Eligible {
 		if cached, ok := h.responseCache.Get(cacheKey, time.Now().UTC()); ok {
 			copyHeader(w.Header(), http.Header(cached.Header))
 			w.WriteHeader(cached.Status)
 			delivered := &internaltraffic.Writer{Destination: w}
 			_, copyErr := delivered.Write(cached.Body)
+			completeRoute(r.Context(), route, 0, 0)
 			if h.recorder != nil {
 				_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: "cache", StatusCode: cached.Status, ClientDownload: delivered.Bytes(), CacheServed: delivered.Bytes()})
 			}
@@ -215,6 +224,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model.ID) {
+	if len(r.Header.Get(sessionHeader)) > 4096 {
+		http.Error(w, "INVALID_SESSION_KEY", http.StatusBadRequest)
+		return
+	}
 	host, portRaw, err := net.SplitHostPort(r.Host)
 	if err != nil || !proxy.ValidHost(host) {
 		http.Error(w, "INVALID_CONNECT_TARGET", http.StatusBadRequest)
@@ -225,7 +238,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		http.Error(w, "INVALID_CONNECT_TARGET", http.StatusBadRequest)
 		return
 	}
-	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "connect", Host: host, Port: uint16(port64), Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
+	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "connect", Host: host, SessionKey: r.Header.Get(sessionHeader), Port: uint16(port64), Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true})
 	if err != nil {
 		recordTunnel(h.recorder, r.Context(), ctx, gateway.Route{Action: "reject"}, host, "connect", http.StatusForbidden, 0, 0, 0, 0)
@@ -347,14 +360,19 @@ type countedBody struct {
 	io.Closer
 }
 
-func cacheKeyFor(route gateway.Route, request *http.Request) cachepkg.Key {
+func cacheKeyFor(route gateway.Route, requestContext policy.RequestContext, request *http.Request) cachepkg.Key {
 	routeID := route.PoolID
 	if routeID == "" {
 		routeID = "direct"
 	}
-	return cachepkg.Key{ClientID: "local", SessionHash: "anonymous", RouteID: routeID, Method: request.Method, URL: request.URL.String(), Vary: map[string]string{}}
+	sessionHash := route.SessionHash
+	if sessionHash == "" {
+		sessionHash = "none"
+	}
+	return cachepkg.Key{ClientID: requestContext.ClientID, SessionHash: sessionHash, RouteID: routeID, Method: request.Method, URL: request.URL.String(), Vary: map[string]string{}}
 }
 func recordHTTP(recorder trafficpkg.Recorder, request *http.Request, ctx policy.RequestContext, route gateway.Route, host string, upload, download, delivered trafficpkg.Bytes, status int, cacheServed trafficpkg.Bytes) {
+	completeRoute(request.Context(), route, upload, download)
 	if recorder == nil {
 		return
 	}
@@ -371,6 +389,7 @@ func recordHTTP(recorder trafficpkg.Recorder, request *http.Request, ctx policy.
 }
 
 func recordTunnel(recorder trafficpkg.Recorder, recordContext context.Context, request policy.RequestContext, route gateway.Route, host, protocol string, status int, clientUpload, clientDownload, routeUpload, routeDownload trafficpkg.Bytes) {
+	completeRoute(recordContext, route, routeUpload, routeDownload)
 	if recorder == nil {
 		return
 	}
@@ -391,9 +410,15 @@ func recordTunnel(recorder trafficpkg.Recorder, recordContext context.Context, r
 		UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, ConfiguredCost: cost,
 	})
 }
+
+func completeRoute(ctx context.Context, route gateway.Route, upload, download trafficpkg.Bytes) {
+	if route.Complete != nil {
+		route.Complete(context.WithoutCancel(ctx), upload, download)
+	}
+}
 func (h *Handler) authenticateRequest(w http.ResponseWriter, r *http.Request) (model.ID, bool) {
 	if h.authenticate == nil {
-		return "", true
+		return "local-http", true
 	}
 	id, err := h.authenticate(r.Context(), r.Header.Get("Proxy-Authorization"))
 	if err != nil {

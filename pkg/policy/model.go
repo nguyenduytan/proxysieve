@@ -192,6 +192,7 @@ func (a Action) Valid() bool {
 type RequestContext struct {
 	RequestID, ConnectionID, ClientID    model.ID
 	Listener, Protocol, Scheme, Host     string
+	SessionKey                           string `json:"-"`
 	Port                                 uint16
 	SourceIP, DestinationIP              netip.Addr
 	Method, Path, ResourceType, MIMEHint model.Optional[string]

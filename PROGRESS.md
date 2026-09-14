@@ -10,7 +10,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-14.
 - [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local no-auth SOCKS5 CONNECT and runtime multi-listener support implemented; password auth/metrics pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
-- [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool inventory and runtime pool activation locally implemented; session services and chaining pending)
+- [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool inventory, runtime activation and bounded process-local sticky affinity locally implemented; durable session services, observability and chaining pending)
 - [ ] M7 — Health, circuit breaker, safe retries (health/circuit routing and conservative retry eligibility locally implemented; active checks/backoff/transport retry pending)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe hard byte-budget enforcement locally implemented; transport framing, billing windows, projections, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
@@ -127,6 +127,22 @@ work, not tagged as `v1.0.0`.
 The original plan's intentional Markdown hard-break spaces are preserved. The
 staged whitespace check applies to newly authored files without rewriting that
 source document.
+
+### Latest local continuation — bounded sticky affinity (2026-09-14)
+
+- Added revisioned pool `session_policy` with explicit, client, destination and
+  client-plus-destination affinity strategies, TTL/idle/request/byte bounds and
+  rotation on revision, policy, endpoint health or upstream failure changes.
+- Session keys are HMAC-indexed and raw values never enter storage, logs or
+  upstream headers. HTTP cache keys now partition by downstream client and
+  session hash; usage is recorded after HTTP/cache/tunnel completion.
+- Added Admin Pool controls with native bounds, conditional limit fields and
+  single-surface feedback. Added session documentation, OpenAPI schema and
+  persistence/runtime activation coverage.
+- Verified explicit affinity end to end with two upstreams, header isolation,
+  cache partitioning, overflow atomicity, SQLite/memory round trips and
+  desktop/mobile Admin QA. M6 remains open because sessions are process-local,
+  session API/observability and chaining are not implemented.
 
 Vite child-process execution and golangci-lint's user cache required approved
 out-of-sandbox runs; no safety checks were disabled to work around those restrictions.

@@ -19,6 +19,7 @@ import type {
   PoolStrategy,
   ProxyPage,
   Role,
+  SessionStrategy,
 } from "./api";
 
 const strategies: readonly PoolStrategy[] = [
@@ -431,13 +432,33 @@ function PoolForm({
     String((source?.max_latency_ns ?? 0) / 1_000_000),
   );
   const [enabled, setEnabled] = useState(source?.enabled ?? true);
+  const [sessionStrategy, setSessionStrategy] = useState<SessionStrategy>(
+    source?.session_policy?.strategy ?? "none",
+  );
+  const [sessionTTL, setSessionTTL] = useState(
+    String((source?.session_policy?.ttl_ns ?? 0) / 60_000_000_000),
+  );
+  const [sessionIdleTTL, setSessionIdleTTL] = useState(
+    String((source?.session_policy?.idle_ttl_ns ?? 0) / 60_000_000_000),
+  );
+  const [sessionMaxRequests, setSessionMaxRequests] = useState(
+    String(source?.session_policy?.max_requests ?? 0),
+  );
+  const [sessionMaxBytes, setSessionMaxBytes] = useState(
+    String(source?.session_policy?.max_bytes ?? 0),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const stickySession = sessionStrategy !== "none";
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const health = Number(minHealth);
     const latency = Number(maxLatency);
+    const ttl = Number(sessionTTL);
+    const idleTTL = Number(sessionIdleTTL);
+    const maxRequests = Number(sessionMaxRequests);
+    const maxBytes = Number(sessionMaxBytes);
     if (!Number.isInteger(health) || health < 0 || health > 100) {
       setError("Minimum health score must be an integer from 0 to 100.");
       return;
@@ -445,6 +466,30 @@ function PoolForm({
     if (!Number.isFinite(latency) || latency < 0 || latency > 86_400_000) {
       setError(
         "Maximum latency must be between 0 and 86,400,000 milliseconds.",
+      );
+      return;
+    }
+    if (
+      stickySession &&
+      (!Number.isInteger(ttl) ||
+        ttl < 0 ||
+        ttl > 525_600 ||
+        !Number.isInteger(idleTTL) ||
+        idleTTL < 0 ||
+        idleTTL > 525_600)
+    ) {
+      setError("Session TTL values must be whole minutes from 0 to 525,600.");
+      return;
+    }
+    if (
+      stickySession &&
+      (!Number.isSafeInteger(maxRequests) ||
+        maxRequests < 0 ||
+        !Number.isSafeInteger(maxBytes) ||
+        maxBytes < 0)
+    ) {
+      setError(
+        "Session request and byte limits must be non-negative integers.",
       );
       return;
     }
@@ -468,6 +513,13 @@ function PoolForm({
       country: country.trim(),
       min_health_score: health,
       max_latency_ns: Math.round(latency * 1_000_000),
+      session_policy: {
+        strategy: sessionStrategy,
+        ttl_ns: stickySession ? ttl * 60_000_000_000 : 0,
+        idle_ttl_ns: stickySession ? idleTTL * 60_000_000_000 : 0,
+        max_requests: stickySession ? maxRequests : 0,
+        max_bytes: stickySession ? maxBytes : 0,
+      },
       enabled,
     };
     try {
@@ -558,6 +610,67 @@ function PoolForm({
             onChange={(event) => setMaxLatency(event.target.value)}
           />
         </label>
+        <label>
+          Session affinity
+          <select
+            value={sessionStrategy}
+            onChange={(event) =>
+              setSessionStrategy(event.target.value as SessionStrategy)
+            }
+          >
+            <option value="none">No sticky session</option>
+            <option value="explicit">Explicit session header</option>
+            <option value="client">By client</option>
+            <option value="destination">By destination</option>
+            <option value="client_destination">Client + destination</option>
+          </select>
+        </label>
+        {stickySession ? (
+          <>
+            <label>
+              Session TTL (minutes, 0 disables)
+              <input
+                type="number"
+                min={0}
+                max={525600}
+                step={1}
+                value={sessionTTL}
+                onChange={(event) => setSessionTTL(event.target.value)}
+              />
+            </label>
+            <label>
+              Session idle TTL (minutes, 0 disables)
+              <input
+                type="number"
+                min={0}
+                max={525600}
+                step={1}
+                value={sessionIdleTTL}
+                onChange={(event) => setSessionIdleTTL(event.target.value)}
+              />
+            </label>
+            <label>
+              Max session requests (0 disables)
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={sessionMaxRequests}
+                onChange={(event) => setSessionMaxRequests(event.target.value)}
+              />
+            </label>
+            <label>
+              Max session bytes (0 disables)
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={sessionMaxBytes}
+                onChange={(event) => setSessionMaxBytes(event.target.value)}
+              />
+            </label>
+          </>
+        ) : null}
         <ChoiceGroup
           legend="Proxy endpoints"
           empty="Save a proxy endpoint before assigning pool members."
@@ -594,6 +707,19 @@ function PoolForm({
       <p className="field-help">
         Required tags, country, health and latency constraints are applied by
         the runtime selector after the complete inventory is activated.
+        {stickySession ? (
+          <>
+            {" "}
+            Sticky sessions never change proxy during an active tunnel.
+            {sessionStrategy === "explicit" ? (
+              <>
+                {" "}
+                Explicit affinity reads the internal{" "}
+                <code>X-ProxySieve-Session</code> header.
+              </>
+            ) : null}
+          </>
+        ) : null}
       </p>
       {error ? (
         <p role="alert" className="auth-error">

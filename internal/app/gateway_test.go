@@ -12,6 +12,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	"github.com/nguyenduytan/proxysieve/pkg/secret"
+	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 	"io"
 	"net"
 	"net/http"
@@ -137,6 +138,72 @@ func TestProxyPoolRoutesToUpstream(t *testing.T) {
 	_ = response.Body.Close()
 	if string(body) != "proxied" || gotURL != "http://origin.example.invalid/path" {
 		t.Fatalf("%q %q", body, gotURL)
+	}
+}
+
+func TestExplicitSessionAffinityReusesSelectedProxy(t *testing.T) {
+	var firstHits, secondHits int
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		firstHits++
+		_, _ = io.WriteString(w, "first")
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		secondHits++
+		_, _ = io.WriteString(w, "second")
+	}))
+	defer second.Close()
+	endpoint := func(id model.ID, rawURL string) proxy.Endpoint {
+		parsed, _ := url.Parse(rawURL)
+		host, portRaw, _ := net.SplitHostPort(parsed.Host)
+		return proxy.Endpoint{ID: id, Name: string(id), Protocol: proxy.HTTP, Host: host, Port: parsePort(t, portRaw), Enabled: true, TrustedRemoteDNS: true}
+	}
+	c := config.Defaults(t.TempDir())
+	c.Listeners = c.Listeners[:1]
+	c.Admin.Enabled = false
+	c.Proxies = []proxy.Endpoint{endpoint("first", first.URL), endpoint("second", second.URL)}
+	c.Pools = []routing.Pool{{ID: "pool", Name: "pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"first", "second"}, SessionPolicy: publicsession.Policy{Strategy: publicsession.Explicit, TTL: time.Hour}, Enabled: true}}
+	c.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "default", Rules: []policy.Rule{{ID: "route", Name: "route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}}}}
+	runtime, err := Build(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downstream := httptest.NewServer(runtime.Server.Handler)
+	defer downstream.Close()
+	downstreamURL, _ := url.Parse(downstream.URL)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(downstreamURL)}}
+	request := func(key string) string {
+		req, requestErr := http.NewRequest(http.MethodGet, "http://origin.example.invalid/path", nil)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		req.Header.Set("X-ProxySieve-Session", key)
+		response, requestErr := client.Do(req)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		body, requestErr := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		return string(body)
+	}
+	if got := request("alpha"); got != "first" {
+		t.Fatal(got)
+	}
+	if got := request("alpha"); got != "first" {
+		t.Fatal("sticky session changed proxy", got)
+	}
+	if got := request("beta"); got != "second" {
+		t.Fatal("independent session did not select independently", got)
+	}
+	if firstHits != 2 || secondHits != 1 {
+		t.Fatal(firstHits, secondHits)
+	}
+	sessions, err := runtime.Sessions.List(t.Context())
+	if err != nil || len(sessions) != 2 || sessions[0].RequestCount+sessions[1].RequestCount != 3 {
+		t.Fatal(sessions, err)
 	}
 }
 

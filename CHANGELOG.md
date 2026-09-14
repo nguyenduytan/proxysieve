@@ -31,6 +31,10 @@
 - Added revisioned proxy-pool persistence and audited RBAC/CSRF-protected CRUD API,
   including endpoint/fallback validation, fallback-cycle checks and reference-safe
   deletion.
+- Added bounded process-local sticky affinity for explicit, client, destination
+  and client-plus-destination session keys, with TTL/idle/request/byte rotation,
+  health and runtime-revision invalidation, cache partitioning, internal-header
+  isolation and Admin pool controls.
 - Added a responsive Pools workspace for viewer-safe inventory and operator
   create/edit, enable/disable and inline-confirmed delete workflows with explicit
   staged-state semantics.

@@ -57,7 +57,7 @@ explicitly scoped features.
 | Area | Available locally | Still in progress |
 | --- | --- | --- |
 | Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, graceful shutdown, listener limits | SOCKS password auth, UDP, transport-framing accounting |
-| Routing | Deterministic policies, atomic revisioned inventory activation/rollback, simulation, selection strategies, configured upstream HTTP/HTTPS/SOCKS | Chains, session services, full failover |
+| Routing | Deterministic policies, atomic revisioned inventory activation/rollback, simulation, selection strategies, process-local bounded sticky affinity, configured upstream HTTP/HTTPS/SOCKS | Chains, durable session services/observability, full failover |
 | Safety | Loopback defaults, private destination checks, pinned DIRECT DNS, no implicit DIRECT, source fetch guard | Persistent encrypted secret store, TLS remote admin |
 | Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited revisioned proxy/source/pool/policy/client/API-key APIs, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore and published OpenAPI contract | SSE, import/export |
 | Measurement | HTTP/CONNECT/SOCKS5 application-stream counters, newest-event live buffer, bounded batched SQLite history, restart-safe minute/hour/day rollups, tier-specific pruning, bounded summary/timeseries queries, currency-separated configured-cost estimates, health/circuit state, restart-safe hard byte-budget enforcement | Transport/proxy framing, billing windows, soft/cost budgets, projections, provider billing reconciliation |
@@ -146,6 +146,7 @@ paste proxy credentials, cookies, API keys, setup tokens, or user traffic in iss
 - [Configuration](docs/configuration.md)
 - [Admin control plane](docs/admin-api-foundation.md)
 - [Pool inventory](docs/pools.md)
+- [Sticky sessions](docs/sessions.md)
 - [Policy inventory and simulation](docs/policies.md)
 - [Runtime activation and rollback](docs/runtime-activation.md)
 - [Proxy source security](docs/proxy-sources.md)

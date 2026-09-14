@@ -26,6 +26,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	"github.com/nguyenduytan/proxysieve/pkg/secret"
+	"github.com/nguyenduytan/proxysieve/pkg/session"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 	publictraffic "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
@@ -595,9 +596,9 @@ func TestPoolLifecycleValidatesReferencesCyclesAndRevisions(t *testing.T) {
 		t.Fatal(response.Code, response.Body.String())
 	}
 
-	primary := routing.Pool{ID: "primary", Name: "Primary", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"proxy"}, Enabled: true}
+	primary := routing.Pool{ID: "primary", Name: "Primary", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"proxy"}, SessionPolicy: session.Policy{Strategy: session.Client, TTL: time.Hour, IdleTTL: time.Minute, MaxRequests: 100, MaxBytes: 1 << 20}, Enabled: true}
 	response = mutationRequest(handler, http.MethodPost, "/api/v1/pools", map[string]any{"pool": primary}, cookies)
-	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"revision":1`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"runtime_active":false`)) {
+	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"revision":1`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"runtime_active":false`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"session_policy":{"strategy":"client","ttl_ns":3600000000000,"idle_ttl_ns":60000000000,"max_requests":100,"max_bytes":1048576}`)) {
 		t.Fatal(response.Code, response.Body.String())
 	}
 	primary.Name = "Updated primary"
