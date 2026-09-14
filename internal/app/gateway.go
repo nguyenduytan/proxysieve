@@ -4,6 +4,9 @@ package app
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"net"
 	"net/http"
@@ -38,6 +41,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
+	"github.com/nguyenduytan/proxysieve/pkg/secret"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
@@ -400,7 +404,7 @@ func Build(c config.Config) (Runtime, error) {
 	}
 	types := map[string]bool{}
 	for _, listener := range c.Listeners {
-		if listener.Auth != "local" && listener.Auth != "api_key" {
+		if listener.Auth != "local" && listener.Auth != "api_key" && listener.Auth != "password" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
 		if listener.Auth == "api_key" && listener.Type != "http" {
@@ -526,10 +530,14 @@ func Build(c config.Config) (Runtime, error) {
 		}
 	}
 	for _, listener := range c.Listeners {
-		if listener.Auth != "local" && listener.Auth != "api_key" {
+		if listener.Auth != "local" && listener.Auth != "api_key" && listener.Auth != "password" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
 		r := &router{policyID: model.ID(listener.Policy), runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager}
+		var authenticatePassword func(context.Context, string, string) (model.ID, error)
+		if listener.Auth == "password" {
+			authenticatePassword = passwordAuthenticator(listener.CredentialRef, listener.Name)
+		}
 		switch listener.Type {
 		case "http":
 			if runtime.Server != nil {
@@ -548,7 +556,7 @@ func Build(c config.Config) (Runtime, error) {
 			if runtime.Durable != nil {
 				recorder = internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, runtime.Durable}}
 			}
-			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: recorder, Authenticate: authenticate, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20)})
+			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: recorder, Authenticate: authenticate, AuthenticatePassword: authenticatePassword, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20)})
 			if err != nil {
 				return Runtime{}, err
 			}
@@ -563,7 +571,7 @@ func Build(c config.Config) (Runtime, error) {
 			if runtime.Durable != nil {
 				recorder = internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, runtime.Durable}}
 			}
-			server, err := socks5.New(socks5.Options{Evaluator: r, Router: r, Recorder: recorder, IdleTimeout: time.Duration(listener.IdleTimeout)})
+			server, err := socks5.New(socks5.Options{Evaluator: r, Router: r, Recorder: recorder, AuthenticatePassword: authenticatePassword, IdleTimeout: time.Duration(listener.IdleTimeout)})
 			if err != nil {
 				return Runtime{}, err
 			}
@@ -578,6 +586,40 @@ func Build(c config.Config) (Runtime, error) {
 		return Runtime{}, ErrUnsupportedListener
 	}
 	return runtime, nil
+}
+
+func passwordAuthenticator(ref secret.Ref, listenerName string) func(context.Context, string, string) (model.ID, error) {
+	return func(ctx context.Context, username, password string) (model.ID, error) {
+		if len(username) == 0 || len(username) > 255 || len(password) == 0 || len(password) > 255 {
+			return "", downstreamauth.ErrUnauthorized
+		}
+		credentials, err := (secrets.Environment{}).ResolveCredentials(ctx, ref)
+		if err != nil {
+			return "", downstreamauth.ErrUnauthorized
+		}
+		expectedUser := credentials.Username.Reveal()
+		expectedPassword := credentials.Password.Reveal()
+		providedUser, providedPassword := []byte(username), []byte(password)
+		userOK := subtle.ConstantTimeCompare(expectedUser, providedUser)
+		passwordOK := subtle.ConstantTimeCompare(expectedPassword, providedPassword)
+		for i := range expectedUser {
+			expectedUser[i] = 0
+		}
+		for i := range expectedPassword {
+			expectedPassword[i] = 0
+		}
+		for i := range providedUser {
+			providedUser[i] = 0
+		}
+		for i := range providedPassword {
+			providedPassword[i] = 0
+		}
+		if userOK != 1 || passwordOK != 1 {
+			return "", downstreamauth.ErrUnauthorized
+		}
+		hash := sha256.Sum256([]byte(listenerName + "\x00" + username))
+		return model.ID("pwd_" + hex.EncodeToString(hash[:])), nil
+	}
 }
 func (r Runtime) Run(ctx context.Context) error {
 	return r.RunReady(ctx, nil)

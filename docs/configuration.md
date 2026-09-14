@@ -112,12 +112,16 @@ route is rejected. This intentionally makes unsafe remote DNS configuration fail
 closed rather than creating a surprise SSRF path.
 
 Current listener support is HTTP forward/CONNECT and SOCKS5 TCP CONNECT. `auth: local`
-is supported only for loopback/trusted use. `auth: password` validates as a future
-configuration shape but startup rejects it until M11 client identity storage exists.
+is supported only for loopback/trusted use. `auth: password` enables HTTP Basic or
+SOCKS5 RFC1929 authentication using the referenced environment credential. The
+authenticated username is mapped to an opaque listener-scoped client identity;
+credentials are resolved per connection and are never persisted or logged.
 SOCKS5 UDP ASSOCIATE is not supported. No route reaches the network until a policy
 returns `direct` or `proxy`; `reject`/`block` remain fail-closed.
 
 For an HTTP listener, `auth: api_key` enables downstream `Proxy-Authorization:
 Bearer psk_...` authentication against a stored, enabled client key. Create the key
 through the local administrator API; only its hash/prefix is retained. Do not place
-the raw downstream key in YAML. SOCKS API-key/password auth remains pending.
+the raw downstream key in YAML. Password listeners use `Proxy-Authorization: Basic`
+for HTTP and username/password sub-negotiation for SOCKS5. API-key auth remains an
+HTTP-only mode.

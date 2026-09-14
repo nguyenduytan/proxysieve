@@ -3,6 +3,7 @@ package socks5
 import (
 	"bufio"
 	"context"
+	"errors"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"io"
@@ -108,6 +109,56 @@ func TestRejectsUnsupportedMethodsAndRoutes(t *testing.T) {
 		if input[0] == 5 && reply[1] != 255 {
 			t.Fatal(reply)
 		}
+	}
+}
+
+func TestPasswordAuthenticationSetsClientIdentity(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = client.Close() }()
+	gotClient := make(chan model.ID, 1)
+	s, err := New(Options{
+		Evaluator: eval(func(_ context.Context, request policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
+			gotClient <- request.ClientID
+			return policy.Result{Actions: []policy.Action{{Type: "reject"}}}, nil
+		}),
+		Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{Action: "reject"}, nil
+		}),
+		AuthenticatePassword: func(_ context.Context, username, password string) (model.ID, error) {
+			if username != "alice" || password != "correct horse" {
+				return "", errors.New("invalid credentials")
+			}
+			return "client-alice", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go s.Serve(context.Background(), server)
+	if _, err = client.Write([]byte{5, 1, 2}); err != nil {
+		t.Fatal(err)
+	}
+	methodReply := make([]byte, 2)
+	if _, err = io.ReadFull(client, methodReply); err != nil || methodReply[0] != 5 || methodReply[1] != 2 {
+		t.Fatal(methodReply, err)
+	}
+	auth := []byte{1, 5, 'a', 'l', 'i', 'c', 'e', 13, 'c', 'o', 'r', 'r', 'e', 'c', 't', ' ', 'h', 'o', 'r', 's', 'e'}
+	if _, err = client.Write(auth); err != nil {
+		t.Fatal(err)
+	}
+	authReply := make([]byte, 2)
+	if _, err = io.ReadFull(client, authReply); err != nil || authReply[1] != 0 {
+		t.Fatal(authReply, err)
+	}
+	if _, err = client.Write([]byte{5, 1, 0, 3, 4, 't', 'e', 's', 't', 1, 187}); err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, 2)
+	if _, err = io.ReadFull(client, reply); err != nil || reply[1] != 2 {
+		t.Fatal(reply, err)
+	}
+	if got := <-gotClient; got != "client-alice" {
+		t.Fatal(got)
 	}
 }
 

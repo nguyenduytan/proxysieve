@@ -56,7 +56,7 @@ explicitly scoped features.
 
 | Area | Available locally | Still in progress |
 | --- | --- | --- |
-| Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, graceful shutdown, listener limits | SOCKS password auth, UDP, transport-framing accounting |
+| Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, HTTP Basic/SOCKS5 password auth, graceful shutdown, listener limits | UDP, transport-framing accounting |
 | Routing | Deterministic policies, atomic revisioned inventory activation/rollback, simulation, selection strategies, process-local bounded sticky affinity, configured upstream HTTP/HTTPS/SOCKS | Chains, durable session services/observability, full failover |
 | Safety | Loopback defaults, private destination checks, pinned DIRECT DNS, no implicit DIRECT, source fetch guard | Persistent encrypted secret store, TLS remote admin |
 | Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited revisioned proxy/source/pool/policy/client/API-key APIs, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore and published OpenAPI contract | SSE, import/export |

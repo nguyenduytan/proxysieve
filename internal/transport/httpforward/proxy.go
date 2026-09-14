@@ -4,6 +4,7 @@ package httpforward
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
@@ -39,22 +40,24 @@ func (f RouterFunc) Route(ctx context.Context, r policy.RequestContext, result p
 }
 
 type Options struct {
-	Evaluator      gateway.Evaluator
-	Router         gateway.Router
-	Recorder       trafficpkg.Recorder
-	Authenticate   func(context.Context, string) (model.ID, error)
-	ResponseCache  *internalcache.Memory
-	MaxCacheBody   int64
-	MaxHeaderBytes int
+	Evaluator            gateway.Evaluator
+	Router               gateway.Router
+	Recorder             trafficpkg.Recorder
+	Authenticate         func(context.Context, string) (model.ID, error)
+	AuthenticatePassword func(context.Context, string, string) (model.ID, error)
+	ResponseCache        *internalcache.Memory
+	MaxCacheBody         int64
+	MaxHeaderBytes       int
 }
 type Handler struct {
-	evaluator      gateway.Evaluator
-	router         gateway.Router
-	recorder       trafficpkg.Recorder
-	authenticate   func(context.Context, string) (model.ID, error)
-	responseCache  *internalcache.Memory
-	maxCacheBody   int64
-	maxHeaderBytes int
+	evaluator            gateway.Evaluator
+	router               gateway.Router
+	recorder             trafficpkg.Recorder
+	authenticate         func(context.Context, string) (model.ID, error)
+	authenticatePassword func(context.Context, string, string) (model.ID, error)
+	responseCache        *internalcache.Memory
+	maxCacheBody         int64
+	maxHeaderBytes       int
 }
 
 func New(options Options) (*Handler, error) {
@@ -73,7 +76,7 @@ func New(options Options) (*Handler, error) {
 	if options.MaxCacheBody < 1 || options.MaxCacheBody > 8<<20 {
 		return nil, errors.New("invalid cache response limit")
 	}
-	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, authenticate: options.Authenticate, responseCache: options.ResponseCache, maxCacheBody: options.MaxCacheBody, maxHeaderBytes: options.MaxHeaderBytes}, nil
+	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, authenticate: options.Authenticate, authenticatePassword: options.AuthenticatePassword, responseCache: options.ResponseCache, maxCacheBody: options.MaxCacheBody, maxHeaderBytes: options.MaxHeaderBytes}, nil
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	clientID, ok := h.authenticateRequest(w, r)
@@ -111,7 +114,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	visibleHeaders := cloneHeader(r.Header)
-	delete(visibleHeaders, sessionHeader)
+	for key := range visibleHeaders {
+		lower := strings.ToLower(key)
+		if strings.EqualFold(key, "Proxy-Authorization") || strings.HasPrefix(lower, "x-proxysieve-") {
+			delete(visibleHeaders, key)
+		}
+	}
 	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "http", Scheme: r.URL.Scheme, Host: host, SessionKey: r.Header.Get(sessionHeader), Port: port, Method: model.Optional[string]{Known: true, Value: r.Method}, Path: model.Optional[string]{Known: true, Value: r.URL.EscapedPath()}, Headers: model.Optional[map[string][]string]{Known: true, Value: visibleHeaders}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true, Path: true, Headers: true})
 	if err != nil {
@@ -417,6 +425,21 @@ func completeRoute(ctx context.Context, route gateway.Route, upload, download tr
 	}
 }
 func (h *Handler) authenticateRequest(w http.ResponseWriter, r *http.Request) (model.ID, bool) {
+	if h.authenticatePassword != nil {
+		username, password, ok := basicCredentials(r.Header.Get("Proxy-Authorization"))
+		if !ok {
+			w.Header().Set("Proxy-Authenticate", `Basic realm="ProxySieve"`)
+			http.Error(w, "PROXY_AUTH_REQUIRED", http.StatusProxyAuthRequired)
+			return "", false
+		}
+		clientID, err := h.authenticatePassword(r.Context(), username, password)
+		if err != nil {
+			w.Header().Set("Proxy-Authenticate", `Basic realm="ProxySieve"`)
+			http.Error(w, "PROXY_AUTH_REQUIRED", http.StatusProxyAuthRequired)
+			return "", false
+		}
+		return clientID, true
+	}
 	if h.authenticate == nil {
 		return "local-http", true
 	}
@@ -427,6 +450,26 @@ func (h *Handler) authenticateRequest(w http.ResponseWriter, r *http.Request) (m
 		return "", false
 	}
 	return id, true
+}
+
+func basicCredentials(header string) (string, string, bool) {
+	parts := strings.SplitN(strings.TrimSpace(header), " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Basic") || len(parts[1]) > 8192 {
+		return "", "", false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", "", false
+	}
+	decodedText := string(decoded)
+	for i := range decoded {
+		decoded[i] = 0
+	}
+	username, password, ok := strings.Cut(decodedText, ":")
+	if !ok || username == "" || password == "" || len(username) > 255 || len(password) > 255 {
+		return "", "", false
+	}
+	return username, password, true
 }
 
 var _ http.Handler = (*Handler)(nil)

@@ -249,6 +249,43 @@ func TestDownstreamBearerAuth(t *testing.T) {
 		t.Fatal("client identity missing from traffic event", events)
 	}
 }
+
+func TestDownstreamBasicPasswordAuth(t *testing.T) {
+	called := false
+	h, err := New(Options{
+		Evaluator: Decider(func(_ context.Context, request policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
+			_, leaked := request.Headers.Value["Proxy-Authorization"]
+			called = request.ClientID == "client-alice" && !leaked
+			return policy.Result{Actions: []policy.Action{{Type: "reject"}}}, nil
+		}),
+		Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{Action: "reject"}, nil
+		}),
+		AuthenticatePassword: func(_ context.Context, username, password string) (model.ID, error) {
+			if username != "alice" || password != "correct horse" {
+				return "", errors.New("bad credentials")
+			}
+			return "client-alice", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://example.invalid/", nil)
+	request.Header.Set("Proxy-Authorization", "Basic YWxpY2U6Y29ycmVjdCBob3JzZQ==")
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || !called {
+		t.Fatalf("status=%d called=%v body=%q", response.Code, called, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "http://example.invalid/", nil)
+	request.Header.Set("Proxy-Authorization", "Basic YWxpY2U6d3Jvbmc=")
+	response = httptest.NewRecorder()
+	h.ServeHTTP(response, request)
+	if response.Code != http.StatusProxyAuthRequired || response.Header().Get("Proxy-Authenticate") == "" {
+		t.Fatalf("status=%d headers=%v", response.Code, response.Header())
+	}
+}
 func TestConnectDirectTunnel(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "tunnel ok") }))
 	defer target.Close()

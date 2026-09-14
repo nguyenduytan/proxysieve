@@ -34,15 +34,19 @@ type Evaluator gateway.Evaluator
 type Router gateway.Router
 
 type Options struct {
-	Evaluator   gateway.Evaluator
-	Router      gateway.Router
-	Recorder    trafficpkg.Recorder
-	IdleTimeout time.Duration
+	Evaluator gateway.Evaluator
+	Router    gateway.Router
+	Recorder  trafficpkg.Recorder
+	// AuthenticatePassword validates one RFC1929 username/password exchange
+	// and returns the opaque downstream client identity.
+	AuthenticatePassword func(context.Context, string, string) (model.ID, error)
+	IdleTimeout          time.Duration
 }
 type Server struct {
 	evaluator gateway.Evaluator
 	router    gateway.Router
 	recorder  trafficpkg.Recorder
+	auth      func(context.Context, string, string) (model.ID, error)
 	idle      time.Duration
 }
 
@@ -56,24 +60,24 @@ func New(options Options) (*Server, error) {
 	if options.IdleTimeout > 24*time.Hour {
 		return nil, errors.New("invalid socks5 idle timeout")
 	}
-	return &Server{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, idle: options.IdleTimeout}, nil
+	return &Server{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, auth: options.AuthenticatePassword, idle: options.IdleTimeout}, nil
 }
 
 // Serve accepts one downstream connection. No-auth is only used by a listener
-// already restricted to local/trusted scope by config validation. Password auth is
-// deliberately rejected until client identity storage is implemented in M11.
+// already restricted to local/trusted scope by config validation.
 func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(s.idle))
 	reader := bufio.NewReader(conn)
-	if !negotiate(reader, conn) {
+	clientID, ok := negotiate(ctx, reader, conn, s.auth)
+	if !ok {
 		return
 	}
 	host, port, ok := readRequest(reader)
 	if !ok {
 		return
 	}
-	request := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: "local-socks", Listener: "socks", Protocol: "socks5", Host: host, Port: port, Timestamp: time.Now().UTC()}
+	request := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "socks", Protocol: "socks5", Host: host, Port: port, Timestamp: time.Now().UTC()}
 	result, err := s.evaluator.Evaluate(ctx, request, policy.Visibility{Host: true})
 	if err != nil {
 		recordTunnel(s.recorder, ctx, request, gateway.Route{Action: "reject"}, 2, 0, 0, 0, 0)
@@ -154,26 +158,80 @@ func recordTunnel(recorder trafficpkg.Recorder, ctx context.Context, request pol
 		UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, ConfiguredCost: cost,
 	})
 }
-func negotiate(reader *bufio.Reader, conn net.Conn) bool {
+func negotiate(ctx context.Context, reader *bufio.Reader, conn net.Conn, authenticate func(context.Context, string, string) (model.ID, error)) (model.ID, bool) {
 	header := make([]byte, 2)
 	if _, err := io.ReadFull(reader, header); err != nil || header[0] != version5 || header[1] == 0 {
-		return false
+		return "", false
 	}
 	methods := make([]byte, header[1])
 	if _, err := io.ReadFull(reader, methods); err != nil {
-		return false
+		return "", false
 	}
 	selected := byte(noAcceptableMethod)
-	for _, method := range methods {
-		if method == noAuth {
-			selected = noAuth
-			break
+	if authenticate != nil {
+		for _, method := range methods {
+			if method == 2 {
+				selected = 2
+				break
+			}
+		}
+	} else {
+		for _, method := range methods {
+			if method == noAuth {
+				selected = noAuth
+				break
+			}
 		}
 	}
 	if _, err := conn.Write([]byte{version5, selected}); err != nil {
-		return false
+		return "", false
 	}
-	return selected == noAuth
+	if selected == noAuth {
+		return "local-socks", true
+	}
+	if selected != 2 {
+		return "", false
+	}
+	username, password, ok := readPassword(reader)
+	if !ok {
+		return "", false
+	}
+	clientID, err := authenticate(ctx, username, password)
+	status := byte(1)
+	if err == nil && clientID.Valid() {
+		status = 0
+	}
+	if _, writeErr := conn.Write([]byte{1, status}); writeErr != nil || status != 0 {
+		return "", false
+	}
+	return clientID, true
+}
+
+func readPassword(reader *bufio.Reader) (string, string, bool) {
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(reader, header); err != nil || header[0] != 1 || header[1] == 0 {
+		return "", "", false
+	}
+	username := make([]byte, header[1])
+	if _, err := io.ReadFull(reader, username); err != nil {
+		return "", "", false
+	}
+	length := []byte{0}
+	if _, err := io.ReadFull(reader, length); err != nil || length[0] == 0 {
+		return "", "", false
+	}
+	password := make([]byte, length[0])
+	if _, err := io.ReadFull(reader, password); err != nil {
+		return "", "", false
+	}
+	resultUser, resultPassword := string(username), string(password)
+	for i := range username {
+		username[i] = 0
+	}
+	for i := range password {
+		password[i] = 0
+	}
+	return resultUser, resultPassword, true
 }
 func readRequest(reader *bufio.Reader) (string, uint16, bool) {
 	header := make([]byte, 4)

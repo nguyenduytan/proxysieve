@@ -39,8 +39,8 @@ func TestBuildSafety(t *testing.T) {
 	}
 	c.Listeners[1].Auth = "password"
 	c.Listeners[1].CredentialRef = secret.Ref("secret://client/test")
-	if _, err = Build(c); !errors.Is(err, ErrUnsupportedAuthentication) {
-		t.Fatal(err)
+	if _, err = Build(c); err != nil {
+		t.Fatal("password listener should be supported", err)
 	}
 	c = config.Defaults(t.TempDir())
 	c.Listeners = c.Listeners[1:]

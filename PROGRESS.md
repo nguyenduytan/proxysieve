@@ -8,7 +8,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-14.
 - [ ] M1 — Domain, config, storage, secret foundations (implemented locally; acceptance review pending)
 - [ ] M2 — Proxy normalization, sources, endpoint management (parser/import, safe HTTP source fetch/preview, revisioned source CRUD, responsive source UI and atomic manual/automatic refresh locally implemented; broader formats pending)
 - [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
-- [ ] M4 — SOCKS5 downstream and multi-listener support (local no-auth SOCKS5 CONNECT and runtime multi-listener support implemented; password auth/metrics pending)
+- [ ] M4 — SOCKS5 downstream and multi-listener support (local/password SOCKS5 CONNECT and runtime multi-listener support implemented; UDP, metrics and transport-framing accounting pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
 - [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool inventory, runtime activation, bounded process-local sticky affinity and audited session API/Admin observability locally implemented; durable session persistence, CLI and chaining pending)
 - [ ] M7 — Health, circuit breaker, safe retries (health/circuit routing and conservative retry eligibility locally implemented; active checks/backoff/transport retry pending)
@@ -127,6 +127,16 @@ work, not tagged as `v1.0.0`.
 The original plan's intentional Markdown hard-break spaces are preserved. The
 staged whitespace check applies to newly authored files without rewriting that
 source document.
+
+### Latest local continuation — downstream password authentication (2026-09-14)
+
+- Enabled listener `auth: password` for HTTP Basic and SOCKS5 RFC1929. Runtime
+  resolves the referenced environment credential per connection, compares in
+  constant time, and derives an opaque listener-scoped client identity without
+  persisting or logging usernames/passwords.
+- Added protocol-level success/failure and client-identity tests for both
+  transports. API-key authentication remains HTTP-only; SOCKS5 UDP is still
+  unsupported.
 
 ### Latest local continuation — bounded sticky affinity (2026-09-14)
 

@@ -165,8 +165,9 @@ Proxy-Authorization: Bearer psk_...
 ```
 
 The key is verified against the stored hash and enabled client record. It is removed
-before any origin request. SOCKS5 username/password auth has not yet been wired to
-clients, so use the documented loopback local mode for SOCKS during development.
+before any origin request. SOCKS5 username/password auth is handled at the listener
+boundary and maps the configured credential to an opaque client identity; API-key
+authentication remains HTTP-only.
 
 ## Audit Events
 
