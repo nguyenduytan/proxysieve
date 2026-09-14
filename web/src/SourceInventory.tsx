@@ -207,6 +207,7 @@ export function SourceInventory({
       <p className="scope-notice">
         Source refreshes add or associate matching endpoints; they never remove
         existing endpoint records just because a feed changes or fails.
+        Refreshed endpoints remain staged until runtime activation.
       </p>
       {!editor && error ? (
         <div role="alert" className="auth-error">

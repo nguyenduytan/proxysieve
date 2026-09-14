@@ -22,6 +22,8 @@ go build -trimpath -o bin/ ./cmd/proxysieve
 go run ./cmd/proxysieve version --json
 go run ./cmd/proxysieve config validate --file config.example.yaml
 go run ./cmd/proxysieve doctor --file config.example.yaml
+go run ./cmd/proxysieve backup --file config.example.yaml --path ./proxysieve-backup.db
+go run ./cmd/proxysieve restore --file config.example.yaml --path ./proxysieve-backup.db
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
 pnpm --dir web test
@@ -57,7 +59,9 @@ examples belong in fake fixtures, not shell history or committed configs.
 ## Release scaffold
 
 `.goreleaser.yml` describes static cross-platform CLI archives and checksums; it is
-not a release. `go build` has no web embedding at M0. Docker's final image is scratch,
+not a release. Local SQLite backup/restore is available through the CLI and uses
+WAL-consistent snapshots, schema validation, pre-restore archives and atomic
+replacement; stop the process before running either operation. `go build` has no web embedding at M0. Docker's final image is scratch,
 non-root, and deliberately has no network defaults. Root CA bundles and runtime
 storage/permissions must be introduced and tested with outbound transports in M3.
 Do not publish tags/images until their milestone and release gates pass.

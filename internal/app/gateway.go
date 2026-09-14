@@ -36,6 +36,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
+	"github.com/nguyenduytan/proxysieve/pkg/store"
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
@@ -67,10 +68,8 @@ func (resolver) LookupNetIP(ctx context.Context, host string) ([]netip.Addr, err
 }
 
 type router struct {
-	document     policy.Policy
-	endpoints    map[model.ID]proxy.Endpoint
-	pools        map[model.ID]routing.Pool
-	selectors    map[routing.Strategy]*routing.BuiltIn
+	policyID     model.ID
+	runtime      *routingRuntime
 	resolver     security.Resolver
 	destination  security.DestinationPolicy
 	credentials  upstream.CredentialResolver
@@ -80,7 +79,14 @@ type router struct {
 }
 
 func (r *router) Evaluate(_ context.Context, request policy.RequestContext, visibility policy.Visibility) (policy.Result, error) {
-	return policy.Evaluate(r.document, request, visibility, false)
+	snapshot := r.runtime.currentSnapshot()
+	document, ok := snapshot.documents[r.policyID]
+	if !ok {
+		return policy.Result{}, policy.ErrNoRoute
+	}
+	result, err := policy.Evaluate(document, request, visibility, false)
+	result.RuntimeRevision = snapshot.revision
+	return result, err
 }
 func (r *router) Route(ctx context.Context, request policy.RequestContext, result policy.Result) (gateway.Route, error) {
 	action := terminal(result.Actions)
@@ -100,7 +106,14 @@ func (r *router) Route(ctx context.Context, request policy.RequestContext, resul
 		}
 		return r.direct(ctx, request)
 	case "proxy":
-		return r.proxy(ctx, request, action.PoolID)
+		if r.runtime == nil {
+			return gateway.Route{}, gateway.ErrDenied
+		}
+		snapshot, ok := r.runtime.snapshot(result.RuntimeRevision)
+		if !ok {
+			return gateway.Route{}, gateway.ErrDenied
+		}
+		return r.proxy(ctx, request, action.PoolID, snapshot)
 	case "block", "reject":
 		return gateway.Route{Action: action.Type}, nil
 	}
@@ -148,8 +161,8 @@ func (r *router) pinnedDial(ctx context.Context, request policy.RequestContext) 
 		return nil, last
 	}, nil
 }
-func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolID model.ID) (gateway.Route, error) {
-	endpoint, err := r.selectEndpoint(ctx, poolID, request)
+func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolID model.ID, snapshot *routingSnapshot) (gateway.Route, error) {
+	endpoint, err := r.selectEndpoint(ctx, poolID, request, snapshot)
 	if err != nil {
 		return gateway.Route{}, ErrPoolUnavailable
 	}
@@ -185,7 +198,7 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 		_, _ = r.health.Observe(endpoint.ID, publichealth.Observation{Success: success, HTTPStatus: status})
 	}}, nil
 }
-func (r *router) selectEndpoint(ctx context.Context, poolID model.ID, request policy.RequestContext) (proxy.Endpoint, error) {
+func (r *router) selectEndpoint(ctx context.Context, poolID model.ID, request policy.RequestContext, snapshot *routingSnapshot) (proxy.Endpoint, error) {
 	seen := map[model.ID]bool{}
 	var selectPool func(model.ID) (proxy.Endpoint, error)
 	selectPool = func(id model.ID) (proxy.Endpoint, error) {
@@ -193,22 +206,22 @@ func (r *router) selectEndpoint(ctx context.Context, poolID model.ID, request po
 			return proxy.Endpoint{}, ErrPoolUnavailable
 		}
 		seen[id] = true
-		pool, ok := r.pools[id]
+		pool, ok := snapshot.pools[id]
 		if !ok || !pool.Enabled {
 			return proxy.Endpoint{}, ErrPoolUnavailable
 		}
 		candidates := make([]routing.Candidate, 0, len(pool.EndpointIDs))
 		for _, endpointID := range pool.EndpointIDs {
-			endpoint := r.endpoints[endpointID]
+			endpoint := snapshot.endpoints[endpointID]
 			if endpoint.Enabled && matchesPool(endpoint, pool) && r.health.Eligible(endpoint.ID, time.Now().UTC()) {
 				candidates = append(candidates, routing.Candidate{Endpoint: endpoint, HealthScore: 100})
 			}
 		}
 		if len(candidates) > 0 {
-			selector := r.selectors[pool.Strategy]
+			selector := snapshot.selectors[pool.Strategy]
 			chosen, err := selector.Select(ctx, routing.SelectionContext{PoolID: id, Host: request.Host, ClientID: request.ClientID}, candidates)
 			if err == nil {
-				return r.endpoints[chosen], nil
+				return snapshot.endpoints[chosen], nil
 			}
 		}
 		for _, fallback := range pool.FallbackPoolIDs {
@@ -280,26 +293,7 @@ func Build(c config.Config) (Runtime, error) {
 	if err := os.MkdirAll(c.Server.DataDir, 0700); err != nil {
 		return Runtime{}, err
 	}
-	documents := map[model.ID]policy.Policy{}
-	for _, document := range c.Policies {
-		documents[document.ID] = document.Clone()
-	}
-	endpoints := map[model.ID]proxy.Endpoint{}
-	for _, endpoint := range c.Proxies {
-		endpoints[endpoint.ID] = endpoint.Clone()
-	}
-	pools := map[model.ID]routing.Pool{}
-	selectors := map[routing.Strategy]*routing.BuiltIn{}
-	for _, pool := range c.Pools {
-		pools[pool.ID] = pool.Clone()
-		if _, ok := selectors[pool.Strategy]; !ok {
-			selector, err := routing.NewBuiltIn(pool.Strategy)
-			if err != nil {
-				return Runtime{}, err
-			}
-			selectors[pool.Strategy] = selector
-		}
-	}
+	configuredBundle := store.RuntimeBundle{Proxies: c.Proxies, Pools: c.Pools, Policies: c.Policies}.Clone()
 	trafficRecorder, err := internaltraffic.NewMemory(10_000)
 	if err != nil {
 		return Runtime{}, err
@@ -317,12 +311,23 @@ func Build(c config.Config) (Runtime, error) {
 	}
 	runtime := Runtime{Traffic: trafficRecorder}
 	var budgetManager *internalbudget.Manager
+	var routeRuntime *routingRuntime
 	if c.Admin.Enabled {
 		if c.Storage.Driver != "sqlite" {
 			return Runtime{}, ErrUnsupportedListener
 		}
 		controlStore, err := sqlite.Open(context.Background(), c.Storage.Path)
 		if err != nil {
+			return Runtime{}, err
+		}
+		activeRecord, err := runtimeRecordOrConfig(context.Background(), controlStore, configuredBundle)
+		if err != nil {
+			_ = controlStore.Close()
+			return Runtime{}, err
+		}
+		routeRuntime, err = newRoutingRuntime(c, activeRecord.Bundle, activeRecord)
+		if err != nil {
+			_ = controlStore.Close()
 			return Runtime{}, err
 		}
 		if len(c.Budgets) > 0 {
@@ -350,6 +355,7 @@ func Build(c config.Config) (Runtime, error) {
 		}
 		server.SetTrafficStatus(durableRecorder)
 		server.SetSourceRefresher(sourceRefresher)
+		server.SetRuntimeControl(&runtimeControl{runtime: routeRuntime, store: controlStore, now: func() time.Time { return time.Now().UTC() }})
 		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}
 		runtime.AdminBind = c.Admin.Bind
 		runtime.AdminMax = 32
@@ -382,11 +388,18 @@ func Build(c config.Config) (Runtime, error) {
 	if len(c.Budgets) > 0 && budgetManager == nil {
 		return Runtime{}, ErrUnsupportedListener
 	}
+	if routeRuntime == nil {
+		var err error
+		routeRuntime, err = newRoutingRuntime(c, configuredBundle, store.RuntimeRecord{Revision: 0, Bundle: configuredBundle})
+		if err != nil {
+			return Runtime{}, err
+		}
+	}
 	for _, listener := range c.Listeners {
 		if listener.Auth != "local" && listener.Auth != "api_key" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
-		r := &router{document: documents[model.ID(listener.Policy)], endpoints: endpoints, pools: pools, selectors: selectors, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager}
+		r := &router{policyID: model.ID(listener.Policy), runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager}
 		switch listener.Type {
 		case "http":
 			if runtime.Server != nil {

@@ -4,6 +4,8 @@ import {
   DatabaseZap,
   Globe2,
   KeyRound,
+  Layers3,
+  Route,
   LayoutDashboard,
   ScrollText,
   Settings,
@@ -15,6 +17,8 @@ export type Page =
   | "Traffic"
   | "Proxies"
   | "Sources"
+  | "Pools"
+  | "Policies"
   | "Clients"
   | "Audit"
   | "System";
@@ -53,6 +57,18 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Sources",
     description: "Scheduled proxy feeds",
     icon: DatabaseZap,
+  },
+  {
+    page: "Pools",
+    label: "Pools",
+    description: "Revisioned routing groups",
+    icon: Layers3,
+  },
+  {
+    page: "Policies",
+    label: "Policies",
+    description: "Revisioned routing rules",
+    icon: Route,
   },
   {
     page: "Clients",

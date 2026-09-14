@@ -5,6 +5,8 @@ import (
 	"errors"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"net/netip"
+	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -72,7 +74,7 @@ func (p Policy) Validate() error {
 	}
 	seen := map[model.ID]bool{}
 	for _, r := range p.Rules {
-		if !r.ID.Valid() || seen[r.ID] || len(r.Actions) == 0 || len(r.Actions) > 16 {
+		if !r.ID.Valid() || seen[r.ID] || strings.TrimSpace(r.Name) == "" || len(r.Name) > 256 || len(r.Actions) == 0 || len(r.Actions) > 16 {
 			return ErrInvalid
 		}
 		seen[r.ID] = true
@@ -94,6 +96,9 @@ func validCondition(c Condition, depth int) bool {
 	forms := 0
 	if c.Field != "" || c.Operator != "" || len(c.Values) > 0 {
 		forms++
+	}
+	if len(c.All) > 64 || len(c.Any) > 64 {
+		return false
 	}
 	if len(c.All) > 0 {
 		forms++
@@ -129,7 +134,48 @@ func validCondition(c Condition, depth int) bool {
 	if c.Not != nil {
 		return validCondition(*c.Not, depth+1)
 	}
-	return model.ID(c.Field).Valid() && model.ID(c.Operator).Valid() && len(c.Values) > 0 && len(c.Values) <= 4096
+	if !supportedConditionField(c.Field) || !supportedConditionOperator(c.Operator) || len(c.Values) == 0 || len(c.Values) > 4096 {
+		return false
+	}
+	for _, value := range c.Values {
+		if value == "" || len(value) > 4096 {
+			return false
+		}
+		switch c.Operator {
+		case "regex":
+			if _, err := regexp.Compile(value); err != nil {
+				return false
+			}
+		case "wildcard":
+			if _, err := path.Match(value, "validation-target"); err != nil {
+				return false
+			}
+		case "cidr":
+			if c.Field != "destination_ip" {
+				return false
+			}
+			if _, err := netip.ParsePrefix(value); err != nil {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func supportedConditionField(field string) bool {
+	switch field {
+	case "host", "listener", "client", "protocol", "scheme", "method", "path", "resource_type", "destination_ip", "hour_utc":
+		return true
+	}
+	return false
+}
+
+func supportedConditionOperator(operator string) bool {
+	switch operator {
+	case "equals", "any", "suffix", "wildcard", "regex", "cidr":
+		return true
+	}
+	return false
 }
 func (a Action) Valid() bool {
 	switch a.Type {

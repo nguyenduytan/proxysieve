@@ -46,3 +46,22 @@ func TestEvaluateCIDRRegexAndNoRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestValidateRejectsUnsupportedOrMalformedConditions(t *testing.T) {
+	document := Policy{Version: 1, ID: "p", Name: "Policy", Rules: []Rule{rule("r", 1, Condition{Field: "host", Operator: "unsupported", Values: []string{"example.invalid"}}, Action{Type: "reject"}, true)}}
+	if document.Validate() == nil {
+		t.Fatal("unsupported operator accepted")
+	}
+	document.Rules[0].Conditions = Condition{Field: "host", Operator: "regex", Values: []string{"["}}
+	if document.Validate() == nil {
+		t.Fatal("invalid regex accepted")
+	}
+	document.Rules[0].Conditions = Condition{Field: "destination_ip", Operator: "cidr", Values: []string{"not-a-prefix"}}
+	if document.Validate() == nil {
+		t.Fatal("invalid CIDR accepted")
+	}
+	document.Rules[0].Conditions = Condition{Field: "host", Operator: "suffix", Values: []string{"example.invalid"}}
+	if document.Validate() != nil {
+		t.Fatal("supported condition rejected")
+	}
+}

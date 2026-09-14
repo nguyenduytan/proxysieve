@@ -39,9 +39,10 @@ type Trace struct {
 	UnknownFields []string
 }
 type Result struct {
-	Actions        []Action
-	MatchedRuleIDs []model.ID
-	Trace          Trace
+	Actions         []Action
+	MatchedRuleIDs  []model.ID
+	Trace           Trace
+	RuntimeRevision int64
 }
 
 // Evaluate has deterministic ordering: priority desc, then document order. A rule

@@ -6,6 +6,8 @@ import type { User, SessionState } from "./api";
 import { ClientAccess } from "./ClientAccess";
 import { AuditLog } from "./AuditLog";
 import { ProxyInventory } from "./ProxyInventory";
+import { PoolInventory } from "./PoolInventory";
+import { PolicyInventory } from "./PolicyInventory";
 import { SourceInventory } from "./SourceInventory";
 import { TrafficView } from "./TrafficView";
 import { navigationForRole } from "./navigation";
@@ -218,6 +220,12 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
         )}
         {page === "Sources" && (
           <SourceInventory role={user.role} onExpired={onExpired} />
+        )}
+        {page === "Pools" && (
+          <PoolInventory role={user.role} onExpired={onExpired} />
+        )}
+        {page === "Policies" && (
+          <PolicyInventory role={user.role} onExpired={onExpired} />
         )}
         {page === "Clients" && user.role === "admin" && (
           <ClientAccess onExpired={onExpired} />

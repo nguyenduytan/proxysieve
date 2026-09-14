@@ -41,6 +41,25 @@ describe("control-plane client", () => {
     mockFetch(new Response("<html>not an API</html>", { status: 503 }));
     await expect(discoverSession()).rejects.toBeInstanceOf(ApiError);
   });
+  it("preserves structured API error codes for recovery flows", async () => {
+    mockFetch(
+      Response.json(
+        {
+          error: {
+            code: "POOL_IN_USE",
+            message: "Pool is still referenced by another pool.",
+          },
+        },
+        { status: 409 },
+      ),
+    );
+
+    await expect(api("/api/v1/pools/pool-a")).rejects.toMatchObject({
+      status: 409,
+      code: "POOL_IN_USE",
+      message: "Pool is still referenced by another pool.",
+    });
+  });
   it("sends same-origin credentials and CSRF on mutations", async () => {
     const fetch = mockFetch(new Response(null, { status: 204 }));
     await api("/api/v1/auth/logout", { method: "POST" });

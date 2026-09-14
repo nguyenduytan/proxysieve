@@ -14,6 +14,9 @@ tags:
   - name: Traffic
   - name: Proxies
   - name: Sources
+  - name: Pools
+  - name: Policies
+  - name: Runtime
   - name: Clients
   - name: Audit
 paths:
@@ -315,6 +318,128 @@ paths:
         '422': {description: Source type, configuration or proxy input is unsupported or invalid}
         '502': {description: Source fetch rejected or failed}
         '503': {description: Atomic inventory storage unavailable}
+  /api/v1/pools:
+    get:
+      tags: [Pools]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {name: after, in: query, schema: {type: string}}]
+      responses:
+        '200': {description: Revisioned routing-pool inventory, content: {application/json: {schema: {$ref: '#/components/schemas/PoolPage'}}}}
+    post:
+      tags: [Pools]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [pool], properties: {pool: {$ref: '#/components/schemas/PoolInput'}}}}}
+      responses:
+        '201': {description: Pool inventory record created, content: {application/json: {schema: {$ref: '#/components/schemas/PoolResponse'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {description: Pool ID already exists}
+  /api/v1/pools/{poolId}:
+    parameters: [{name: poolId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Pools]
+      responses:
+        '200': {description: Pool inventory record, content: {application/json: {schema: {$ref: '#/components/schemas/PoolResponse'}}}}
+        '404': {description: Pool not found}
+    patch:
+      tags: [Pools]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pool, revision]
+              properties:
+                pool: {$ref: '#/components/schemas/Pool'}
+                revision: {type: integer, minimum: 1}
+      responses:
+        '200': {description: Pool inventory record updated, content: {application/json: {schema: {$ref: '#/components/schemas/PoolResponse'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {description: Pool not found}
+        '409': {description: Stale pool revision}
+    delete:
+      tags: [Pools]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [revision], properties: {revision: {type: integer, minimum: 1}}}}}
+      responses:
+        '204': {description: Pool inventory record deleted}
+        '404': {description: Pool not found}
+        '409': {description: Stale revision or pool is used as a fallback}
+  /api/v1/policies:
+    get:
+      tags: [Policies]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {name: after, in: query, schema: {type: string}}]
+      responses:
+        '200': {description: Revisioned policy inventory, content: {application/json: {schema: {$ref: '#/components/schemas/PolicyPage'}}}}
+    post:
+      tags: [Policies]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [policy], properties: {policy: {$ref: '#/components/schemas/Policy'}}}}}
+      responses:
+        '201': {description: Policy inventory record created, content: {application/json: {schema: {$ref: '#/components/schemas/PolicyResponse'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/policies/{policyId}:
+    parameters: [{name: policyId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Policies]
+      responses: {'200': {description: Policy record, content: {application/json: {schema: {$ref: '#/components/schemas/PolicyResponse'}}}}, '404': {description: Policy not found}}
+    patch:
+      tags: [Policies]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [policy, revision], properties: {policy: {$ref: '#/components/schemas/Policy'}, revision: {type: integer, minimum: 1}}}}}}
+      responses: {'200': {description: Updated policy record, content: {application/json: {schema: {$ref: '#/components/schemas/PolicyResponse'}}}}, '400': {$ref: '#/components/responses/BadRequest'}, '409': {description: Stale revision}}
+    delete:
+      tags: [Policies]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [revision], properties: {revision: {type: integer, minimum: 1}}}}}}
+      responses: {'204': {description: Policy deleted}, '409': {description: Stale revision}}
+  /api/v1/policies/{policyId}/simulate:
+    parameters: [{name: policyId, in: path, required: true, schema: {type: string}}]
+    post:
+      tags: [Policies]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SimulationRequest'}}}}
+      responses: {'200': {description: Simulation result; does not activate runtime routing, content: {application/json: {schema: {$ref: '#/components/schemas/SimulationResponse'}}}}, '400': {$ref: '#/components/responses/BadRequest'}}
+  /api/v1/runtime:
+    get:
+      tags: [Runtime]
+      responses:
+        '200': {description: Active immutable routing revision, content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeState'}}}}
+  /api/v1/runtime/history:
+    get:
+      tags: [Runtime]
+      parameters: [{name: before, in: query, schema: {type: integer, minimum: 1}}, {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}]
+      responses:
+        '200': {description: Newest-first runtime revision history, content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeHistory'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/runtime/activate:
+    post:
+      tags: [Runtime]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [expected_revision], properties: {expected_revision: {type: integer, minimum: 0}}}}}
+      responses:
+        '200': {description: Complete saved proxy, pool and policy inventory atomically activated, content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeState'}}}}
+        '400': {description: Saved inventory does not form a complete valid runtime configuration}
+        '409': {description: Active runtime revision changed}
+  /api/v1/runtime/rollback:
+    post:
+      tags: [Runtime]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [expected_revision, target_revision], properties: {expected_revision: {type: integer, minimum: 1}, target_revision: {type: integer, minimum: 1}}}}}
+      responses:
+        '200': {description: Historical bundle republished as a new active revision, content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeState'}}}}
+        '404': {description: Target runtime revision not found}
+        '409': {description: Active runtime revision changed}
   /api/v1/clients:
     get:
       tags: [Clients]
@@ -482,6 +607,103 @@ components:
         items: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}
         next_before: {type: string, format: date-time}
         next_before_id: {type: string}
+    PoolInput:
+      type: object
+      description: Pool metadata accepted on create; omit id to let the server generate it.
+      required: [name, strategy, endpoint_ids, fallback_pool_ids, required_tags, min_health_score, max_latency_ns, enabled]
+      properties:
+        id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 256}
+        strategy: {type: string, enum: [random, round-robin, weighted-random, least-connections, least-traffic, lowest-latency, highest-health, lowest-cost, cost-aware, sticky]}
+        endpoint_ids: {type: array, maxItems: 1000, uniqueItems: true, items: {type: string}}
+        fallback_pool_ids: {type: array, maxItems: 1000, uniqueItems: true, items: {type: string}}
+        required_tags: {type: array, maxItems: 1000, uniqueItems: true, items: {type: string, minLength: 1, maxLength: 128}}
+        country: {type: string, maxLength: 128}
+        min_health_score: {type: integer, minimum: 0, maximum: 100}
+        max_latency_ns: {type: integer, minimum: 0}
+        enabled: {type: boolean}
+    Pool:
+      allOf:
+        - {$ref: '#/components/schemas/PoolInput'}
+        - {type: object, required: [id]}
+    PoolRecord:
+      type: object
+      required: [pool, revision]
+      properties:
+        pool: {$ref: '#/components/schemas/Pool'}
+        revision: {type: integer, minimum: 1}
+    PoolPage:
+      type: object
+      required: [items, next_after]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/PoolRecord'}}
+        next_after: {type: string}
+    PoolResponse:
+      type: object
+      required: [pool, runtime_active, activation, runtime_revision]
+      properties:
+        pool: {$ref: '#/components/schemas/PoolRecord'}
+        runtime_active: {type: boolean}
+        activation: {type: string, enum: [active, staged]}
+        runtime_revision: {type: integer, minimum: 0}
+    Policy:
+      type: object
+      required: [version, id, name, rules]
+      properties:
+        version: {type: integer, const: 1}
+        id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 256}
+        rules: {type: array, maxItems: 10000, items: {$ref: '#/components/schemas/PolicyRule'}}
+    PolicyRule:
+      type: object
+      required: [id, name, priority, enabled, stop_processing, conditions, actions]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        priority: {type: integer}
+        enabled: {type: boolean}
+        stop_processing: {type: boolean}
+        conditions: {type: object}
+        actions: {type: array, maxItems: 16, items: {type: object}}
+    PolicyRecord:
+      type: object
+      required: [policy, revision]
+      properties: {policy: {$ref: '#/components/schemas/Policy'}, revision: {type: integer, minimum: 1}}
+    PolicyPage:
+      type: object
+      required: [items, next_after]
+      properties: {items: {type: array, items: {$ref: '#/components/schemas/PolicyRecord'}}, next_after: {type: string}}
+    PolicyResponse:
+      type: object
+      required: [policy, runtime_active, activation, runtime_revision]
+      properties: {policy: {$ref: '#/components/schemas/PolicyRecord'}, runtime_active: {type: boolean}, activation: {type: string, enum: [active, staged]}, runtime_revision: {type: integer, minimum: 0}}
+    RuntimeState:
+      type: object
+      required: [revision, source, proxy_count, pool_count, policy_count, staged_changes]
+      properties:
+        revision: {type: integer, minimum: 0}
+        source: {type: string, enum: [configuration, inventory, rollback]}
+        activated_at: {type: string, format: date-time}
+        activated_by: {type: string}
+        source_revision: {type: integer, minimum: 1}
+        proxy_count: {type: integer, minimum: 0}
+        pool_count: {type: integer, minimum: 0}
+        policy_count: {type: integer, minimum: 0}
+        staged_changes: {type: boolean, description: Saved inventory differs from the active snapshot; false for history entries}
+    RuntimeHistory:
+      type: object
+      required: [items, next_before]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/RuntimeState'}}
+        next_before: {type: integer, minimum: 0}
+    SimulationRequest:
+      type: object
+      required: [listener, protocol, host, port]
+      properties: {listener: {type: string}, client_id: {type: string}, protocol: {type: string}, scheme: {type: string}, host: {type: string}, port: {type: integer, minimum: 1, maximum: 65535}, method: {type: string}, path: {type: string}, destination_ip: {type: string}, timestamp: {type: string, format: date-time}}
+    SimulationResponse:
+      type: object
+      required: [policy_id, revision, outcome, actions, matched_rule_ids, rules, unknown_fields, simulation_only, runtime_active]
+      properties: {policy_id: {type: string}, revision: {type: integer}, outcome: {type: string}, actions: {type: array, items: {type: object}}, matched_rule_ids: {type: array, items: {type: string}}, rules: {type: array, items: {type: object}}, unknown_fields: {type: array, items: {type: string}}, simulation_only: {type: boolean, const: true}, runtime_active: {type: boolean}}
     ProxyEndpoint:
       type: object
       required: [id, name, protocol, host, port, enabled]

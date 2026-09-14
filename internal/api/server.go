@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,9 +45,12 @@ type Server struct {
 	traffic        *internaltraffic.Memory
 	endpoints      store.Endpoints
 	sources        store.Sources
+	pools          store.Pools
+	policies       store.Policies
 	clients        ClientStore
 	trafficStore   TrafficStore
 	trafficStatus  TrafficStatus
+	runtimeControl RuntimeControl
 	audit          audit.Writer
 	now            func() time.Time
 	sourceResolver internalsource.Resolver
@@ -54,6 +58,7 @@ type Server struct {
 	sourceRefresh  *internalsource.Refresher
 	ui             http.Handler
 	limitMu        sync.Mutex
+	routingMu      sync.Mutex
 	windowStart    time.Time
 	authAttempts   int
 }
@@ -97,8 +102,16 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 	if sourceStore, ok := endpoints.(store.Sources); ok {
 		sources = sourceStore
 	}
+	var pools store.Pools
+	if poolStore, ok := endpoints.(store.Pools); ok {
+		pools = poolStore
+	}
+	var policies store.Policies
+	if policyStore, ok := endpoints.(store.Policies); ok {
+		policies = policyStore
+	}
 	return &Server{
-		admin: service, traffic: traffic, endpoints: endpoints, sources: sources,
+		admin: service, traffic: traffic, endpoints: endpoints, sources: sources, pools: pools, policies: policies,
 		clients: clients, trafficStore: durable, audit: auditWriter, ui: dashboardHandler(),
 		now:            func() time.Time { return time.Now().UTC() },
 		sourceResolver: sourceResolver{},
@@ -112,8 +125,9 @@ type sourceResolver struct{}
 func (sourceResolver) LookupNetIP(ctx context.Context, host string) ([]netip.Addr, error) {
 	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 }
-func (s *Server) Handler() http.Handler                 { return securityHeaders(http.HandlerFunc(s.handle)) }
-func (s *Server) SetTrafficStatus(status TrafficStatus) { s.trafficStatus = status }
+func (s *Server) Handler() http.Handler                    { return securityHeaders(http.HandlerFunc(s.handle)) }
+func (s *Server) SetTrafficStatus(status TrafficStatus)    { s.trafficStatus = status }
+func (s *Server) SetRuntimeControl(control RuntimeControl) { s.runtimeControl = control }
 func (s *Server) SetSourceRefresher(refresher *internalsource.Refresher) {
 	if refresher != nil {
 		s.sourceRefresh = refresher
@@ -207,6 +221,18 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.previewImport(w, r)
 	case "/api/v1/sources":
 		s.sourcesCollection(w, r)
+	case "/api/v1/pools":
+		s.poolsCollection(w, r)
+	case "/api/v1/policies":
+		s.policiesCollection(w, r)
+	case "/api/v1/runtime":
+		s.runtimeStatus(w, r)
+	case "/api/v1/runtime/history":
+		s.runtimeHistory(w, r)
+	case "/api/v1/runtime/activate":
+		s.runtimeActivate(w, r)
+	case "/api/v1/runtime/rollback":
+		s.runtimeRollback(w, r)
 	case "/api/v1/clients":
 		switch r.Method {
 		case http.MethodGet:
@@ -238,6 +264,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.proxyByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/sources/") {
 			s.sourceByID(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/policies/") && strings.HasSuffix(r.URL.Path, "/simulate") {
+			s.simulatePolicy(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/pools/") {
+			s.poolByID(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/policies/") {
+			s.policyByID(w, r)
 		} else {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "The requested API resource was not found.")
 		}
@@ -761,7 +793,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.record(r.Context(), user, "proxy.created", "proxy", string(record.Endpoint.ID))
-		writeJSON(w, http.StatusCreated, map[string]any{"proxy": record, "runtime_active": false, "activation": "inventory_only"})
+		writeJSON(w, http.StatusCreated, s.proxyResponse(record))
 	})
 }
 
@@ -797,7 +829,7 @@ func (s *Server) getProxy(w http.ResponseWriter, r *http.Request, id model.ID) {
 		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy metadata could not be read.")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"proxy": record})
+	writeJSON(w, http.StatusOK, s.proxyResponse(record))
 }
 
 func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request, id model.ID, user auth.User) {
@@ -820,7 +852,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request, id model.ID
 	switch {
 	case err == nil:
 		s.record(r.Context(), user, "proxy.updated", "proxy", string(id))
-		writeJSON(w, http.StatusOK, map[string]any{"proxy": record, "runtime_active": false, "activation": "inventory_only"})
+		writeJSON(w, http.StatusOK, s.proxyResponse(record))
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "PROXY_NOT_FOUND", "The proxy was not found.")
 	case errors.Is(err, store.ErrConflict):
@@ -828,6 +860,25 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request, id model.ID
 	default:
 		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Proxy metadata could not be stored.")
 	}
+}
+
+func (s *Server) proxyResponse(record store.EndpointRecord) map[string]any {
+	active, revision := false, int64(0)
+	if s.runtimeControl != nil {
+		current := s.runtimeControl.CurrentRuntime()
+		revision = current.Revision
+		for _, endpoint := range current.Bundle.Proxies {
+			if endpoint.ID == record.Endpoint.ID && reflect.DeepEqual(endpoint, record.Endpoint) {
+				active = true
+				break
+			}
+		}
+	}
+	activation := "staged"
+	if active {
+		activation = "active"
+	}
+	return map[string]any{"proxy": record, "runtime_active": active, "activation": activation, "runtime_revision": revision}
 }
 
 func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request, id model.ID, user auth.User) {
@@ -844,6 +895,19 @@ func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request, id model.ID
 	if input.Revision < 1 {
 		writeError(w, http.StatusBadRequest, "INVALID_REVISION", "Proxy revision was not accepted.")
 		return
+	}
+	s.routingMu.Lock()
+	defer s.routingMu.Unlock()
+	if s.pools != nil {
+		referenced, err := s.poolUsesEndpoint(r, id)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Pool references could not be checked.")
+			return
+		}
+		if referenced {
+			writeError(w, http.StatusConflict, "PROXY_IN_USE", "The proxy is assigned to a pool.")
+			return
+		}
 	}
 	err := s.endpoints.Delete(r.Context(), id, input.Revision)
 	switch {

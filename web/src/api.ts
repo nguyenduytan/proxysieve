@@ -59,6 +59,116 @@ export interface SourceRefreshResult {
   skipped: number;
   invalid: number;
 }
+export type PoolStrategy =
+  | "random"
+  | "round-robin"
+  | "weighted-random"
+  | "least-connections"
+  | "least-traffic"
+  | "lowest-latency"
+  | "highest-health"
+  | "lowest-cost"
+  | "cost-aware"
+  | "sticky";
+export interface Pool {
+  id: string;
+  name: string;
+  strategy: PoolStrategy;
+  endpoint_ids: string[];
+  fallback_pool_ids: string[];
+  required_tags: string[];
+  country: string;
+  min_health_score: number;
+  max_latency_ns: number;
+  enabled: boolean;
+}
+export interface PoolRecord {
+  pool: Pool;
+  revision: number;
+}
+export interface PoolPage {
+  items: PoolRecord[];
+  next_after: string;
+}
+export interface PoolResponse {
+  pool: PoolRecord;
+  runtime_active: boolean;
+  activation: "active" | "staged";
+  runtime_revision: number;
+}
+export type PolicyAction = { type: string; pool_id?: string; value?: string };
+export interface PolicyCondition {
+  field?: string;
+  operator?: string;
+  values?: string[];
+  all?: PolicyCondition[];
+  any?: PolicyCondition[];
+  not?: PolicyCondition;
+}
+export interface PolicyRule {
+  id: string;
+  name: string;
+  priority: number;
+  enabled: boolean;
+  stop_processing: boolean;
+  conditions: PolicyCondition;
+  actions: PolicyAction[];
+}
+export interface Policy {
+  version: 1;
+  id: string;
+  name: string;
+  rules: PolicyRule[];
+}
+export interface PolicyRecord {
+  policy: Policy;
+  revision: number;
+}
+export interface PolicyPage {
+  items: PolicyRecord[];
+  next_after: string;
+}
+export interface PolicyResponse {
+  policy: PolicyRecord;
+  runtime_active: boolean;
+  activation: "active" | "staged";
+  runtime_revision: number;
+}
+export interface RuntimeState {
+  revision: number;
+  source: "configuration" | "inventory" | "rollback";
+  activated_at?: string;
+  activated_by?: string;
+  source_revision?: number;
+  proxy_count: number;
+  pool_count: number;
+  policy_count: number;
+  staged_changes: boolean;
+}
+export interface RuntimeHistory {
+  items: RuntimeState[];
+  next_before: number;
+}
+export interface PolicySimulation {
+  policy_id: string;
+  revision: number;
+  outcome: string;
+  actions: PolicyAction[];
+  matched_rule_ids: string[];
+  rules: {
+    rule_id: string;
+    matched: boolean;
+    conditions: {
+      field: string;
+      operator: string;
+      state: string;
+      reason?: string;
+    }[];
+  }[];
+  unknown_fields: string[];
+  simulation_only: true;
+  runtime_active: boolean;
+}
 export interface ClientRecord {
   id: string;
   name: string;
@@ -209,6 +319,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code = "",
   ) {
     super(message);
   }
@@ -262,6 +373,16 @@ export async function api<T>(
   if (response.status === 204) return undefined as T;
   const value: unknown = await response.json().catch(() => null);
   if (!response.ok) {
+    const code =
+      value &&
+      typeof value === "object" &&
+      "error" in value &&
+      value.error &&
+      typeof value.error === "object" &&
+      "code" in value.error &&
+      typeof value.error.code === "string"
+        ? value.error.code
+        : "";
     const message =
       value &&
       typeof value === "object" &&
@@ -272,7 +393,7 @@ export async function api<T>(
       typeof value.error.message === "string"
         ? value.error.message
         : "The control plane rejected this request.";
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, code);
   }
   if (value === null)
     throw new ApiError(0, "The control plane returned an invalid response.");

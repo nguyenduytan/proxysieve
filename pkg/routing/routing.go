@@ -7,6 +7,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -54,7 +55,7 @@ func (p Pool) Clone() Pool {
 }
 
 func (p Pool) Validate() error {
-	if !p.ID.Valid() || !p.Strategy.Valid() || len(p.Name) > 256 || p.MinHealthScore > 100 || p.MaxLatency < 0 {
+	if !p.ID.Valid() || !p.Strategy.Valid() || strings.TrimSpace(p.Name) == "" || len(p.Name) > 256 || p.MinHealthScore > 100 || p.MaxLatency < 0 || len(p.EndpointIDs) > 1000 || len(p.FallbackPoolIDs) > 1000 || len(p.RequiredTags) > 1000 || len(p.Country) > 128 {
 		return model.ErrInvalid
 	}
 	seen := map[model.ID]bool{}
@@ -70,6 +71,13 @@ func (p Pool) Validate() error {
 			return model.ErrInvalid
 		}
 		seen[id] = true
+	}
+	tags := map[string]bool{}
+	for _, tag := range p.RequiredTags {
+		if len(tag) == 0 || len(tag) > 128 || tags[tag] {
+			return model.ErrInvalid
+		}
+		tags[tag] = true
 	}
 	return nil
 }

@@ -1,6 +1,6 @@
 # ProxySieve milestone tracker
 
-Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
+Maintainer: **Tony Nguyen**. Updated: 2026-09-14.
 
 ## Status
 
@@ -9,20 +9,20 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
 - [ ] M2 — Proxy normalization, sources, endpoint management (parser/import, safe HTTP source fetch/preview, revisioned source CRUD, responsive source UI and atomic manual/automatic refresh locally implemented; broader formats pending)
 - [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local no-auth SOCKS5 CONNECT and runtime multi-listener support implemented; password auth/metrics pending)
-- [ ] M5 — Deterministic policies and routing actions (evaluator locally implemented; runtime/API simulator pending)
-- [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors locally implemented; pool/session services and chaining pending)
+- [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
+- [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool inventory and runtime pool activation locally implemented; session services and chaining pending)
 - [ ] M7 — Health, circuit breaker, safe retries (health/circuit routing and conservative retry eligibility locally implemented; active checks/backoff/transport retry pending)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe hard byte-budget enforcement locally implemented; transport framing, billing windows, projections, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
-- [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned client/API-key lifecycle endpoints and embedded OpenAPI contract locally implemented; broader resource APIs and SSE pending)
-- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, Overview/Traffic/Proxies/Sources/Clients/Audit/System and first-run setup locally implemented; remaining resource workflows and release UX pending)
+- [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key lifecycle endpoints and embedded OpenAPI contract locally implemented; SSE pending)
+- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, Overview/Traffic/Proxies/Sources/Pools/Policies/Clients/Audit/System, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect
-- [ ] M15 — Backup, restore, import/export, operations (doctor command now checks effective config, data directory, SQLite schema and listener availability; backup/restore/import/export still pending)
+- [ ] M15 — Backup, restore, import/export, operations (doctor command checks effective config, data directory, SQLite schema and listener availability; safe local SQLite backup/restore is implemented, import/export remains pending)
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
 
-### Latest local continuation — proxy inventory lifecycle (2026-09-12)
+### Latest local continuation — inventory lifecycle (2026-09-13)
 
 - Added authenticated `GET`, optimistic-revision `PATCH` and `DELETE` endpoints
   for `/api/v1/proxies/{id}` with operator CSRF protection, audit events and
@@ -44,8 +44,8 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
   Manual and scheduled refreshes share one per-source overlap coordinator.
 - Added the responsive Admin Sources workspace with viewer-safe listing and
   operator create/edit, enable/disable, manual refresh, delete confirmation,
-  optimistic-conflict recovery and mobile cards. Pools, policies and runtime
-  activation remain pending.
+  optimistic-conflict recovery and mobile cards. Source changes stage endpoint
+  inventory for the explicit runtime activation workflow.
 - Completed client/API-key lifecycle management: revisioned client GET/PATCH/
   DELETE with key cascade, admin-only Clients workspace, one-time key reveal,
   copy/dismiss handling, key listing/revocation and responsive client cards.
@@ -54,7 +54,49 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-12.
   from navigation until a real alert backend exists.
 - Added stable timestamp/id cursor pagination to the Audit API and a responsive
   Load more control that appends older entries without exposing secrets.
+- Added revisioned pool persistence in memory and SQLite, audited viewer/operator
+  API routes, endpoint/fallback reference validation, fallback-cycle protection
+  and optimistic conflict handling. Pool and proxy deletion now preserve saved
+  references across serialized control-plane mutations.
+- Added the responsive Pools workspace with parallel complete inventory loading,
+  create/edit/enable-disable/delete controls, inline delete confirmation and one
+  context-appropriate feedback surface. Saved pools remain staged until complete
+  inventory activation succeeds.
+- Added revisioned policy persistence in memory and SQLite, audited RBAC/CSRF-
+  protected policy CRUD, strict condition/action validation, pool-reference-safe
+  deletion, and a canonical-evaluator-backed simulation endpoint. The Policies
+  workspace supports JSON authoring, optimistic revision updates, simulation and
+  inline-confirmed deletion; runtime changes remain explicit rather than following
+  every Save action.
 - Updated the embedded OpenAPI contract and API foundation documentation.
+- Added fail-closed SQLite backup/restore operations: WAL-consistent snapshots,
+  schema validation, refusal to overwrite, WAL/SHM sidecar handling, timestamped
+  pre-restore archives and atomic installation. The process must be stopped before
+  either operation; import/export remains pending.
+- Added durable runtime snapshots and operator activation/rollback APIs. Proxies,
+  pools and policies are read in one SQLite transaction, fully validated and
+  published as one immutable revision; stale activation is rejected and failures
+  preserve last-known-good routing. Each request routes against its evaluation
+  revision, and the active snapshot survives restart.
+- Added an Admin Policies runtime strip with active revision/resource counts,
+  explicit activation confirmation and retained-revision rollback. Viewer access
+  remains read-only and action feedback stays in one context-appropriate surface.
+- Runtime status now distinguishes synchronized and staged inventory after every
+  activation or rollback, item responses identify exact active revisions, and
+  both live-routing mutations require explicit confirmation. Activation is
+  disabled when the saved inventory already matches the active snapshot.
+- Fixed new-policy authoring so the required listener policy ID is preserved,
+  including the default starter policy. Updated proxy/source/pool copy to use the
+  same staged/active language throughout the Admin Panel.
+- Verified the complete Admin flow in system Chrome at 1440x1000 and 390x844:
+  first-run setup, proxy/pool/default-policy creation, revisions 1 and 2 activation,
+  rollback to revision 1 as new revision 3, restart persistence, responsive
+  navigation, no Alerts entry, no overflow/action overlap and no application
+  console/page errors. The unauthenticated `/auth/me` session probe produces the
+  expected 401 before login.
+- Passed the full Go suite, vet and race detector; 12 frontend files / 28 tests,
+  ESLint, TypeScript, Prettier and production asset build; binary `doctor`,
+  WAL-consistent backup and atomic restore against SQLite schema 14.
 
 ## M0 verification
 
@@ -77,12 +119,10 @@ Verified locally on Windows amd64, Go 1.27.1 / Node 24.19.0 / pnpm 11.19.0:
   backend CI includes this check).
 - [ ] Hosted repository protection/security settings confirmed.
 
-Publication gate: the existing remote is public. No push was performed. The user's
-general continuation request did not satisfy the publication approval gate, so no
-further publication attempt will be made without specific authorization. Hosted
-checks remain pending, not passed. Local development continues on an unpublished
-branch under the user's instruction to keep working; M0 hosted acceptance is not
-waived. See ADR 0009 for this delivery-only adjustment.
+Historical M0 publication note: the existing remote is public, but hosted checks
+and repository settings remain independent acceptance gates. A local green run
+does not waive them; the current branch may be pushed only as reviewed development
+work, not tagged as `v1.0.0`.
 
 The original plan's intentional Markdown hard-break spaces are preserved. The
 staged whitespace check applies to newly authored files without rewriting that
@@ -93,9 +133,9 @@ out-of-sandbox runs; no safety checks were disabled to work around those restric
 Go is installed at C:\Program Files\Go\bin but was not in this terminal's PATH.
 No global toolchain install or PATH mutation was performed.
 
-Release tooling is a scaffold, not a tested/published release. The default container
-prints version only. Web tooling builds metadata, not a dashboard. Gateway/config
-parsing and database functionality intentionally remain unavailable at M0.
+The M0 release tooling began as a scaffold. Current development now embeds the
+Admin Panel and includes local gateway/database functionality, but no v1 tag or
+published release exists while later milestone acceptance remains open.
 
 Repository initially had only the untracked original plan, no commits, and an empty
 remote at https://github.com/nguyenduytan/proxysieve.git. No user code was replaced.

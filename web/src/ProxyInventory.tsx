@@ -93,10 +93,7 @@ export function ProxyInventory({
       <header className="page-heading overview-heading">
         <div>
           <h1>Proxy inventory</h1>
-          <p>
-            Saved endpoint metadata. Live routing still uses the configured YAML
-            pools and policies.
-          </p>
+          <p>Revisioned endpoints staged for explicit runtime activation.</p>
         </div>
         <div className="table-actions">
           <button
@@ -128,9 +125,8 @@ export function ProxyInventory({
         </div>
       </header>
       <p className="scope-notice">
-        Saving here does not activate a route, including after restart. To use
-        an endpoint now, define its proxy, pool membership and policy in your
-        configuration file.
+        Saved changes remain staged across restarts until the complete proxy,
+        pool and policy inventory is activated.
       </p>
       {form === "none" && error && (
         <div role="alert" className="auth-error">
@@ -146,9 +142,7 @@ export function ProxyInventory({
         <CreateProxy
           onSaved={() => {
             setForm("none");
-            setNotice(
-              "Proxy saved to inventory. Runtime routing has not changed.",
-            );
+            setNotice("Proxy saved and staged. Active routing is unchanged.");
             void load();
           }}
           onCancel={() => setForm("none")}
@@ -160,7 +154,7 @@ export function ProxyInventory({
           onImported={(result) => {
             setForm("none");
             setNotice(
-              `Import complete: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped. Runtime routing has not changed.`,
+              `Import complete: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped. Changes are staged.`,
             );
             void load();
           }}

@@ -35,6 +35,28 @@ func TestSourceContract(t *testing.T) {
 		return repository
 	})
 }
+func TestPoolContract(t *testing.T) {
+	contract.RunPools(t, func(t *testing.T) store.Pools {
+		t.Helper()
+		repository, err := Open(t.Context(), filepath.Join(t.TempDir(), "pools.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = repository.Close() })
+		return repository
+	})
+}
+func TestPolicyContract(t *testing.T) {
+	contract.RunPolicies(t, func(t *testing.T) store.Policies {
+		t.Helper()
+		repository, err := Open(t.Context(), filepath.Join(t.TempDir(), "policies.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = repository.Close() })
+		return repository
+	})
+}
 
 func TestInventoryTransactionRollsBackEndpointsAndSources(t *testing.T) {
 	repository, err := Open(t.Context(), filepath.Join(t.TempDir(), "inventory-transaction.db"))
@@ -87,8 +109,14 @@ func TestPersistenceAndMigrationChecksums(t *testing.T) {
 	if _, err = s.PutSource(t.Context(), contract.Source("source"), 0); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = s.PutPool(t.Context(), contract.Pool("pool"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.PutPolicy(t.Context(), contract.Policy("policy"), 0); err != nil {
+		t.Fatal(err)
+	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 11 || status.JournalMode != "wal" || status.EndpointCount != 1 || status.SourceCount != 1 {
+	if err != nil || status.SchemaVersion != 14 || status.JournalMode != "wal" || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
 		t.Fatalf("%+v %v", status, err)
 	}
 	if err = s.Close(); err != nil {
@@ -102,6 +130,12 @@ func TestPersistenceAndMigrationChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = s.GetSource(t.Context(), "source"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.GetPool(t.Context(), "pool"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.GetPolicy(t.Context(), "policy"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.db.Exec("UPDATE schema_migrations SET checksum='tampered'"); err != nil {
@@ -121,7 +155,7 @@ func TestFutureSchemaRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (12,'future','unknown')"); err != nil {
+	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (15,'future','unknown')"); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.Close()
@@ -132,7 +166,7 @@ func TestFutureSchemaRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestSchemaTenUpgradePreservesEndpointsAndAddsSources(t *testing.T) {
+func TestSchemaTwelveUpgradePreservesInventoryAndAddsPolicies(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-ten.db")
 	database, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -140,11 +174,11 @@ func TestSchemaTenUpgradePreservesEndpointsAndAddsSources(t *testing.T) {
 	}
 	old := &Store{db: database, endpoints: endpoints{q: database}}
 	names, err := fs.Glob(migrations, "migrations/*.sql")
-	if err != nil || len(names) != 11 {
+	if err != nil || len(names) != 14 {
 		t.Fatal(names, err)
 	}
 	files := fstest.MapFS{}
-	for _, name := range names[:10] {
+	for _, name := range names[:12] {
 		data, readErr := migrations.ReadFile(name)
 		if readErr != nil {
 			t.Fatal(readErr)
@@ -155,6 +189,14 @@ func TestSchemaTenUpgradePreservesEndpointsAndAddsSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = old.Put(t.Context(), contract.Endpoint("preserved"), 0); err != nil {
+		t.Fatal(err)
+	}
+	old.sources = sources{q: database}
+	if _, err = old.PutSource(t.Context(), contract.Source("source"), 0); err != nil {
+		t.Fatal(err)
+	}
+	old.pools = pools{q: database}
+	if _, err = old.PutPool(t.Context(), contract.Pool("pool"), 0); err != nil {
 		t.Fatal(err)
 	}
 	if err = database.Close(); err != nil {
@@ -169,11 +211,17 @@ func TestSchemaTenUpgradePreservesEndpointsAndAddsSources(t *testing.T) {
 	if _, err = repository.Get(t.Context(), "preserved"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = repository.PutSource(t.Context(), contract.Source("source"), 0); err != nil {
+	if _, err = repository.GetSource(t.Context(), "source"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repository.GetPool(t.Context(), "pool"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repository.PutPolicy(t.Context(), contract.Policy("policy"), 0); err != nil {
 		t.Fatal(err)
 	}
 	status, err := repository.Status(t.Context())
-	if err != nil || status.SchemaVersion != 11 || status.EndpointCount != 1 || status.SourceCount != 1 {
+	if err != nil || status.SchemaVersion != 14 || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
 		t.Fatal(status, err)
 	}
 }
@@ -199,7 +247,7 @@ func TestMigrationAtomicity(t *testing.T) {
 		t.Fatalf("table survived rollback: %d %v", n, err)
 	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 11 {
+	if err != nil || status.SchemaVersion != 14 {
 		t.Fatalf("%+v %v", status, err)
 	}
 }

@@ -5,7 +5,7 @@
 ### Added
 
 - Authenticated responsive Admin Panel with API-backed Overview, Traffic, Proxies,
-  Sources, Clients, Audit and System destinations; duplicate/inert Alerts
+  Sources, Pools, Policies, Clients, Audit and System destinations; duplicate/inert Alerts
   navigation was removed.
 - Bounded asynchronous traffic persistence, HTTP/CONNECT/SOCKS5 application-stream
   accounting, tiered rollups/retention, configured-cost snapshots and durable hard
@@ -28,6 +28,29 @@
 - Added an admin-only read-only Audit workspace backed by sanitized audit events,
   with refresh state, empty/error handling and responsive mobile cards.
 - Added stable timestamp/id cursor pagination to the Audit API and Load more UI.
+- Added revisioned proxy-pool persistence and audited RBAC/CSRF-protected CRUD API,
+  including endpoint/fallback validation, fallback-cycle checks and reference-safe
+  deletion.
+- Added a responsive Pools workspace for viewer-safe inventory and operator
+  create/edit, enable/disable and inline-confirmed delete workflows with explicit
+  staged-state semantics.
+- Added revisioned policy persistence and audited policy CRUD with strict
+  condition/action validation, pool-reference protection and canonical evaluator
+  simulation. Added a responsive Policies workspace with JSON authoring,
+  optimistic revisions, simulation results and inline-confirmed deletion without
+  coupling Save actions to runtime activation.
+- Added fail-closed SQLite backup and restore commands with WAL-consistent snapshots,
+  schema validation, no implicit overwrite, timestamped pre-restore archives,
+  WAL/SHM sidecar handling and atomic database replacement.
+- Added durable, optimistic runtime activation and rollback for complete proxy,
+  pool and policy inventories. Activation uses one SQLite read snapshot, preserves
+  last-known-good state on validation failure, survives restart and keeps policy
+  evaluation paired with route selection from the same runtime revision.
+- Added Admin runtime status, explicit activation confirmation and retained
+  revision rollback without introducing a duplicate alert surface.
+- Added synchronized/staged runtime indicators, exact active/staged item state,
+  rollback confirmation and disabled no-op activation. Fixed default policy ID
+  authoring and desktop/mobile policy action layout.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe

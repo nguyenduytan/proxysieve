@@ -25,6 +25,8 @@ type Store struct {
 	db *sql.DB
 	endpoints
 	sources
+	pools
+	policies
 }
 
 // Open accepts a filesystem path, never caller-controlled SQLite URI parameters.
@@ -71,7 +73,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	s := &Store{db: db, endpoints: endpoints{q: db}, sources: sources{q: db}}
+	s := &Store{db: db, endpoints: endpoints{q: db}, sources: sources{q: db}, pools: pools{q: db}, policies: policies{q: db}}
 	if err = db.PingContext(ctx); err == nil {
 		_, err = db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
 	}
@@ -125,6 +127,8 @@ type Status struct {
 	SchemaVersion int    `json:"schema_version"`
 	EndpointCount int    `json:"endpoint_count"`
 	SourceCount   int    `json:"source_count"`
+	PoolCount     int    `json:"pool_count"`
+	PolicyCount   int    `json:"policy_count"`
 	JournalMode   string `json:"journal_mode"`
 }
 
@@ -137,6 +141,12 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 		return Status{}, safeError(ctx, err)
 	}
 	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM proxy_sources").Scan(&status.SourceCount); err != nil {
+		return Status{}, safeError(ctx, err)
+	}
+	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM proxy_pools").Scan(&status.PoolCount); err != nil {
+		return Status{}, safeError(ctx, err)
+	}
+	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM policies").Scan(&status.PolicyCount); err != nil {
 		return Status{}, safeError(ctx, err)
 	}
 	if err := s.db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&status.JournalMode); err != nil {
@@ -227,4 +237,6 @@ func safeError(ctx context.Context, err error) error {
 
 var _ store.EndpointStore = (*Store)(nil)
 var _ store.Sources = (*Store)(nil)
+var _ store.Pools = (*Store)(nil)
+var _ store.Policies = (*Store)(nil)
 var _ store.InventoryStore = (*Store)(nil)

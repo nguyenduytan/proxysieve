@@ -32,6 +32,17 @@ POST /api/v1/sources
 GET  /api/v1/sources/{id}
 PATCH /api/v1/sources/{id}
 DELETE /api/v1/sources/{id}
+GET  /api/v1/pools
+POST /api/v1/pools
+GET  /api/v1/pools/{id}
+PATCH /api/v1/pools/{id}
+DELETE /api/v1/pools/{id}
+GET  /api/v1/policies
+POST /api/v1/policies
+GET  /api/v1/policies/{id}
+PATCH /api/v1/policies/{id}
+DELETE /api/v1/policies/{id}
+POST /api/v1/policies/{id}/simulate
 GET  /api/v1/clients
 POST /api/v1/clients
 GET  /api/v1/clients/{id}/api-keys
@@ -71,7 +82,7 @@ and includes the rated upstream-byte coverage; these values are configured
 estimates, not provider-billed amounts.
 
 The embedded Admin Panel deliberately lists only API-backed destinations:
-Overview, Traffic, Proxies, Sources, Clients, Audit and System. Planned
+Overview, Traffic, Proxies, Sources, Pools, Clients, Audit and System. Planned
 workspaces such as Alerts are not rendered as disabled navigation. This avoids
 duplicate or inert menu surfaces while features are still under development.
 
@@ -96,6 +107,36 @@ reconciles matching endpoint inventory with refresh status. A bounded scheduler
 uses the same refresh coordinator for due sources. The Admin Sources workspace
 exposes this lifecycle to viewers and operators without implying that saved
 endpoints are automatically activated in runtime pools or policies.
+
+Pool records use optimistic revisions and are readable by viewers; operators may
+create, replace or delete them with CSRF protection. The API rejects missing proxy
+members, missing fallback pools and fallback cycles. A pool used as a fallback,
+or a proxy assigned to a saved pool, cannot be deleted until the reference is
+removed. These reference-sensitive control-plane mutations are serialized within
+the running server. The Pools workspace loads the complete paginated proxy and
+pool inventory for its selectors and keeps list feedback separate from form
+validation. Persistence remains inventory-only: no saved pool changes the running
+gateway until an operator activates the complete inventory. See
+[pool inventory](pools.md) for the boundary and remaining limitations.
+
+Policy records use the same optimistic revision discipline. Viewers may list,
+inspect and simulate policies; operators may create, replace or delete policy
+metadata with a valid CSRF token. Policy validation bounds rule names, condition
+trees and action values, compiles regex/wildcard/CIDR conditions, and verifies
+that every proxy action references an existing pool. A pool referenced by a saved
+policy cannot be deleted. Simulation calls the canonical evaluator and returns
+condition traces without changing live routing. All policy responses explicitly
+report whether the saved document is `active` or `staged`, plus the active runtime
+revision; see
+[policy inventory and simulation](policies.md).
+
+Runtime state is exposed through `GET /api/v1/runtime` and bounded newest-first
+`GET /api/v1/runtime/history`. Operators activate the complete staged inventory
+with `POST /api/v1/runtime/activate` and can republish a retained revision through
+`POST /api/v1/runtime/rollback`; both mutations require CSRF and an optimistic
+expected runtime revision. Responses expose counts and whether staged inventory
+differs, not the complete snapshot document. See
+[runtime activation and rollback](runtime-activation.md).
 
 ## Client API Keys
 

@@ -22,7 +22,9 @@ import (
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
+	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	"github.com/nguyenduytan/proxysieve/pkg/secret"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 	publictraffic "github.com/nguyenduytan/proxysieve/pkg/traffic"
@@ -559,6 +561,163 @@ func TestAuditTrailWithoutReaderReturnsStablePageShape(t *testing.T) {
 	}
 	if result.Code != http.StatusOK || json.Unmarshal(result.Body.Bytes(), &page) != nil || len(page.Items) != 0 || page.NextBefore != "" || page.NextBeforeID != "" {
 		t.Fatal(result.Code, result.Body.String())
+	}
+}
+
+func TestPoolLifecycleValidatesReferencesCyclesAndRevisions(t *testing.T) {
+	repository, err := sqlite.Open(t.Context(), t.TempDir()+"/pools.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repository.Close() })
+	if _, err = repository.Put(t.Context(), contract.Endpoint("proxy"), 0); err != nil {
+		t.Fatal(err)
+	}
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	server, _ := New(service, nil, repository, repository, repository)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+	viewerToken, _ := service.CreateSession(auth.User{ID: "viewer", Username: "viewer", Role: auth.RoleViewer, Enabled: true, CreatedAt: time.Now().UTC()})
+	viewerCookies := sessionCookie + "=" + viewerToken + "; " + csrfCookie + "=" + service.CSRFToken(viewerToken)
+	if response := request(handler, http.MethodGet, "/api/v1/pools", nil, viewerCookies); response.Code != http.StatusOK {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	if response := mutationRequest(handler, http.MethodPost, "/api/v1/pools", map[string]any{"pool": routing.Pool{}}, viewerCookies); response.Code != http.StatusForbidden {
+		t.Fatal(response.Code, response.Body.String())
+	}
+
+	missing := routing.Pool{ID: "missing", Name: "Missing endpoint", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"does-not-exist"}, Enabled: true}
+	response := mutationRequest(handler, http.MethodPost, "/api/v1/pools", map[string]any{"pool": missing}, cookies)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("POOL_ENDPOINT_NOT_FOUND")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+
+	primary := routing.Pool{ID: "primary", Name: "Primary", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"proxy"}, Enabled: true}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/pools", map[string]any{"pool": primary}, cookies)
+	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"revision":1`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"runtime_active":false`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	primary.Name = "Updated primary"
+	response = mutationRequest(handler, http.MethodPatch, "/api/v1/pools/primary", map[string]any{"pool": primary, "revision": 1}, cookies)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"revision":2`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	missingFallback := routing.Pool{ID: "missing-fallback", Name: "Missing fallback", Strategy: routing.Random, FallbackPoolIDs: []model.ID{"unknown"}, Enabled: true}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/pools", map[string]any{"pool": missingFallback}, cookies)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("POOL_FALLBACK_NOT_FOUND")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	fallback := routing.Pool{ID: "fallback", Name: "Fallback", Strategy: routing.Random, FallbackPoolIDs: []model.ID{"primary"}, Enabled: true}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/pools", map[string]any{"pool": fallback}, cookies)
+	if response.Code != http.StatusCreated {
+		t.Fatal(response.Code, response.Body.String())
+	}
+
+	primary.FallbackPoolIDs = []model.ID{"fallback"}
+	response = mutationRequest(handler, http.MethodPatch, "/api/v1/pools/primary", map[string]any{"pool": primary, "revision": 2}, cookies)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("POOL_FALLBACK_CYCLE")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodDelete, "/api/v1/pools/primary", map[string]any{"revision": 2}, cookies)
+	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("POOL_IN_USE")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = request(handler, http.MethodGet, "/api/v1/pools?limit=1", nil, cookies)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"next_after":"fallback"`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodDelete, "/api/v1/proxies/proxy", map[string]any{"revision": 1}, cookies)
+	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("PROXY_IN_USE")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodDelete, "/api/v1/pools/fallback", map[string]any{"revision": 1}, cookies)
+	if response.Code != http.StatusNoContent {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodDelete, "/api/v1/pools/primary", map[string]any{"revision": 2}, cookies)
+	if response.Code != http.StatusNoContent {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	audits, err := repository.ListAudit(t.Context(), audit.Page{Limit: 20})
+	if err != nil || !hasAuditActions(audits, "pool.created", "pool.updated", "pool.deleted") {
+		t.Fatal(audits, err)
+	}
+}
+
+func hasAuditActions(events []audit.Event, actions ...string) bool {
+	seen := make(map[string]bool, len(events))
+	for _, event := range events {
+		seen[event.Action] = true
+	}
+	for _, action := range actions {
+		if !seen[action] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestPolicyLifecycleAndSimulation(t *testing.T) {
+	repository, err := sqlite.Open(t.Context(), t.TempDir()+"/policies.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repository.Close() })
+	if _, err = repository.Put(t.Context(), contract.Endpoint("proxy"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repository.PutPool(t.Context(), routing.Pool{ID: "pool", Name: "Pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"proxy"}, Enabled: true}, 0); err != nil {
+		t.Fatal(err)
+	}
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	server, _ := New(service, nil, repository, repository, repository)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+
+	missing := policy.Policy{Version: 1, ID: "missing", Name: "Missing pool", Rules: []policy.Rule{{ID: "route", Name: "Route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "proxy", PoolID: "unknown"}}}}}
+	response := mutationRequest(handler, http.MethodPost, "/api/v1/policies", map[string]any{"policy": missing}, cookies)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("POLICY_POOL_NOT_FOUND")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	document := policy.Policy{Version: 1, ID: "default", Name: "Default", Rules: []policy.Rule{{ID: "proxy", Name: "Proxy example hosts", Priority: 10, Enabled: true, StopProcessing: true, Conditions: policy.Condition{Field: "host", Operator: "suffix", Values: []string{"example.invalid"}}, Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}}}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/policies", map[string]any{"policy": document}, cookies)
+	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"runtime_active":false`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	var simulation map[string]any
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/policies/default/simulate", map[string]any{"listener": "http", "protocol": "http", "host": "api.example.invalid", "port": 443, "method": "GET", "path": "/v1"}, cookies)
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &simulation) != nil || simulation["outcome"] != "proxy" || simulation["simulation_only"] != true {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/policies/default/simulate", map[string]any{"listener": "http", "protocol": "http", "host": "other.invalid", "port": 443}, cookies)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"outcome":"no_route"`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodDelete, "/api/v1/pools/pool", map[string]any{"revision": 1}, cookies)
+	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("POOL_IN_USE")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	if events, err := repository.ListAudit(t.Context(), audit.Page{Limit: 20}); err != nil || !hasAuditActions(events, "policy.created") {
+		t.Fatal(events, err)
+	}
+}
+
+func TestPolicySimulationReportsFirstTerminalAction(t *testing.T) {
+	record := store.PolicyRecord{Policy: policy.Policy{ID: "default"}, Revision: 4}
+	result := policy.Result{Actions: []policy.Action{
+		{Type: "set_tag", Value: "first"},
+		{Type: "proxy", PoolID: "pool"},
+		{Type: "reject"},
+	}}
+	response := representPolicySimulation(record, result)
+	if response.Outcome != "proxy" {
+		t.Fatalf("simulation outcome=%q, want first terminal action proxy", response.Outcome)
 	}
 }
 
