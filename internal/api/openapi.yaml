@@ -15,6 +15,7 @@ tags:
   - name: Proxies
   - name: Sources
   - name: Pools
+  - name: Sessions
   - name: Policies
   - name: Runtime
   - name: Clients
@@ -369,6 +370,35 @@ paths:
         '204': {description: Pool inventory record deleted}
         '404': {description: Pool not found}
         '409': {description: Stale revision or pool is used as a fallback}
+  /api/v1/sessions:
+    get:
+      tags: [Sessions]
+      responses:
+        '200': {description: Newest-first bounded runtime sessions, content: {application/json: {schema: {$ref: '#/components/schemas/SessionPage'}}}}
+        '503': {description: Runtime session state unavailable}
+  /api/v1/sessions/{sessionId}:
+    parameters: [{name: sessionId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Sessions]
+      responses:
+        '200': {description: Runtime session, content: {application/json: {schema: {$ref: '#/components/schemas/ProxySession'}}}}
+        '404': {description: Session not found}
+    delete:
+      tags: [Sessions]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        '204': {description: Session removed; a matching request creates a new binding}
+        '404': {description: Session not found}
+  /api/v1/sessions/{sessionId}/rotate:
+    parameters: [{name: sessionId, in: path, required: true, schema: {type: string}}]
+    post:
+      tags: [Sessions]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        '200': {description: Session marked rotated; the next request selects a new proxy, content: {application/json: {schema: {$ref: '#/components/schemas/ProxySession'}}}}
+        '404': {description: Session not found}
   /api/v1/policies:
     get:
       tags: [Policies]
@@ -632,6 +662,31 @@ components:
         idle_ttl_ns: {type: integer, minimum: 0, maximum: 31536000000000000}
         max_requests: {type: integer, minimum: 0}
         max_bytes: {type: integer, minimum: 0}
+    ProxySession:
+      type: object
+      required: [id, client_id, key_hash, pool_id, proxy_endpoint_id, created_at, last_used_at, expires_at, idle_expires_at, request_count, upload_bytes, download_bytes, status, rotation_reason, policy, runtime_revision]
+      properties:
+        id: {type: string}
+        client_id: {type: string}
+        key_hash: {type: string, description: HMAC digest; the raw affinity key is never stored or returned}
+        pool_id: {type: string}
+        proxy_endpoint_id: {type: string}
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        idle_expires_at: {type: string, format: date-time}
+        request_count: {type: integer, minimum: 0}
+        upload_bytes: {type: integer, minimum: 0}
+        download_bytes: {type: integer, minimum: 0}
+        status: {type: string, enum: [active, rotated]}
+        rotation_reason: {type: string, enum: [created, none, manual, expired, idle_expired, request_limit, byte_limit, policy_change, health_quarantine, proxy_failed]}
+        policy: {$ref: '#/components/schemas/SessionPolicy'}
+        runtime_revision: {type: integer, minimum: 0}
+    SessionPage:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, maxItems: 1000, items: {$ref: '#/components/schemas/ProxySession'}}
     Pool:
       allOf:
         - {$ref: '#/components/schemas/PoolInput'}

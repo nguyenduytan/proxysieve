@@ -5,7 +5,7 @@
 ### Added
 
 - Authenticated responsive Admin Panel with API-backed Overview, Traffic, Proxies,
-  Sources, Pools, Policies, Clients, Audit and System destinations; duplicate/inert Alerts
+  Sources, Pools, Sessions, Policies, Clients, Audit and System destinations; duplicate/inert Alerts
   navigation was removed.
 - Bounded asynchronous traffic persistence, HTTP/CONNECT/SOCKS5 application-stream
   accounting, tiered rollups/retention, configured-cost snapshots and durable hard
@@ -35,6 +35,9 @@
   and client-plus-destination session keys, with TTL/idle/request/byte rotation,
   health and runtime-revision invalidation, cache partitioning, internal-header
   isolation and Admin pool controls.
+- Added viewer-safe session list/detail APIs and a responsive Sessions workspace,
+  plus CSRF-protected audited operator rotation/deletion without interrupting
+  active tunnels or exposing raw affinity keys.
 - Added a responsive Pools workspace for viewer-safe inventory and operator
   create/edit, enable/disable and inline-confirmed delete workflows with explicit
   staged-state semantics.

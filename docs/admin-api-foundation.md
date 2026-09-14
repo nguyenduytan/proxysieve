@@ -82,7 +82,8 @@ and includes the rated upstream-byte coverage; these values are configured
 estimates, not provider-billed amounts.
 
 The embedded Admin Panel deliberately lists only API-backed destinations:
-Overview, Traffic, Proxies, Sources, Pools, Clients, Audit and System. Planned
+Overview, Traffic, Proxies, Sources, Pools, Sessions, Policies, Clients, Audit
+and System. Planned
 workspaces such as Alerts are not rendered as disabled navigation. This avoids
 duplicate or inert menu surfaces while features are still under development.
 
@@ -118,6 +119,14 @@ pool inventory for its selectors and keeps list feedback separate from form
 validation. Persistence remains inventory-only: no saved pool changes the running
 gateway until an operator activates the complete inventory. See
 [pool inventory](pools.md) for the boundary and remaining limitations.
+
+Runtime sticky bindings are exposed through bounded `GET /api/v1/sessions` and
+`GET /api/v1/sessions/{id}` responses. Viewers can inspect HMAC-indexed session
+metadata; operators can rotate or delete a binding through CSRF-protected,
+audited mutations. Raw affinity keys are never stored or returned. Rotation
+changes only subsequent requests and does not interrupt an active tunnel. The
+Sessions workspace provides the same role-aware surface; see
+[sticky sessions](sessions.md).
 
 Policy records use the same optimistic revision discipline. Viewers may list,
 inspect and simulate policies; operators may create, replace or delete policy
@@ -162,7 +171,8 @@ clients, so use the documented loopback local mode for SOCKS during development.
 ## Audit Events
 
 The SQLite audit trail records actor, action, target, request ID and timestamp for
-setup, login, logout and proxy/source/client/key mutations. It intentionally excludes raw
+setup, login, logout and proxy/source/pool/policy/runtime/session/client/key
+mutations. It intentionally excludes raw
 passwords, setup tokens, cookies, API keys and request/response bodies. `/api/v1/audit`
 is administrator-only. The embedded administrator-only Audit workspace presents
 the latest 100 entries as read-only metadata with manual refresh and stable

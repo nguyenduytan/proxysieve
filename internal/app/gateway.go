@@ -251,7 +251,7 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 		return connector.Connect(ctx, endpoint, target)
 	}, Observe: func(success bool, status int) {
 		_, _ = r.health.Observe(endpoint.ID, publichealth.Observation{Success: success, HTTPStatus: status})
-		if !success && sessionID != "" && r.sessions != nil {
+		if !success && sessionID != "" && r.sessions != nil && !r.health.Eligible(endpoint.ID, time.Now().UTC()) {
 			_ = r.sessions.Rotate(context.Background(), sessionID, publicsession.ProxyFailed)
 		}
 	}}
@@ -483,6 +483,7 @@ func Build(c config.Config) (Runtime, error) {
 			return Runtime{}, err
 		}
 		server.SetTrafficStatus(durableRecorder)
+		server.SetSessions(sessionManager)
 		server.SetSourceRefresher(sourceRefresher)
 		server.SetRuntimeControl(&runtimeControl{runtime: routeRuntime, store: controlStore, now: func() time.Time { return time.Now().UTC() }})
 		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}

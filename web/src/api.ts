@@ -79,6 +79,38 @@ export interface SessionPolicy {
   max_requests: number;
   max_bytes: number;
 }
+export type SessionRotationReason =
+  | "created"
+  | "none"
+  | "manual"
+  | "expired"
+  | "idle_expired"
+  | "request_limit"
+  | "byte_limit"
+  | "policy_change"
+  | "health_quarantine"
+  | "proxy_failed";
+export interface ProxySession {
+  id: string;
+  client_id: string;
+  key_hash: string;
+  pool_id: string;
+  proxy_endpoint_id: string;
+  created_at: string;
+  last_used_at: string;
+  expires_at: string;
+  idle_expires_at: string;
+  request_count: number;
+  upload_bytes: number;
+  download_bytes: number;
+  status: "active" | "rotated";
+  rotation_reason: SessionRotationReason;
+  policy: SessionPolicy;
+  runtime_revision: number;
+}
+export interface SessionPage {
+  items: ProxySession[];
+}
 export interface Pool {
   id: string;
   name: string;

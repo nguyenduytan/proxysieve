@@ -29,6 +29,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 	publictraffic "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
@@ -51,6 +52,7 @@ type Server struct {
 	trafficStore   TrafficStore
 	trafficStatus  TrafficStatus
 	runtimeControl RuntimeControl
+	sessions       SessionStore
 	audit          audit.Writer
 	now            func() time.Time
 	sourceResolver internalsource.Resolver
@@ -84,6 +86,12 @@ type TrafficStore interface {
 }
 type TrafficStatus interface {
 	Stats() internaltraffic.AsyncStats
+}
+type SessionStore interface {
+	List(context.Context) ([]publicsession.Session, error)
+	Get(context.Context, model.ID) (publicsession.Session, error)
+	Rotate(context.Context, model.ID, publicsession.RotationReason) error
+	Delete(context.Context, model.ID) error
 }
 
 func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints store.Endpoints, auditWriter audit.Writer, clientStores ...ClientStore) (*Server, error) {
@@ -128,6 +136,7 @@ func (sourceResolver) LookupNetIP(ctx context.Context, host string) ([]netip.Add
 func (s *Server) Handler() http.Handler                    { return securityHeaders(http.HandlerFunc(s.handle)) }
 func (s *Server) SetTrafficStatus(status TrafficStatus)    { s.trafficStatus = status }
 func (s *Server) SetRuntimeControl(control RuntimeControl) { s.runtimeControl = control }
+func (s *Server) SetSessions(sessions SessionStore)        { s.sessions = sessions }
 func (s *Server) SetSourceRefresher(refresher *internalsource.Refresher) {
 	if refresher != nil {
 		s.sourceRefresh = refresher
@@ -225,6 +234,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.poolsCollection(w, r)
 	case "/api/v1/policies":
 		s.policiesCollection(w, r)
+	case "/api/v1/sessions":
+		s.sessionsCollection(w, r)
 	case "/api/v1/runtime":
 		s.runtimeStatus(w, r)
 	case "/api/v1/runtime/history":
@@ -266,6 +277,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.sourceByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/policies/") && strings.HasSuffix(r.URL.Path, "/simulate") {
 			s.simulatePolicy(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/sessions/") {
+			s.sessionByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/pools/") {
 			s.poolByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/policies/") {

@@ -5,6 +5,7 @@ import {
   Globe2,
   KeyRound,
   Layers3,
+  Fingerprint,
   Route,
   LayoutDashboard,
   ScrollText,
@@ -18,6 +19,7 @@ export type Page =
   | "Proxies"
   | "Sources"
   | "Pools"
+  | "Sessions"
   | "Policies"
   | "Clients"
   | "Audit"
@@ -63,6 +65,12 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Pools",
     description: "Revisioned routing groups",
     icon: Layers3,
+  },
+  {
+    page: "Sessions",
+    label: "Sessions",
+    description: "Runtime proxy affinity",
+    icon: Fingerprint,
   },
   {
     page: "Policies",

@@ -313,6 +313,31 @@
 .pool-action-button span {
   display: none;
 }
+.session-inventory-table {
+  min-width: 1080px;
+}
+.session-name-cell {
+  display: grid;
+  gap: 4px;
+  max-width: 220px;
+  white-space: normal;
+}
+.session-name-cell strong {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+.session-name-cell span {
+  color: var(--muted);
+  font-size: 10px;
+}
+.session-action-button span {
+  display: none;
+}
+.session-cell-stack {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
 .policy-action-button span {
   display: none;
 }
@@ -831,6 +856,9 @@ textarea:focus-visible {
   .pool-inventory-table {
     min-width: 0;
   }
+  .session-inventory-table {
+    min-width: 0;
+  }
   .policy-inventory-table {
     min-width: 0;
   }
@@ -956,6 +984,68 @@ textarea:focus-visible {
     justify-content: center;
   }
   .pool-action-button span {
+    display: inline;
+  }
+  .session-inventory-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .session-inventory-table tbody {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+  }
+  .session-inventory-table tr {
+    display: grid;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+  }
+  .session-inventory-table td {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .session-inventory-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .session-inventory-table .session-name-cell {
+    display: grid;
+    padding: 2px 0 12px;
+  }
+  .session-inventory-table .session-name-cell::before,
+  .session-inventory-table .session-action-cell::before {
+    content: none;
+  }
+  .session-inventory-table .session-action-cell {
+    display: block;
+    padding-top: 12px;
+  }
+  .session-inventory-table .row-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .session-inventory-table .session-action-button {
+    width: 100%;
+    min-height: 38px;
+    display: flex;
+    gap: 7px;
+    justify-content: center;
+  }
+  .session-action-button span {
     display: inline;
   }
   .inline-confirm .danger-button {

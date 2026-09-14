@@ -20,11 +20,14 @@ session values are not stored or returned.
 
 Sessions are currently process-local, bounded runtime state. A process restart
 starts a new affinity namespace, while the active routing revision remains
-restart-safe in SQLite. The Admin API does not yet expose session listing or
-manual rotation, so session observability and durable session services remain
-release work rather than being implied by the pool editor.
+restart-safe in SQLite. Authenticated viewers can list and inspect sessions in
+the Admin API and Sessions workspace. Operators can manually rotate or delete a
+binding; both mutations are CSRF-protected and audited. The raw key is never
+returned and the UI displays only a short prefix of its HMAC digest.
 
 Affinity is resolved before each new request or tunnel. An active tunnel is not
 reassigned mid-stream. Runtime revision changes, policy changes, expiry,
-limits, endpoint health quarantine, endpoint removal, or an upstream failure
-mark a binding rotated; the next request selects a fresh eligible endpoint.
+limits, endpoint health quarantine, endpoint removal, or reaching the upstream
+failure threshold mark a binding rotated; the next request selects a fresh
+eligible endpoint. Durable session persistence and the session CLI remain
+release work.

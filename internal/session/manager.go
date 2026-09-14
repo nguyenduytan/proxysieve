@@ -130,7 +130,7 @@ func (m *Manager) RecordUsage(ctx context.Context, id model.ID, upload, download
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	entry, ok := m.sessions[string(id)]
-	if !ok || entry.Status != "active" {
+	if !ok {
 		return ErrNotFound
 	}
 	newUpload, err := entry.UploadBytes.Add(upload)
@@ -168,6 +168,27 @@ func (m *Manager) Rotate(ctx context.Context, id model.ID, reason public.Rotatio
 	entry.Status = "rotated"
 	entry.RotationReason = reason
 	m.sessions[string(id)] = entry
+	for key, value := range m.index {
+		if value == string(id) {
+			delete(m.index, key)
+		}
+	}
+	return nil
+}
+
+func (m *Manager) Delete(ctx context.Context, id model.ID) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !id.Valid() {
+		return ErrInvalid
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.sessions[string(id)]; !ok {
+		return ErrNotFound
+	}
+	delete(m.sessions, string(id))
 	for key, value := range m.index {
 		if value == string(id) {
 			delete(m.index, key)

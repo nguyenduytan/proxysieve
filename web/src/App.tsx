@@ -9,6 +9,7 @@ import { ProxyInventory } from "./ProxyInventory";
 import { PoolInventory } from "./PoolInventory";
 import { PolicyInventory } from "./PolicyInventory";
 import { SourceInventory } from "./SourceInventory";
+import { SessionInventory } from "./SessionInventory";
 import { TrafficView } from "./TrafficView";
 import { navigationForRole } from "./navigation";
 import type { Page } from "./navigation";
@@ -223,6 +224,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
         )}
         {page === "Pools" && (
           <PoolInventory role={user.role} onExpired={onExpired} />
+        )}
+        {page === "Sessions" && (
+          <SessionInventory role={user.role} onExpired={onExpired} />
         )}
         {page === "Policies" && (
           <PolicyInventory role={user.role} onExpired={onExpired} />

@@ -43,9 +43,22 @@ func TestStickyLifecycle(t *testing.T) {
 	if err = m.Rotate(context.Background(), third.Session.ID, "manual"); err != nil {
 		t.Fatal(err)
 	}
+	if err = m.RecordUsage(context.Background(), third.Session.ID, 3, 4); err != nil {
+		t.Fatal("rotated in-flight usage was lost", err)
+	}
+	rotated, err := m.Get(context.Background(), third.Session.ID)
+	if err != nil || rotated.Status != "rotated" || rotated.RequestCount != 1 || rotated.UploadBytes != 3 || rotated.DownloadBytes != 4 {
+		t.Fatal(rotated, err)
+	}
 	fourth, err := m.Resolve(context.Background(), request)
 	if err != nil || fourth.Reused || selected != 3 {
 		t.Fatal(fourth, err, selected)
+	}
+	if err = m.Delete(context.Background(), fourth.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Get(context.Background(), fourth.Session.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
 	}
 }
 func TestNoneAndConcurrentResolve(t *testing.T) {
