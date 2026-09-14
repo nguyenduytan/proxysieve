@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/nguyenduytan/proxysieve/internal/security"
+	internalsession "github.com/nguyenduytan/proxysieve/internal/session"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/config"
@@ -19,6 +20,8 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"os"
+	"path"
 	"testing"
 	"time"
 )
@@ -204,6 +207,46 @@ func TestExplicitSessionAffinityReusesSelectedProxy(t *testing.T) {
 	sessions, err := runtime.Sessions.List(t.Context())
 	if err != nil || len(sessions) != 2 || sessions[0].RequestCount+sessions[1].RequestCount != 3 {
 		t.Fatal(sessions, err)
+	}
+}
+
+func TestSQLiteSessionAffinitySurvivesBuildRestart(t *testing.T) {
+	dir := t.TempDir()
+	c := config.Defaults(dir)
+	c.Listeners = c.Listeners[:1]
+	first, err := Build(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := internalsession.Request{ClientID: "client", PoolID: "pool", Key: "private-key", RuntimeRevision: 1, Policy: publicsession.Policy{Strategy: publicsession.Explicit, TTL: time.Hour}, Select: func(context.Context) (model.ID, error) { return "proxy", nil }}
+	created, err := first.Sessions.Resolve(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = first.Store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := Build(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reused, err := second.Sessions.Resolve(t.Context(), request)
+	if err != nil || !reused.Reused || reused.Session.ID != created.Session.ID {
+		t.Fatalf("binding did not survive restart: %+v %v", reused, err)
+	}
+	keyInfo, err := os.Stat(path.Join(c.Server.DataDir, "session-hmac.key"))
+	if err != nil || !keyInfo.Mode().IsRegular() || keyInfo.Size() != 32 {
+		t.Fatalf("session key file invalid: %+v %v", keyInfo, err)
+	}
+	if err = second.Store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(path.Join(c.Server.DataDir, "session-hmac.key")); err != nil {
+		t.Fatal(err)
+	}
+	if orphaned, buildErr := Build(c); buildErr == nil {
+		_ = orphaned.Store.Close()
+		t.Fatal("database sessions were accepted without their HMAC key")
 	}
 }
 

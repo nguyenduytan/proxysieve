@@ -16,6 +16,38 @@ type fakeClock struct{ value time.Time }
 
 func (c *fakeClock) Now() time.Time      { return c.value }
 func (c *fakeClock) Add(d time.Duration) { c.value = c.value.Add(d) }
+
+type fakePersistence struct {
+	entries map[model.ID]public.Session
+	fail    bool
+}
+
+func (p *fakePersistence) LoadSessions(context.Context) ([]public.Session, error) {
+	if p.fail {
+		return nil, errors.New("store unavailable")
+	}
+	out := make([]public.Session, 0, len(p.entries))
+	for _, entry := range p.entries {
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+func (p *fakePersistence) ApplySessions(_ context.Context, changes public.ChangeSet) error {
+	if p.fail {
+		return errors.New("store unavailable")
+	}
+	if p.entries == nil {
+		p.entries = map[model.ID]public.Session{}
+	}
+	for _, entry := range changes.Upserts {
+		p.entries[entry.ID] = entry
+	}
+	for _, id := range changes.Deletes {
+		delete(p.entries, id)
+	}
+	return nil
+}
 func TestStickyLifecycle(t *testing.T) {
 	clock := &fakeClock{value: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	m, err := New([]byte("a session test key that is long enough"), 10, clock)
@@ -203,5 +235,39 @@ func TestRecordUsageIsAtomicOnOverflow(t *testing.T) {
 	m.mu.Unlock()
 	if entry.UploadBytes != traffic.Bytes(math.MaxUint64-1) || entry.RequestCount != math.MaxUint64 {
 		t.Fatalf("overflow partially committed: %+v", entry)
+	}
+}
+
+func TestPersistentSessionSurvivesManagerRestart(t *testing.T) {
+	clock := &fakeClock{value: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	store := &fakePersistence{entries: map[model.ID]public.Session{}}
+	key := []byte("a persistent session key that is long enough")
+	m, err := NewPersistent(t.Context(), key, 10, clock, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{ClientID: "client", PoolID: "pool", Key: "private", RuntimeRevision: 1, Policy: public.Policy{Strategy: public.Explicit, TTL: time.Hour}, Select: func(context.Context) (model.ID, error) { return "proxy", nil }}
+	created, err := m.Resolve(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = m.RecordUsage(t.Context(), created.Session.ID, 4, 6); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewPersistent(t.Context(), key, 10, clock, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reused, err := restarted.Resolve(t.Context(), request)
+	if err != nil || !reused.Reused || reused.Session.ID != created.Session.ID || reused.Session.RequestCount != 1 || reused.Session.UploadBytes != 4 || reused.Session.DownloadBytes != 6 {
+		t.Fatalf("session was not restored: %+v %v", reused, err)
+	}
+	store.fail = true
+	if err = restarted.Rotate(t.Context(), created.Session.ID, public.Manual); err == nil {
+		t.Fatal("persistence failure was ignored")
+	}
+	entry, err := restarted.Get(t.Context(), created.Session.ID)
+	if err != nil || entry.Status != "active" {
+		t.Fatalf("failed durable mutation changed memory: %+v %v", entry, err)
 	}
 }

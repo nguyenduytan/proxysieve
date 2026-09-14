@@ -8,7 +8,7 @@ describe("session workspace", () => {
       <SessionInventory role="viewer" onExpired={() => {}} />,
     );
     expect(html).toContain("Sessions");
-    expect(html).toContain("process-local");
+    expect(html).toContain("persist with the local SQLite control plane");
     expect(html).toContain("Loading sessions");
     expect(html).not.toContain("Rotate session");
     expect(html).not.toContain('role="alert"');

@@ -110,9 +110,10 @@ export function SessionInventory({
         </button>
       </header>
       <p className="scope-notice">
-        Runtime sessions are process-local and reset when ProxySieve restarts.
-        Raw affinity keys are never stored or displayed. Rotation applies to the
-        next request and never interrupts an active tunnel.
+        Runtime sessions persist with the local SQLite control plane. Raw
+        affinity keys are never stored or displayed. Rotation applies to the
+        next request, never interrupts an active tunnel, and is re-evaluated
+        after runtime changes.
       </p>
       {error ? (
         <div role="alert" className="auth-error">

@@ -11,7 +11,7 @@ fallback pool IDs, tag/country/health/latency constraints, an optional sticky
 endpoints and fallbacks before saving, rejects duplicate members and fallback
 cycles, and uses optimistic revisions to prevent a stale browser from
 overwriting a newer edit. See [sticky sessions](sessions.md) for affinity
-limits and the current process-local scope.
+limits and durable SQLite-backed runtime scope.
 
 Deletion preserves references: a pool cannot be deleted while another saved pool
 uses it as a fallback, and a proxy cannot be deleted while a saved pool includes

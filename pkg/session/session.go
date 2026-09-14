@@ -2,6 +2,8 @@
 package session
 
 import (
+	"context"
+	"encoding/hex"
 	"errors"
 	"time"
 
@@ -53,6 +55,47 @@ type Session struct {
 	RotationReason  RotationReason `json:"rotation_reason"`
 	Policy          Policy         `json:"policy"`
 	RuntimeRevision int64          `json:"runtime_revision"`
+}
+
+func (s Session) Validate() error {
+	if !s.ID.Valid() || !s.ClientID.Valid() || !s.PoolID.Valid() || !s.ProxyEndpointID.Valid() || s.RuntimeRevision < 0 || s.Policy.Validate() != nil || len(s.KeyHash) != 64 {
+		return ErrInvalid
+	}
+	if _, err := hex.DecodeString(s.KeyHash); err != nil {
+		return ErrInvalid
+	}
+	if s.Status != "active" && s.Status != "rotated" || !s.RotationReason.persisted() {
+		return ErrInvalid
+	}
+	if s.CreatedAt.IsZero() || s.LastUsedAt.Before(s.CreatedAt) || !validExpiry(s.ExpiresAt, s.CreatedAt) || !validExpiry(s.IdleExpiresAt, s.LastUsedAt) {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func (r RotationReason) persisted() bool {
+	switch r {
+	case Created, Manual, Expired, IdleExpired, RequestLimit, ByteLimit, PolicyChange, HealthQuarantine, ProxyFailed:
+		return true
+	}
+	return false
+}
+
+func validExpiry(value, floor time.Time) bool { return value.IsZero() || !value.Before(floor) }
+
+// ChangeSet is one durable session mutation batch. Persistence implementations
+// must apply all upserts/deletes atomically or return an error without a
+// partial commit.
+type ChangeSet struct {
+	Upserts []Session
+	Deletes []model.ID
+}
+
+// Persistence is the optional durable boundary used by the runtime session
+// manager. Implementations must never persist raw affinity keys.
+type Persistence interface {
+	LoadSessions(context.Context) ([]Session, error)
+	ApplySessions(context.Context, ChangeSet) error
 }
 
 type Policy struct {

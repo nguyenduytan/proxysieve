@@ -40,12 +40,13 @@ type Result struct {
 	Reused  bool
 }
 type Manager struct {
-	mu       sync.Mutex
-	sessions map[string]public.Session
-	index    map[string]string
-	key      []byte
-	max      int
-	clock    Clock
+	mu          sync.Mutex
+	sessions    map[string]public.Session
+	index       map[string]string
+	key         []byte
+	max         int
+	clock       Clock
+	persistence public.Persistence
 }
 
 func New(key []byte, max int, source Clock) (*Manager, error) {
@@ -56,6 +57,44 @@ func New(key []byte, max int, source Clock) (*Manager, error) {
 		source = clock{}
 	}
 	return &Manager{sessions: map[string]public.Session{}, index: map[string]string{}, key: append([]byte(nil), key...), max: max, clock: source}, nil
+}
+
+// NewPersistent restores bounded sticky sessions from a durable store. The
+// store contains only HMAC indexes and lifecycle metadata; raw affinity keys
+// remain outside the persistence boundary.
+func NewPersistent(ctx context.Context, key []byte, max int, source Clock, persistence public.Persistence) (*Manager, error) {
+	if persistence == nil {
+		return nil, ErrInvalid
+	}
+	m, err := New(key, max, source)
+	if err != nil {
+		return nil, err
+	}
+	m.persistence = persistence
+	loaded, err := persistence.LoadSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(loaded) > max {
+		return nil, ErrLimit
+	}
+	for _, entry := range loaded {
+		if !validPersisted(entry) {
+			return nil, ErrInvalid
+		}
+		id := string(entry.ID)
+		if _, exists := m.sessions[id]; exists {
+			return nil, ErrInvalid
+		}
+		m.sessions[id] = entry
+		if entry.Status == "active" {
+			if _, exists := m.index[entry.KeyHash]; exists {
+				return nil, ErrInvalid
+			}
+			m.index[entry.KeyHash] = id
+		}
+	}
+	return m, nil
 }
 
 // Resolve is called only before a new request/tunnel begins. Select is never
@@ -88,19 +127,35 @@ func (m *Manager) Resolve(ctx context.Context, request Request) (Result, error) 
 			existing.Policy = request.Policy
 			existing.ExpiresAt = expiry(existing.CreatedAt, request.Policy.TTL)
 			existing.IdleExpiresAt = expiry(now, request.Policy.IdleTTL)
+			if err := m.applyLocked(ctx, public.ChangeSet{Upserts: []public.Session{existing}}); err != nil {
+				m.mu.Unlock()
+				return Result{}, err
+			}
 			m.sessions[id] = existing
 			m.mu.Unlock()
 			return Result{Session: existing, Reused: true}, nil
 		} else if found {
 			existing.Status = "rotated"
 			existing.RotationReason = rotationReason(existing, request.Policy, request.RuntimeRevision, now)
+			if err := m.applyLocked(ctx, public.ChangeSet{Upserts: []public.Session{existing}}); err != nil {
+				m.mu.Unlock()
+				return Result{}, err
+			}
 			m.sessions[id] = existing
 		}
 		delete(m.index, index)
 	}
-	if !m.makeRoomLocked() {
+	evictedID, ok := m.makeRoomLocked()
+	if !ok {
 		m.mu.Unlock()
 		return Result{}, ErrLimit
+	}
+	if evictedID != "" {
+		if err := m.applyLocked(ctx, public.ChangeSet{Deletes: []model.ID{model.ID(evictedID)}}); err != nil {
+			m.mu.Unlock()
+			return Result{}, err
+		}
+		m.removeLocked(evictedID)
 	}
 	m.mu.Unlock()
 	endpoint, err := request.Select(ctx)
@@ -116,8 +171,19 @@ func (m *Manager) Resolve(ctx context.Context, request Request) (Result, error) 
 			return Result{Session: existing, Reused: true}, nil
 		}
 	}
-	if !m.makeRoomLocked() {
+	evictedID, ok = m.makeRoomLocked()
+	if !ok {
 		return Result{}, ErrLimit
+	}
+	changes := public.ChangeSet{Upserts: []public.Session{created}}
+	if evictedID != "" {
+		changes.Deletes = []model.ID{model.ID(evictedID)}
+	}
+	if err := m.applyLocked(ctx, changes); err != nil {
+		return Result{}, err
+	}
+	if evictedID != "" {
+		m.removeLocked(evictedID)
 	}
 	m.sessions[string(created.ID)] = created
 	m.index[index] = string(created.ID)
@@ -149,6 +215,9 @@ func (m *Manager) RecordUsage(ctx context.Context, id model.ID, upload, download
 	entry.RequestCount++
 	entry.LastUsedAt = m.clock.Now().UTC()
 	entry.IdleExpiresAt = expiry(entry.LastUsedAt, entry.Policy.IdleTTL)
+	if err := m.applyLocked(ctx, public.ChangeSet{Upserts: []public.Session{entry}}); err != nil {
+		return err
+	}
 	m.sessions[string(id)] = entry
 	return nil
 }
@@ -167,6 +236,9 @@ func (m *Manager) Rotate(ctx context.Context, id model.ID, reason public.Rotatio
 	}
 	entry.Status = "rotated"
 	entry.RotationReason = reason
+	if err := m.applyLocked(ctx, public.ChangeSet{Upserts: []public.Session{entry}}); err != nil {
+		return err
+	}
 	m.sessions[string(id)] = entry
 	for key, value := range m.index {
 		if value == string(id) {
@@ -187,6 +259,9 @@ func (m *Manager) Delete(ctx context.Context, id model.ID) error {
 	defer m.mu.Unlock()
 	if _, ok := m.sessions[string(id)]; !ok {
 		return ErrNotFound
+	}
+	if err := m.applyLocked(ctx, public.ChangeSet{Deletes: []model.ID{id}}); err != nil {
+		return err
 	}
 	delete(m.sessions, string(id))
 	for key, value := range m.index {
@@ -288,9 +363,9 @@ func validRotationReason(reason public.RotationReason) bool {
 	return false
 }
 
-func (m *Manager) makeRoomLocked() bool {
+func (m *Manager) makeRoomLocked() (string, bool) {
 	if len(m.sessions) < m.max {
-		return true
+		return "", true
 	}
 	oldestID := ""
 	var oldest time.Time
@@ -303,8 +378,27 @@ func (m *Manager) makeRoomLocked() bool {
 		}
 	}
 	if oldestID == "" {
-		return false
+		return "", false
 	}
-	delete(m.sessions, oldestID)
-	return true
+	return oldestID, true
+}
+
+func (m *Manager) removeLocked(id string) {
+	delete(m.sessions, id)
+	for key, value := range m.index {
+		if value == id {
+			delete(m.index, key)
+		}
+	}
+}
+
+func (m *Manager) applyLocked(ctx context.Context, changes public.ChangeSet) error {
+	if m.persistence == nil || len(changes.Upserts) == 0 && len(changes.Deletes) == 0 {
+		return nil
+	}
+	return m.persistence.ApplySessions(ctx, changes)
+}
+
+func validPersisted(entry public.Session) bool {
+	return entry.Validate() == nil
 }

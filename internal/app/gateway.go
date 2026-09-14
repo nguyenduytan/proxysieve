@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"path"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -434,15 +435,8 @@ func Build(c config.Config) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	sessionSecret := make([]byte, 32)
-	if _, err = rand.Read(sessionSecret); err != nil {
-		return Runtime{}, err
-	}
-	sessionManager, err := internalsession.New(sessionSecret, 10_000, nil)
-	if err != nil {
-		return Runtime{}, err
-	}
-	runtime := Runtime{Traffic: trafficRecorder, Sessions: sessionManager}
+	var sessionManager *internalsession.Manager
+	runtime := Runtime{Traffic: trafficRecorder}
 	var budgetManager *internalbudget.Manager
 	var routeRuntime *routingRuntime
 	if c.Admin.Enabled {
@@ -451,6 +445,21 @@ func Build(c config.Config) (Runtime, error) {
 		}
 		controlStore, err := sqlite.Open(context.Background(), c.Storage.Path)
 		if err != nil {
+			return Runtime{}, err
+		}
+		durableSessions, loadErr := controlStore.LoadSessions(context.Background())
+		if loadErr != nil {
+			_ = controlStore.Close()
+			return Runtime{}, loadErr
+		}
+		sessionSecret, secretErr := loadOrCreateSessionKey(c.Server.DataDir, len(durableSessions) == 0)
+		if secretErr != nil {
+			_ = controlStore.Close()
+			return Runtime{}, secretErr
+		}
+		sessionManager, err = internalsession.NewPersistent(context.Background(), sessionSecret, 10_000, nil, controlStore)
+		if err != nil {
+			_ = controlStore.Close()
 			return Runtime{}, err
 		}
 		activeRecord, err := runtimeRecordOrConfig(context.Background(), controlStore, configuredBundle)
@@ -518,7 +527,17 @@ func Build(c config.Config) (Runtime, error) {
 		if token, err := service.SetupToken(context.Background()); err == nil {
 			runtime.SetupToken = token
 		}
+	} else {
+		sessionSecret := make([]byte, 32)
+		if _, err = rand.Read(sessionSecret); err != nil {
+			return Runtime{}, err
+		}
+		sessionManager, err = internalsession.New(sessionSecret, 10_000, nil)
+		if err != nil {
+			return Runtime{}, err
+		}
 	}
+	runtime.Sessions = sessionManager
 	if len(c.Budgets) > 0 && budgetManager == nil {
 		return Runtime{}, ErrUnsupportedListener
 	}
@@ -586,6 +605,52 @@ func Build(c config.Config) (Runtime, error) {
 		return Runtime{}, ErrUnsupportedListener
 	}
 	return runtime, nil
+}
+
+func loadOrCreateSessionKey(dataDir string, allowCreate bool) ([]byte, error) {
+	keyPath := path.Join(dataDir, "session-hmac.key")
+	read := func() ([]byte, error) {
+		info, err := os.Lstat(keyPath)
+		if err != nil || !info.Mode().IsRegular() || goruntime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
+			return nil, internalsession.ErrInvalid
+		}
+		key, err := os.ReadFile(keyPath)
+		if err != nil || len(key) != 32 {
+			return nil, internalsession.ErrInvalid
+		}
+		return key, nil
+	}
+	if _, err := os.Lstat(keyPath); err == nil {
+		return read()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if !allowCreate {
+		return nil, internalsession.ErrInvalid
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if errors.Is(err, os.ErrExist) {
+		return read()
+	}
+	if err != nil {
+		return nil, err
+	}
+	ok := false
+	defer func() {
+		_ = file.Close()
+		if !ok {
+			_ = os.Remove(keyPath)
+		}
+	}()
+	if _, err = file.Write(key); err != nil || file.Sync() != nil || file.Close() != nil {
+		return nil, internalsession.ErrInvalid
+	}
+	ok = true
+	return key, nil
 }
 
 func passwordAuthenticator(ref secret.Ref, listenerName string) func(context.Context, string, string) (model.ID, error) {
