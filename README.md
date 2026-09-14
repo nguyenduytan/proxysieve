@@ -59,7 +59,7 @@ explicitly scoped features.
 | Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, HTTP Basic/SOCKS5 password auth, graceful shutdown, listener limits | UDP, transport-framing accounting |
 | Routing | Deterministic policies, atomic revisioned inventory activation/rollback, simulation, selection strategies, process-local bounded sticky affinity, configured upstream HTTP/HTTPS/SOCKS | Chains, durable session services/observability, full failover |
 | Safety | Loopback defaults, private destination checks, pinned DIRECT DNS, no implicit DIRECT, source fetch guard | Persistent encrypted secret store, TLS remote admin |
-| Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited revisioned proxy/source/pool/policy/client/API-key APIs, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore and published OpenAPI contract | SSE, import/export |
+| Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited revisioned proxy/source/pool/policy/client/API-key APIs, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore, versioned safe config import/export and published OpenAPI contract | SSE |
 | Measurement | HTTP/CONNECT/SOCKS5 application-stream counters, newest-event live buffer, bounded batched SQLite history, restart-safe minute/hour/day rollups, tier-specific pruning, bounded summary/timeseries queries, currency-separated configured-cost estimates, health/circuit state, restart-safe hard byte-budget enforcement | Transport/proxy framing, billing windows, soft/cost budgets, projections, provider billing reconciliation |
 | Dashboard | Embedded authenticated admin shell with Overview, Traffic, Proxies, Sources, Pools, Sessions, Policies, Clients, Audit and System; responsive navigation; inventory CRUD/import/simulation/activation/rollback workflows; session inspection/rotation; source scheduling; client/API-key lifecycle; sanitized audit history; real 24-hour traffic metrics/chart | Full visual rule builder, broader analytics/cost views, Alerts when its backend exists |
 
@@ -92,6 +92,8 @@ The example configuration is intentionally fail-closed. It starts the local
 listener/control plane but does not route user traffic until a policy/pool/endpoint
 configuration explicitly permits it. See [configuration](docs/configuration.md)
 and [admin API foundation](docs/admin-api-foundation.md).
+Operational backup and portable configuration workflows are described in
+[operations](docs/operations.md).
 
 `proxysieve doctor` validates the effective configuration and reports data-directory,
 SQLite schema and listener-bind readiness without starting the gateway. Add `--json`
@@ -101,7 +103,9 @@ Stop the running ProxySieve process before running `backup` or `restore`. Backup
 creates a consistent SQLite snapshot, including WAL state, and never overwrites an
 existing destination. Restore validates the backup schema, archives the current
 database and any WAL/SHM sidecars as a timestamped pre-restore copy, then installs
-the backup atomically. Import/export workflows are not available yet.
+the backup atomically. Portable config export/import is available through
+`proxysieve export` and `proxysieve import`; it excludes raw secrets, validates the
+manifest/config before writing, refuses overwrite and supports `--dry-run`.
 
 ## Development
 

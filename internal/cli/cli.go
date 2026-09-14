@@ -26,6 +26,9 @@ Usage:
   proxysieve doctor [--file PATH] [--json]
   proxysieve backup --file PATH --path BACKUP
   proxysieve restore --file PATH --path BACKUP
+  proxysieve export [--file PATH] --path EXPORT
+  proxysieve import --path EXPORT --output CONFIG
+  proxysieve import --path EXPORT --dry-run
   proxysieve config validate [--file PATH] [--set dotted.path=value]
   proxysieve config print-effective [--file PATH] [--set dotted.path=value]
 
@@ -68,6 +71,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return runOperations(append([]string{args[0]}, args[1:]...), stdout, stderr, home, environment())
+	case "export", "import":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			_, _ = io.WriteString(stderr, "CONFIG_HOME_UNAVAILABLE\n")
+			return 1
+		}
+		return runExport(append([]string{args[0]}, args[1:]...), stdout, stderr, home, environment())
 	case "help", "--help", "-h":
 		if len(args) != 1 {
 			return usageError(stderr)

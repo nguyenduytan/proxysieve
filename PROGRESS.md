@@ -19,7 +19,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-14.
 - [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, Overview/Traffic/Proxies/Sources/Pools/Policies/Clients/Audit/System, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect
-- [ ] M15 — Backup, restore, import/export, operations (doctor command checks effective config, data directory, SQLite schema and listener availability; safe local SQLite backup/restore is implemented, import/export remains pending)
+- [ ] M15 — Backup, restore, import/export, operations (doctor command checks effective config, data directory, SQLite schema and listener availability; safe local SQLite backup/restore and versioned secret-free config import/export are implemented)
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
 
 ### Latest local continuation — inventory lifecycle (2026-09-13)
@@ -72,7 +72,8 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-14.
 - Added fail-closed SQLite backup/restore operations: WAL-consistent snapshots,
   schema validation, refusal to overwrite, WAL/SHM sidecar handling, timestamped
   pre-restore archives and atomic installation. The process must be stopped before
-  either operation; import/export remains pending.
+  either operation; portable config export/import validates a bounded manifest and
+  writes only new files without raw secret material.
 - Added durable runtime snapshots and operator activation/rollback APIs. Proxies,
   pools and policies are read in one SQLite transaction, fully validated and
   published as one immutable revision; stale activation is rejected and failures

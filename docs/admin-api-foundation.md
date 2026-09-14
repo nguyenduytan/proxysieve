@@ -178,4 +178,5 @@ passwords, setup tokens, cookies, API keys and request/response bodies. `/api/v1
 is administrator-only. The embedded administrator-only Audit workspace presents
 the latest 100 entries as read-only metadata with manual refresh and stable
 cursor-based loading for older entries. It does not expose secrets, request
-bodies or mutation controls; retention and export remain pending.
+bodies or mutation controls; API-side export remains pending. The CLI portable
+config export/import path is documented separately and does not expose secrets.
