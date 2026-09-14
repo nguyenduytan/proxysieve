@@ -38,4 +38,26 @@ Affinity is resolved before each new request or tunnel. An active tunnel is not
 reassigned mid-stream. Runtime revision changes, policy changes, expiry,
 limits, endpoint health quarantine, endpoint removal, or reaching the upstream
 failure threshold mark a binding rotated; the next request selects a fresh
-eligible endpoint. The session CLI remains release work.
+eligible endpoint.
+
+## CLI
+
+The CLI uses the same Admin API, RBAC, CSRF and audit path as the dashboard. Put the
+administrator password in the `PSV_ADMIN_PASSWORD` process environment variable and
+pass the username explicitly:
+
+```sh
+proxysieve session list --username admin
+proxysieve session show --username admin --json SESSION_ID
+proxysieve session rotate --username admin SESSION_ID
+proxysieve session delete --username admin SESSION_ID
+```
+
+Use `--admin https://host:port` for a remote TLS-protected Admin API. Plain HTTP is
+accepted only for a literal loopback address. Redirects are rejected so login
+credentials cannot be forwarded to another origin. The CLI holds cookies and CSRF
+state in memory for one command and performs a best-effort logout afterward.
+Environment values are preferable to command-line password arguments because they do
+not appear in the command itself, but a privileged same-machine process may still be
+able to inspect them. Use a dedicated operator account and clear the variable after
+the command in shared or sensitive environments.

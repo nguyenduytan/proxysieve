@@ -10,7 +10,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-14.
 - [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local/password SOCKS5 CONNECT and runtime multi-listener support implemented; UDP, metrics and transport-framing accounting pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
-- [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool inventory, runtime activation, bounded durable sticky affinity and audited session API/Admin observability locally implemented; CLI and chaining pending)
+- [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool inventory, runtime activation, bounded durable sticky affinity and audited session API/Admin/CLI observability locally implemented; chaining pending)
 - [ ] M7 — Health, circuit breaker, safe retries (health/circuit routing and conservative retry eligibility locally implemented; active checks/backoff/transport retry pending)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe hard byte-budget enforcement locally implemented; transport framing, billing windows, projections, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
@@ -154,8 +154,9 @@ source document.
   cache partitioning, overflow atomicity, SQLite/memory round trips and
   desktop/mobile Admin QA. Added viewer session inspection and audited operator
   rotation/deletion in the API and responsive Admin workspace. SQLite-backed
-  sessions and their HMAC namespace now survive restart; M6 remains open because
-  the session CLI and chaining are not implemented.
+  sessions and their HMAC namespace now survive restart. The session CLI supports
+  list/show/rotate/delete through the authenticated Admin API; M6 remains open
+  because chaining is not implemented.
 
 Vite child-process execution and golangci-lint's user cache required approved
 out-of-sandbox runs; no safety checks were disabled to work around those restrictions.

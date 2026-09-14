@@ -29,6 +29,10 @@ Usage:
   proxysieve export [--file PATH] --path EXPORT
   proxysieve import --path EXPORT --output CONFIG
   proxysieve import --path EXPORT --dry-run
+  proxysieve session list --username USER [--admin URL] [--json]
+  proxysieve session show --username USER [--admin URL] [--json] ID
+  proxysieve session rotate --username USER [--admin URL] [--json] ID
+  proxysieve session delete --username USER [--admin URL] ID
   proxysieve config validate [--file PATH] [--set dotted.path=value]
   proxysieve config print-effective [--file PATH] [--set dotted.path=value]
 
@@ -78,6 +82,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return runExport(append([]string{args[0]}, args[1:]...), stdout, stderr, home, environment())
+	case "session":
+		return runSession(args[1:], stdout, stderr, environment())
 	case "help", "--help", "-h":
 		if len(args) != 1 {
 			return usageError(stderr)
