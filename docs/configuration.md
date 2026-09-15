@@ -48,6 +48,23 @@ source tier; shortening a setting never moves a durable watermark backward or
 recovers already-pruned data. `traffic.aggregation_interval` controls maintenance
 frequency and defaults to one minute.
 
+Health scoring starts at 50. Successful observations add 5 points and failures
+subtract 15, always clamped to the visible 0–100 range. Configure those weights
+with `health.initial_score`, `health.success_gain`, and
+`health.failure_penalty`; each accepts 0–100. Failure/success thresholds and the
+circuit-open duration control quarantine and half-open recovery. HTTP 403, 429,
+and 5xx treatment is independently configurable because a target response does
+not always mean the proxy is unhealthy.
+
+Active checks are off by default to avoid paid background traffic. When
+`health.active_checks` is enabled, ProxySieve checks each enabled active proxy at
+`health.check_interval` against `health.check_host:health.check_port`, with
+`health.check_timeout` applied per proxy. Check targets pass the same private
+destination policy as routed traffic, overlapping checks for one proxy are
+rejected, and proxy handshake bytes are recorded separately as health-check
+traffic. The Admin Health workspace also supports an operator-triggered target;
+viewer access remains read-only.
+
 `budgets` accepts durable paid-route byte guards. Supported scopes are `system`,
 `client`, `pool`, and `proxy`; every non-system scope requires `scope_id`. Pool and
 proxy IDs must exist in the same configuration. A hard budget currently requires

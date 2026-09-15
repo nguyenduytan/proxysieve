@@ -41,7 +41,7 @@ type Config struct {
 }
 
 func (c Config) Validate() error {
-	if c.FailureThreshold < 1 || c.SuccessThreshold < 1 || c.OpenDuration <= 0 || c.OpenDuration > 24*time.Hour {
+	if c.FailureThreshold < 1 || c.SuccessThreshold < 1 || c.OpenDuration <= 0 || c.OpenDuration > 24*time.Hour || c.InitialScore > 100 || c.SuccessGain > 100 || c.FailurePenalty > 100 {
 		return ErrInvalid
 	}
 	return nil

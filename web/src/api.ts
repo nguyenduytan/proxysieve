@@ -138,6 +138,38 @@ export interface PoolResponse {
   activation: "active" | "staged";
   runtime_revision: number;
 }
+export type HealthState =
+  "unknown" | "healthy" | "degraded" | "quarantined" | "half_open" | "disabled";
+export interface ProxyHealth {
+  proxy_id: string;
+  name: string;
+  state: HealthState;
+  circuit: "closed" | "open" | "half_open";
+  score: number;
+  latency_ns: number;
+  consecutive_failures: number;
+  last_success?: string;
+  last_failure?: string;
+}
+export interface PoolHealth {
+  pool_id: string;
+  name: string;
+  enabled: boolean;
+  total: number;
+  eligible: number;
+  unknown: number;
+  healthy: number;
+  degraded: number;
+  quarantined: number;
+  half_open: number;
+  disabled: number;
+}
+export interface ProxyHealthPage {
+  items: ProxyHealth[];
+}
+export interface PoolHealthPage {
+  items: PoolHealth[];
+}
 export interface ChainHop {
   pool_id: string;
   timeout_ns: number;

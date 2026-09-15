@@ -70,6 +70,7 @@ type Runtime struct {
 	SetupToken string
 	Store      *sqlite.Store
 	Scheduler  *scheduler.Runner
+	HealthJob  *scheduler.Runner
 	Sessions   *internalsession.Manager
 }
 type resolver struct{}
@@ -517,9 +518,7 @@ func (r *router) selectEndpointExcluding(ctx context.Context, poolID model.ID, r
 		for _, endpointID := range pool.EndpointIDs {
 			endpoint := snapshot.endpoints[endpointID]
 			health, eligible := r.health.EligibleSnapshot(endpoint.ID, now)
-			if endpoint.Enabled && !excluded[endpoint.ID] && matchesPool(endpoint, pool) && eligible &&
-				(health.State == publichealth.Unknown || pool.MinHealthScore == 0 || health.Score >= pool.MinHealthScore) &&
-				(health.Latency == 0 || pool.MaxLatency == 0 || health.Latency <= pool.MaxLatency) {
+			if endpoint.Enabled && !excluded[endpoint.ID] && eligible && endpointEligibleForPool(endpoint, pool, health) {
 				candidates = append(candidates, routing.Candidate{Endpoint: endpoint, HealthScore: health.Score, Latency: health.Latency, ActiveConnections: health.ActiveConnections})
 			}
 		}
@@ -538,6 +537,11 @@ func (r *router) selectEndpointExcluding(ctx context.Context, poolID model.ID, r
 		return proxy.Endpoint{}, ErrPoolUnavailable
 	}
 	return selectPool(poolID)
+}
+func endpointEligibleForPool(endpoint proxy.Endpoint, pool routing.Pool, health publichealth.Snapshot) bool {
+	return matchesPool(endpoint, pool) &&
+		(health.State == publichealth.Unknown || pool.MinHealthScore == 0 || health.Score >= pool.MinHealthScore) &&
+		(health.Latency == 0 || pool.MaxLatency == 0 || health.Latency <= pool.MaxLatency)
 }
 func matchesPool(endpoint proxy.Endpoint, pool routing.Pool) bool {
 	if pool.Country != "" && !strings.EqualFold(endpoint.Country, pool.Country) {
@@ -611,7 +615,7 @@ func Build(c config.Config) (Runtime, error) {
 			return Runtime{}, err
 		}
 	}
-	healthManager, err := internalhealth.New(publichealth.Defaults(), nil)
+	healthManager, err := internalhealth.New(c.Health.RuntimeConfig(), nil)
 	if err != nil {
 		return Runtime{}, err
 	}
@@ -619,6 +623,7 @@ func Build(c config.Config) (Runtime, error) {
 	runtime := Runtime{Traffic: trafficRecorder}
 	var budgetManager *internalbudget.Manager
 	var routeRuntime *routingRuntime
+	var healthService *healthControl
 	if c.Admin.Enabled {
 		if c.Storage.Driver != "sqlite" {
 			return Runtime{}, ErrUnsupportedListener
@@ -675,8 +680,10 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
+		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: resolver{}, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}}, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout)}
 		server.SetTrafficStatus(durableRecorder)
 		server.SetSessions(sessionManager)
+		server.SetHealth(healthService)
 		server.SetSourceRefresher(sourceRefresher)
 		server.SetRuntimeControl(&runtimeControl{runtime: routeRuntime, store: controlStore, now: func() time.Time { return time.Now().UTC() }})
 		chainTester := &router{runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager}
@@ -705,7 +712,7 @@ func Build(c config.Config) (Runtime, error) {
 			Store: controlStore, Refresher: sourceRefresher, Resolver: resolver{},
 			Policy: security.DestinationPolicy{DenyPrivate: true}, Audit: controlStore,
 		}
-		runtime.Scheduler = scheduler.New(time.Duration(c.Traffic.AggregationInterval), trafficJob.Run, sourceJob.Run)
+		runtime.Scheduler = scheduler.New(time.Duration(c.Traffic.AggregationInterval), 30*time.Second, trafficJob.Run, sourceJob.Run)
 		if token, err := service.SetupToken(context.Background()); err == nil {
 			runtime.SetupToken = token
 		}
@@ -729,6 +736,12 @@ func Build(c config.Config) (Runtime, error) {
 		if err != nil {
 			return Runtime{}, err
 		}
+	}
+	if healthService == nil {
+		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: resolver{}, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: trafficRecorder, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout)}
+	}
+	if c.Health.ActiveChecks {
+		runtime.HealthJob = scheduler.New(time.Duration(c.Health.CheckInterval), 0, healthService.Run)
 	}
 	for _, listener := range c.Listeners {
 		if listener.Auth != "local" && listener.Auth != "api_key" && listener.Auth != "password" {
@@ -884,6 +897,10 @@ func (r Runtime) RunReady(ctx context.Context, ready func() error) error {
 	if r.Scheduler != nil {
 		r.Scheduler.Start(ctx)
 		defer r.Scheduler.Stop()
+	}
+	if r.HealthJob != nil {
+		r.HealthJob.Start(ctx)
+		defer r.HealthJob.Stop()
 	}
 	if ctx.Err() != nil {
 		return nil

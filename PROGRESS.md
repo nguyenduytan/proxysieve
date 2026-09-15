@@ -11,7 +11,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-15.
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local/password SOCKS5 CONNECT and runtime multi-listener support implemented; UDP, metrics and transport-framing accounting pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
 - [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes and audited session API/Admin/CLI observability locally implemented; broader failover validation pending)
-- [ ] M7 — Health, circuit breaker, safe retries (live score/latency selection, controlled half-open probes and one-step HTTP/CONNECT/SOCKS5 retry/failover with jittered backoff locally implemented; active checks, health API/dashboard and per-attempt traffic attribution pending)
+- [ ] M7 — Health, circuit breaker, safe retries (passive/active checks, score/latency selection, controlled half-open probes, health API/dashboard and per-attempt HTTP/CONNECT/SOCKS5 retry attribution locally implemented; broader metric inputs and explicit global/per-pool check-rate policy pending)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe hard byte-budget enforcement locally implemented; transport framing, billing windows, projections, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
@@ -194,6 +194,23 @@ source document.
 - Passed the full Go suite and vet plus focused race tests for health, app routing,
   HTTP forwarding, SOCKS5 and retry policy. Active checks, health API/Admin views
   and separate retry-attempt traffic/cost attribution remain M7 work.
+
+### Latest local continuation — active health and retry attribution (2026-09-15)
+
+- Added optional active checks with configurable target, interval and per-proxy
+  timeout. Checks are serialized per endpoint, remain available without the Admin
+  Panel, honor runtime cancellation and account proxy handshake bytes separately.
+- Added viewer-readable proxy/pool health APIs and CSRF-protected operator checks
+  with bounded input, destination-policy enforcement and sanitized error mapping.
+- Added the responsive Admin Health workspace with one manual target and one
+  feedback surface. Disabled resources are not checkable; refresh preserves the
+  last data while loading.
+- HTTP, CONNECT and SOCKS5 retries now record each attempted route separately while
+  retaining shared request/connection IDs. Failed pre-response tunnel dials do not
+  inherit application-stream bytes from the successful replacement route.
+- Added health config bounds and proved schema-v1 files without a `health` section
+  retain safe defaults. The health scheduler no longer truncates multi-proxy scans
+  at the traffic-maintenance job deadline.
 
 Vite child-process execution and golangci-lint's user cache required approved
 out-of-sandbox runs; no safety checks were disabled to work around those restrictions.

@@ -14,5 +14,7 @@ hard-budget and half-open checks, and never falls back to `DIRECT`.
 Current transport adapters retry only bodyless GET/HEAD/OPTIONS requests and tunnel
 dials made before a success reply. They do not replay PUT, DELETE, POST or any other
 body-bearing request even when the standalone policy contract could permit a known
-replayable body. Separate traffic/cost attribution for each failed attempt remains
-required before M7 acceptance; ProxySieve never blindly retries a checkout-like POST.
+replayable body. Each attempt has its own route/proxy traffic event while retaining
+the request and connection IDs that tie the attempts together. A failed pre-response
+tunnel dial records zero application-stream bytes; ProxySieve never blindly retries
+a checkout-like POST.

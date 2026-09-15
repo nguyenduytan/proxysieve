@@ -100,8 +100,8 @@ func TestEligibility(t *testing.T) {
 
 func TestLatencyUsesRollingAverage(t *testing.T) {
 	m, _ := New(public.Defaults(), nil)
-	state, _ := m.Observe("proxy", public.Observation{Success: true, Latency: 100 * time.Millisecond})
-	state, _ = m.Observe("proxy", public.Observation{Success: true, Latency: 20 * time.Millisecond})
+	_, _ = m.Observe("proxy", public.Observation{Success: true, Latency: 100 * time.Millisecond})
+	state, _ := m.Observe("proxy", public.Observation{Success: true, Latency: 20 * time.Millisecond})
 	if state.Latency != 80*time.Millisecond {
 		t.Fatal(state.Latency)
 	}

@@ -12,6 +12,7 @@ tags:
   - name: Auth
   - name: System
   - name: Traffic
+  - name: Health
   - name: Proxies
   - name: Sources
   - name: Pools
@@ -128,6 +129,38 @@ paths:
       parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/ChainID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}, {name: granularity, in: query, required: true, schema: {type: string, enum: [minute, hour, day]}}]
       responses:
         '200': {description: Bounded traffic series}
+  /api/v1/health/proxies:
+    get:
+      tags: [Health]
+      responses:
+        '200': {description: Active runtime proxy health, content: {application/json: {schema: {$ref: '#/components/schemas/ProxyHealthPage'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/health/pools:
+    get:
+      tags: [Health]
+      responses:
+        '200': {description: Active runtime pool health, content: {application/json: {schema: {$ref: '#/components/schemas/PoolHealthPage'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/health/proxies/{proxyId}/check:
+    post:
+      tags: [Health]
+      security: [sessionCookie: [], csrfToken: []]
+      parameters: [{name: proxyId, in: path, required: true, schema: {type: string}}]
+      requestBody: {$ref: '#/components/requestBodies/HealthCheckTarget'}
+      responses:
+        '200': {description: Updated proxy health, content: {application/json: {schema: {type: object, required: [result], properties: {result: {$ref: '#/components/schemas/ProxyHealth'}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/health/pools/{poolId}/check:
+    post:
+      tags: [Health]
+      security: [sessionCookie: [], csrfToken: []]
+      parameters: [{name: poolId, in: path, required: true, schema: {type: string}}]
+      requestBody: {$ref: '#/components/requestBodies/HealthCheckTarget'}
+      responses:
+        '200': {description: Updated pool health, content: {application/json: {schema: {type: object, required: [result], properties: {result: {$ref: '#/components/schemas/PoolHealth'}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/v1/audit:
     get:
       tags: [Audit]
@@ -619,10 +652,23 @@ components:
     ChainID: {name: chain_id, in: query, schema: {type: string}}
     Action: {name: action, in: query, schema: {type: string}}
     Protocol: {name: protocol, in: query, schema: {type: string}}
+  requestBodies:
+    HealthCheckTarget:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [target_host, target_port]
+            additionalProperties: false
+            properties:
+              target_host: {type: string, minLength: 1, maxLength: 253}
+              target_port: {type: integer, minimum: 1, maximum: 65535}
   responses:
     BadRequest: {description: Request was not accepted, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Unauthorized: {description: Authentication required, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Forbidden: {description: Request was forbidden, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    NotFound: {description: Resource was not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   schemas:
     Error:
       type: object
@@ -820,6 +866,42 @@ components:
         failed_hop: {type: integer, minimum: 1, maximum: 8}
         pool_id: {type: string}
         proxy_id: {type: string}
+    ProxyHealth:
+      type: object
+      required: [proxy_id, name, state, circuit, score, latency_ns, consecutive_failures]
+      properties:
+        proxy_id: {type: string}
+        name: {type: string}
+        state: {type: string, enum: [unknown, healthy, degraded, quarantined, half_open, disabled]}
+        circuit: {type: string, enum: [closed, open, half_open]}
+        score: {type: integer, minimum: 0, maximum: 100}
+        latency_ns: {type: integer, minimum: 0}
+        consecutive_failures: {type: integer, minimum: 0}
+        last_success: {type: string, format: date-time}
+        last_failure: {type: string, format: date-time}
+    ProxyHealthPage:
+      type: object
+      required: [items]
+      properties: {items: {type: array, items: {$ref: '#/components/schemas/ProxyHealth'}}}
+    PoolHealth:
+      type: object
+      required: [pool_id, name, enabled, total, eligible, unknown, healthy, degraded, quarantined, half_open, disabled]
+      properties:
+        pool_id: {type: string}
+        name: {type: string}
+        enabled: {type: boolean}
+        total: {type: integer, minimum: 0}
+        eligible: {type: integer, minimum: 0}
+        unknown: {type: integer, minimum: 0}
+        healthy: {type: integer, minimum: 0}
+        degraded: {type: integer, minimum: 0}
+        quarantined: {type: integer, minimum: 0}
+        half_open: {type: integer, minimum: 0}
+        disabled: {type: integer, minimum: 0}
+    PoolHealthPage:
+      type: object
+      required: [items]
+      properties: {items: {type: array, items: {$ref: '#/components/schemas/PoolHealth'}}}
     ChainTestResponse:
       type: object
       required: [result]

@@ -11,7 +11,7 @@ import (
 func TestRunnerStopJoinsAndCountsFailure(t *testing.T) {
 	entered := make(chan struct{})
 	finished := make(chan struct{})
-	r := New(time.Hour, nil, func(ctx context.Context) error {
+	r := New(time.Hour, 30*time.Second, nil, func(ctx context.Context) error {
 		close(entered)
 		<-ctx.Done()
 		defer close(finished)
@@ -39,7 +39,7 @@ func TestRunnerStopJoinsAndCountsFailure(t *testing.T) {
 
 func TestRunnerConcurrentLifecycle(t *testing.T) {
 	for range 100 {
-		r := New(time.Hour, func(context.Context) error { return nil })
+		r := New(time.Hour, 30*time.Second, func(context.Context) error { return nil })
 		var wg sync.WaitGroup
 		for range 4 {
 			wg.Go(func() { r.Start(t.Context()) })
@@ -47,6 +47,20 @@ func TestRunnerConcurrentLifecycle(t *testing.T) {
 		}
 		wg.Wait()
 		r.Stop()
+	}
+}
+
+func TestRunnerJobTimeoutIsConfigurable(t *testing.T) {
+	seen := make(chan bool, 1)
+	r := New(time.Hour, 0, func(ctx context.Context) error {
+		_, hasDeadline := ctx.Deadline()
+		seen <- hasDeadline
+		return nil
+	})
+	r.Start(t.Context())
+	defer r.Stop()
+	if <-seen {
+		t.Fatal("unexpected scheduler deadline")
 	}
 }
 

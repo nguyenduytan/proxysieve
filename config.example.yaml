@@ -17,6 +17,21 @@ traffic:
   hour_retention_days: 365
   day_retention_days: 3650
   aggregation_interval: 1m
+health:
+  failure_threshold: 3
+  success_threshold: 2
+  open_duration: 1m
+  initial_score: 50
+  success_gain: 5
+  failure_penalty: 15
+  treat_403_as_failure: false
+  treat_429_as_failure: true
+  treat_5xx_as_failure: true
+  active_checks: false
+  check_host: example.com
+  check_port: 443
+  check_interval: 5m
+  check_timeout: 15s
 budgets: []
 # Ordered proxy chains are optional. Each referenced pool must already exist.
 # chains:

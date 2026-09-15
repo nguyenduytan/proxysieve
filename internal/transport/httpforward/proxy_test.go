@@ -134,6 +134,38 @@ func TestRecordsPaidBytesBeforeRoundTripFailure(t *testing.T) {
 		t.Fatal("failed request traffic was not recorded")
 	}
 }
+
+func TestHTTPRetryRecordsEachAttempt(t *testing.T) {
+	recorded := make(eventRecorder, 2)
+	handler, err := New(Options{
+		Evaluator: Decider(direct),
+		Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{
+				Action: "proxy", PoolID: "pool", ProxyID: "first",
+				Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("first failed") }),
+				Retry: func(context.Context) (gateway.Route, error) {
+					return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "second", Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+						return &http.Response{StatusCode: http.StatusNoContent, Header: http.Header{}, Body: http.NoBody}, nil
+					})}, nil
+				},
+			}, nil
+		}),
+		Recorder: recorded,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://example.invalid/retry", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	first, second := <-recorded, <-recorded
+	if first.ProxyID != "first" || first.StatusCode != http.StatusBadGateway || second.ProxyID != "second" || second.StatusCode != http.StatusNoContent || first.RequestID != second.RequestID || first.ConnectionID != second.ConnectionID {
+		t.Fatal(first, second)
+	}
+}
 func TestSafeResponseCache(t *testing.T) {
 	var hits int
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

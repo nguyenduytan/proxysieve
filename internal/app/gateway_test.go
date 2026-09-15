@@ -85,6 +85,17 @@ func TestRunCancelled(t *testing.T) {
 	}
 }
 
+func TestBuildCreatesActiveHealthJobWithoutAdmin(t *testing.T) {
+	c := config.Defaults(t.TempDir())
+	c.Listeners = c.Listeners[:1]
+	c.Admin.Enabled = false
+	c.Health.ActiveChecks = true
+	runtime, err := Build(c)
+	if err != nil || runtime.HealthJob == nil {
+		t.Fatal(runtime.HealthJob, err)
+	}
+}
+
 type fixedResolver struct{ addresses []netip.Addr }
 
 func (r fixedResolver) LookupNetIP(context.Context, string) ([]netip.Addr, error) {

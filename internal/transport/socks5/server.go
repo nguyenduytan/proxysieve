@@ -120,6 +120,7 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 		if route.Observe != nil {
 			route.Observe(false, 0, latency)
 		}
+		recordTunnel(s.recorder, ctx, request, route, 5, 0, 0, 0, 0)
 		if route.Retry == nil || attempt >= retrypkg.DefaultPolicy().MaxAttempts || retrypkg.Wait(ctx, attempt) != nil {
 			break
 		}
@@ -131,7 +132,6 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 		attempt++
 	}
 	if err != nil {
-		recordTunnel(s.recorder, ctx, request, route, 5, 0, 0, 0, 0)
 		writeReply(conn, 5)
 		return
 	}

@@ -19,6 +19,10 @@ GET  /api/v1/traffic/live
 GET  /api/v1/traffic/history
 GET  /api/v1/traffic/summary
 GET  /api/v1/traffic/timeseries
+GET  /api/v1/health/proxies
+GET  /api/v1/health/pools
+POST /api/v1/health/proxies/{id}/check
+POST /api/v1/health/pools/{id}/check
 GET  /api/v1/audit
 GET  /api/v1/proxies
 POST /api/v1/proxies
@@ -82,10 +86,17 @@ and includes the rated upstream-byte coverage; these values are configured
 estimates, not provider-billed amounts.
 
 The embedded Admin Panel deliberately lists only API-backed destinations:
-Overview, Traffic, Proxies, Sources, Pools, Sessions, Policies, Clients, Audit
-and System. Planned
+Overview, Traffic, Proxies, Sources, Pools, Chains, Health, Sessions, Policies,
+Clients, Audit and System. Planned
 workspaces such as Alerts are not rendered as disabled navigation. This avoids
 duplicate or inert menu surfaces while features are still under development.
+
+Health collection endpoints are viewer-readable. Manual checks require an
+operator session and CSRF token, accept a validated host and port, and apply the
+runtime private-destination policy before connecting. Proxy and pool checks share
+the active runtime state; overlapping work for one proxy is rejected. Disabled
+resources remain visible but are not checkable. Check traffic is recorded under
+the dedicated `health_check_bytes` counter.
 
 Proxy inventory updates and deletes use an optimistic `revision` precondition. Send
 the complete endpoint document with its current revision to `PATCH`, or the current

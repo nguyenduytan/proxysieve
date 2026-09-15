@@ -14,6 +14,7 @@ describe("admin navigation", () => {
       "Sources",
       "Pools",
       "Chains",
+      "Health",
       "Sessions",
       "Policies",
       "Clients",

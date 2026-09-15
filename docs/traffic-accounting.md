@@ -103,6 +103,16 @@ from or written to the selected route. Paid proxy routes populate upstream strea
 counters; direct routes populate `direct_bytes`. These totals do not include TCP/IP,
 TLS, HTTP CONNECT or SOCKS framing and are not provider invoice measurements.
 
+HTTP, CONNECT, and SOCKS5 retries emit one event per attempted route. Those events
+share request/connection IDs for correlation but retain the selected pool, proxy,
+chain, status, and configured-cost snapshot for that attempt. Failed pre-response
+tunnel dials contain zero application-stream bytes rather than charging the later
+successful stream to the failed proxy.
+
+Active and manual health checks emit `health_check` events. Their proxy handshake
+reads and writes populate only `health_check_bytes`; they do not inflate client,
+upstream application-stream, direct, or avoided-byte counters.
+
 ## Remaining acceptance work
 
 Load benchmarks, configurable queue/batch sizing, transient-write retry policy and

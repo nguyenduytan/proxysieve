@@ -101,6 +101,7 @@ func (j TrafficJob) Run(ctx context.Context) error {
 type Runner struct {
 	jobs     []func(context.Context) error
 	interval time.Duration
+	timeout  time.Duration
 	mu       sync.Mutex
 	started  bool
 	stopped  bool
@@ -109,8 +110,8 @@ type Runner struct {
 	failures uint64
 }
 
-func New(interval time.Duration, jobs ...func(context.Context) error) *Runner {
-	return &Runner{interval: interval, jobs: append([]func(context.Context) error(nil), jobs...)}
+func New(interval, timeout time.Duration, jobs ...func(context.Context) error) *Runner {
+	return &Runner{interval: interval, timeout: timeout, jobs: append([]func(context.Context) error(nil), jobs...)}
 }
 
 func (r *Runner) Start(parent context.Context) {
@@ -136,7 +137,10 @@ func (r *Runner) Start(parent context.Context) {
 				if job == nil {
 					continue
 				}
-				jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				jobCtx, cancel := ctx, func() {}
+				if r.timeout > 0 {
+					jobCtx, cancel = context.WithTimeout(ctx, r.timeout)
+				}
 				err := job(jobCtx)
 				cancel()
 				if err != nil {

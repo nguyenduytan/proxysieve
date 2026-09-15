@@ -15,6 +15,7 @@ import (
 	"time"
 
 	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
+	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	pspolicy "github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
@@ -53,6 +54,7 @@ type Config struct {
 	Admin     Admin                 `json:"admin" yaml:"admin"`
 	Storage   Storage               `json:"storage" yaml:"storage"`
 	Traffic   Traffic               `json:"traffic" yaml:"traffic"`
+	Health    Health                `json:"health" yaml:"health"`
 	Inspect   Inspect               `json:"inspect" yaml:"inspect"`
 	Cache     Cache                 `json:"cache" yaml:"cache"`
 	Security  Security              `json:"security" yaml:"security"`
@@ -97,6 +99,33 @@ type Traffic struct {
 	DayRetentionDays    int      `json:"day_retention_days" yaml:"day_retention_days"`
 	AggregationInterval Duration `json:"aggregation_interval" yaml:"aggregation_interval"`
 }
+type Health struct {
+	FailureThreshold  uint32   `json:"failure_threshold" yaml:"failure_threshold"`
+	SuccessThreshold  uint32   `json:"success_threshold" yaml:"success_threshold"`
+	OpenDuration      Duration `json:"open_duration" yaml:"open_duration"`
+	InitialScore      uint8    `json:"initial_score" yaml:"initial_score"`
+	SuccessGain       uint8    `json:"success_gain" yaml:"success_gain"`
+	FailurePenalty    uint8    `json:"failure_penalty" yaml:"failure_penalty"`
+	Treat403AsFailure bool     `json:"treat_403_as_failure" yaml:"treat_403_as_failure"`
+	Treat429AsFailure bool     `json:"treat_429_as_failure" yaml:"treat_429_as_failure"`
+	Treat5xxAsFailure bool     `json:"treat_5xx_as_failure" yaml:"treat_5xx_as_failure"`
+	ActiveChecks      bool     `json:"active_checks" yaml:"active_checks"`
+	CheckHost         string   `json:"check_host" yaml:"check_host"`
+	CheckPort         uint16   `json:"check_port" yaml:"check_port"`
+	CheckInterval     Duration `json:"check_interval" yaml:"check_interval"`
+	CheckTimeout      Duration `json:"check_timeout" yaml:"check_timeout"`
+}
+
+func (h Health) RuntimeConfig() publichealth.Config {
+	return publichealth.Config{
+		FailureThreshold: h.FailureThreshold, SuccessThreshold: h.SuccessThreshold,
+		OpenDuration: time.Duration(h.OpenDuration), InitialScore: h.InitialScore,
+		SuccessGain: h.SuccessGain, FailurePenalty: h.FailurePenalty,
+		Treat403AsFailure: h.Treat403AsFailure, Treat429AsFailure: h.Treat429AsFailure,
+		Treat5xxAsFailure: h.Treat5xxAsFailure,
+	}
+}
+
 type Inspect struct {
 	Enabled bool     `json:"enabled" yaml:"enabled"`
 	Include []string `json:"include" yaml:"include"`
@@ -135,6 +164,7 @@ func Defaults(home string) Config {
 		Admin:    Admin{Enabled: true, Bind: "127.0.0.1:9090", AuthRequired: true},
 		Storage:  Storage{Driver: "sqlite", Path: filepath.Join(dir, "proxysieve.db"), BusyTimeout: Duration(5 * time.Second)},
 		Traffic:  Traffic{RetentionDays: 30, MinuteRetentionDays: 90, HourRetentionDays: 365, DayRetentionDays: 3650, AggregationInterval: Duration(time.Minute)},
+		Health:   Health{FailureThreshold: 3, SuccessThreshold: 2, OpenDuration: Duration(time.Minute), InitialScore: 50, SuccessGain: 5, FailurePenalty: 15, Treat429AsFailure: true, Treat5xxAsFailure: true, CheckHost: "example.com", CheckPort: 443, CheckInterval: Duration(5 * time.Minute), CheckTimeout: Duration(15 * time.Second)},
 		Cache:    Cache{DNS: CacheLimit{Enabled: true, MaxEntries: 4096, MaxBytes: 4 << 20}, Response: CacheLimit{MaxEntries: 1024, MaxBytes: 64 << 20}},
 		Security: Security{DenyPrivate: true},
 		Logging:  Logging{Level: "info", Format: "json"},
@@ -199,6 +229,9 @@ func (c Config) Validate() error {
 		c.Traffic.HourRetentionDays < 1 || c.Traffic.HourRetentionDays > 3650 ||
 		c.Traffic.DayRetentionDays < 1 || c.Traffic.DayRetentionDays > 3650 ||
 		c.Traffic.AggregationInterval <= 0 || c.Traffic.AggregationInterval > Duration(time.Hour) {
+		return ErrInvalid
+	}
+	if c.Health.RuntimeConfig().Validate() != nil || c.Health.CheckPort == 0 || !proxy.ValidHost(c.Health.CheckHost) || c.Health.CheckInterval < Duration(time.Minute) || c.Health.CheckInterval > Duration(24*time.Hour) || c.Health.CheckTimeout <= 0 || c.Health.CheckTimeout > Duration(time.Minute) {
 		return ErrInvalid
 	}
 	for _, v := range []CacheLimit{c.Cache.DNS, c.Cache.Response} {

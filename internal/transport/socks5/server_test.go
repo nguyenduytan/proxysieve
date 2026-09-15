@@ -98,17 +98,18 @@ func TestConnectRetriesBeforeReply(t *testing.T) {
 	targetClient, targetServer := net.Pipe()
 	defer func() { _ = targetClient.Close() }()
 	observed := make(chan bool, 2)
+	recorded := make(eventRecorder, 2)
 	s, err := New(Options{Evaluator: eval(func(context.Context, policy.RequestContext, policy.Visibility) (policy.Result, error) {
 		return policy.Result{Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
 		return gateway.Route{
-			Action: "proxy", Dial: func(context.Context, string) (net.Conn, error) { return nil, errors.New("first proxy failed") },
+			Action: "proxy", PoolID: "pool", ProxyID: "first", Dial: func(context.Context, string) (net.Conn, error) { return nil, errors.New("first proxy failed") },
 			Observe: func(success bool, _ int, _ time.Duration) { observed <- success },
 			Retry: func(context.Context) (gateway.Route, error) {
-				return gateway.Route{Action: "proxy", Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int, _ time.Duration) { observed <- success }}, nil
+				return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "second", Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int, _ time.Duration) { observed <- success }}, nil
 			},
 		}, nil
-	})})
+	}), Recorder: recorded})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,6 +139,10 @@ func TestConnectRetriesBeforeReply(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("retry tunnel did not close")
+	}
+	first, second := <-recorded, <-recorded
+	if first.ProxyID != "first" || first.StatusCode != 5 || second.ProxyID != "second" || second.StatusCode != 0 || first.RequestID != second.RequestID || first.ConnectionID != second.ConnectionID {
+		t.Fatal(first, second)
 	}
 }
 func TestRejectsUnsupportedMethodsAndRoutes(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
@@ -13,6 +14,28 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 )
+
+func TestHealthConfigurationValidation(t *testing.T) {
+	for name, mutate := range map[string]func(*Config){
+		"failure threshold": func(c *Config) { c.Health.FailureThreshold = 0 },
+		"success threshold": func(c *Config) { c.Health.SuccessThreshold = 0 },
+		"initial score":     func(c *Config) { c.Health.InitialScore = 101 },
+		"success gain":      func(c *Config) { c.Health.SuccessGain = 101 },
+		"failure penalty":   func(c *Config) { c.Health.FailurePenalty = 101 },
+		"host":              func(c *Config) { c.Health.CheckHost = "bad host" },
+		"port":              func(c *Config) { c.Health.CheckPort = 0 },
+		"interval":          func(c *Config) { c.Health.CheckInterval = Duration(time.Second) },
+		"timeout":           func(c *Config) { c.Health.CheckTimeout = 0 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			configured := Defaults(t.TempDir())
+			mutate(&configured)
+			if err := configured.Validate(); !errors.Is(err, ErrInvalid) {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 func TestChainConfigurationReferencesAndIsolation(t *testing.T) {
 	configured := Defaults(t.TempDir())
@@ -80,6 +103,9 @@ func TestSafeDefaultsAndManager(t *testing.T) {
 	}
 	if c.Inspect.Enabled || c.Security.AllowDirect || !c.Security.DenyPrivate || c.Cache.Response.Enabled || c.Logging.CaptureBodies {
 		t.Fatal("unsafe defaults")
+	}
+	if c.Health.ActiveChecks || c.Health.RuntimeConfig().Validate() != nil {
+		t.Fatal("unsafe health defaults", c.Health)
 	}
 	if c.Traffic.RetentionDays != 30 || c.Traffic.MinuteRetentionDays != 90 || c.Traffic.HourRetentionDays != 365 || c.Traffic.DayRetentionDays != 3650 {
 		t.Fatal("unexpected traffic retention defaults", c.Traffic)

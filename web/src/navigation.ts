@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   ScrollText,
   Settings,
+  HeartPulse,
 } from "lucide-react";
 import type { Role } from "./api";
 
@@ -21,6 +22,7 @@ export type Page =
   | "Sources"
   | "Pools"
   | "Chains"
+  | "Health"
   | "Sessions"
   | "Policies"
   | "Clients"
@@ -73,6 +75,12 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Chains",
     description: "Ordered multi-proxy routes",
     icon: Link2,
+  },
+  {
+    page: "Health",
+    label: "Health",
+    description: "Proxy and pool availability",
+    icon: HeartPulse,
   },
   {
     page: "Sessions",

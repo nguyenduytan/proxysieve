@@ -54,6 +54,7 @@ type Server struct {
 	trafficStatus  TrafficStatus
 	runtimeControl RuntimeControl
 	sessions       SessionStore
+	health         HealthControl
 	audit          audit.Writer
 	now            func() time.Time
 	sourceResolver internalsource.Resolver
@@ -146,6 +147,7 @@ func (s *Server) Handler() http.Handler                    { return securityHead
 func (s *Server) SetTrafficStatus(status TrafficStatus)    { s.trafficStatus = status }
 func (s *Server) SetRuntimeControl(control RuntimeControl) { s.runtimeControl = control }
 func (s *Server) SetSessions(sessions SessionStore)        { s.sessions = sessions }
+func (s *Server) SetHealth(health HealthControl)           { s.health = health }
 func (s *Server) SetChainTester(tester ChainTester)        { s.chainTester = tester }
 func (s *Server) SetSourceRefresher(refresher *internalsource.Refresher) {
 	if refresher != nil {
@@ -223,6 +225,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficSummary(w, r) })
 	case "/api/v1/traffic/timeseries":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficTimeseries(w, r) })
+	case "/api/v1/health/proxies":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.proxyHealth(w, r) })
+	case "/api/v1/health/pools":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.poolHealth(w, r) })
 	case "/api/v1/audit":
 		s.require(w, r, auth.RoleAdmin, func(_ auth.User) { s.listAudit(w, r) })
 	case "/api/v1/proxies":
@@ -266,7 +272,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			methodNotAllowed(w)
 		}
 	default:
-		if strings.HasPrefix(r.URL.Path, "/api/v1/clients/") && strings.HasSuffix(r.URL.Path, "/api-keys") {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/health/proxies/") && strings.HasSuffix(r.URL.Path, "/check") {
+			s.proxyHealthCheck(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/health/pools/") && strings.HasSuffix(r.URL.Path, "/check") {
+			s.poolHealthCheck(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/clients/") && strings.HasSuffix(r.URL.Path, "/api-keys") {
 			switch r.Method {
 			case http.MethodGet:
 				s.listAPIKeys(w, r)

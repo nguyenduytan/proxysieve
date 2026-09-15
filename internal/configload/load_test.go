@@ -43,6 +43,13 @@ func TestPrecedence(t *testing.T) {
 		t.Fatal(e, err)
 	}
 }
+func TestMissingHealthSectionUsesDefaults(t *testing.T) {
+	home := t.TempDir()
+	effective, err := Load(Options{Home: home, File: strings.NewReader("version: 1\n")})
+	if err != nil || effective.Config.Health != config.Defaults(home).Health || effective.Sources["health.check_host"] != "default" {
+		t.Fatal(effective.Config.Health, err)
+	}
+}
 func TestInvalidDocuments(t *testing.T) {
 	for _, doc := range []string{
 		"", "logging: {}", "version: 2", "version: 1\nunknown: true", "version: 1\nversion: 1",

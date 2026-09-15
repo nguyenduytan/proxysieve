@@ -11,6 +11,7 @@ import { ChainInventory } from "./ChainInventory";
 import { PolicyInventory } from "./PolicyInventory";
 import { SourceInventory } from "./SourceInventory";
 import { SessionInventory } from "./SessionInventory";
+import { HealthInventory } from "./HealthInventory";
 import { TrafficView } from "./TrafficView";
 import { navigationForRole } from "./navigation";
 import type { Page } from "./navigation";
@@ -228,6 +229,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
         )}
         {page === "Chains" && (
           <ChainInventory role={user.role} onExpired={onExpired} />
+        )}
+        {page === "Health" && (
+          <HealthInventory role={user.role} onExpired={onExpired} />
         )}
         {page === "Sessions" && (
           <SessionInventory role={user.role} onExpired={onExpired} />
