@@ -45,7 +45,7 @@ func TestConnect(t *testing.T) {
 		done <- r
 		return policy.Result{Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
-		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int) { observed <- success }}, nil
+		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int, _ time.Duration) { observed <- success }}, nil
 	}), Recorder: recorded})
 	if err != nil {
 		t.Fatal(err)
@@ -91,6 +91,53 @@ func TestConnect(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("SOCKS5 traffic event was not recorded")
+	}
+}
+
+func TestConnectRetriesBeforeReply(t *testing.T) {
+	targetClient, targetServer := net.Pipe()
+	defer func() { _ = targetClient.Close() }()
+	observed := make(chan bool, 2)
+	s, err := New(Options{Evaluator: eval(func(context.Context, policy.RequestContext, policy.Visibility) (policy.Result, error) {
+		return policy.Result{Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
+	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+		return gateway.Route{
+			Action: "proxy", Dial: func(context.Context, string) (net.Conn, error) { return nil, errors.New("first proxy failed") },
+			Observe: func(success bool, _ int, _ time.Duration) { observed <- success },
+			Retry: func(context.Context) (gateway.Route, error) {
+				return gateway.Route{Action: "proxy", Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int, _ time.Duration) { observed <- success }}, nil
+			},
+		}, nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, server := net.Pipe()
+	done := make(chan struct{})
+	go func() { s.Serve(context.Background(), server); close(done) }()
+	if _, err = client.Write([]byte{5, 1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, 2)
+	if _, err = io.ReadFull(client, reply); err != nil || reply[1] != 0 {
+		t.Fatal(reply, err)
+	}
+	if _, err = client.Write([]byte{5, 1, 0, 3, 4, 't', 'e', 's', 't', 1, 187}); err != nil {
+		t.Fatal(err)
+	}
+	reply = make([]byte, 10)
+	if _, err = io.ReadFull(client, reply); err != nil || reply[1] != 0 {
+		t.Fatal(reply, err)
+	}
+	if first, second := <-observed, <-observed; first || !second {
+		t.Fatal(first, second)
+	}
+	_ = client.Close()
+	_ = targetClient.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("retry tunnel did not close")
 	}
 }
 func TestRejectsUnsupportedMethodsAndRoutes(t *testing.T) {

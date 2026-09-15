@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -150,6 +151,10 @@ func terminal(actions []policy.Action) policy.Action {
 }
 
 func (r *router) chain(ctx context.Context, request policy.RequestContext, chainID model.ID, snapshot *routingSnapshot) (gateway.Route, error) {
+	return r.chainExcluding(ctx, request, chainID, snapshot, map[model.ID]bool{})
+}
+
+func (r *router) chainExcluding(ctx context.Context, request policy.RequestContext, chainID model.ID, snapshot *routingSnapshot, excluded map[model.ID]bool) (gateway.Route, error) {
 	chain, ok := snapshot.chains[chainID]
 	if !ok || !chain.Enabled {
 		return gateway.Route{}, ErrPoolUnavailable
@@ -157,7 +162,6 @@ func (r *router) chain(ctx context.Context, request policy.RequestContext, chain
 	hops := make([]upstream.ChainHop, 0, len(chain.Hops))
 	pools := make([]model.ID, 0, len(chain.Hops))
 	proxies := make([]model.ID, 0, len(chain.Hops))
-	excluded := map[model.ID]bool{}
 	for _, configured := range chain.Hops {
 		endpoint, err := r.selectEndpointExcluding(ctx, configured.PoolID, request, snapshot, excluded)
 		if err != nil || r.destination.DenyPrivate && !endpoint.TrustedRemoteDNS {
@@ -226,7 +230,10 @@ func (r *router) chain(ctx context.Context, request policy.RequestContext, chain
 			}
 			return true
 		},
-		Observe: func(success bool, status int) {
+		Retry: func(ctx context.Context) (gateway.Route, error) {
+			return r.chainExcluding(ctx, request, chainID, snapshot, maps.Clone(excluded))
+		},
+		Observe: func(success bool, status int, _ time.Duration) {
 			failureMu.Lock()
 			endpointID := failedEndpoint
 			failureMu.Unlock()
@@ -272,14 +279,14 @@ func (r *router) testChain(ctx context.Context, chainID model.ID, host string, p
 			result.ProxyID = model.ID(chainErr.EndpointID)
 		}
 		if route.Observe != nil {
-			route.Observe(false, 0)
+			route.Observe(false, 0, 0)
 		}
 		return result
 	}
 	_ = connection.Close()
 	result.Status = "healthy"
 	if route.Observe != nil {
-		route.Observe(true, 0)
+		route.Observe(true, 0, 0)
 	}
 	return result
 }
@@ -317,6 +324,10 @@ func (r *router) pinnedDial(ctx context.Context, request policy.RequestContext) 
 	}, nil
 }
 func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolID model.ID, snapshot *routingSnapshot) (gateway.Route, error) {
+	return r.proxyExcluding(ctx, request, poolID, snapshot, nil)
+}
+
+func (r *router) proxyExcluding(ctx context.Context, request policy.RequestContext, poolID model.ID, snapshot *routingSnapshot, excluded map[model.ID]bool) (gateway.Route, error) {
 	pool, ok := snapshot.pools[poolID]
 	if !ok || !pool.Enabled {
 		return gateway.Route{}, ErrPoolUnavailable
@@ -331,7 +342,7 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 	var sessionHash string
 	var err error
 	if r.sessions == nil {
-		endpoint, err = r.selectEndpoint(ctx, poolID, request, snapshot)
+		endpoint, err = r.selectEndpointExcluding(ctx, poolID, request, snapshot, excluded)
 		if err != nil {
 			return gateway.Route{}, ErrPoolUnavailable
 		}
@@ -345,7 +356,7 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 				ClientID: clientID, PoolID: poolID, Key: sessionKey, Policy: sessionPolicy,
 				RuntimeRevision: snapshot.revision,
 				Select: func(ctx context.Context) (model.ID, error) {
-					endpoint, selectErr := r.selectEndpoint(ctx, poolID, request, snapshot)
+					endpoint, selectErr := r.selectEndpointExcluding(ctx, poolID, request, snapshot, excluded)
 					return endpoint.ID, selectErr
 				},
 			})
@@ -369,7 +380,9 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 		if !ok {
 			return gateway.Route{}, ErrPoolUnavailable
 		}
-		sessionID, sessionHash = resolved.Session.ID, resolved.Session.KeyHash
+		if sessionPolicy.Strategy != publicsession.None {
+			sessionID, sessionHash = resolved.Session.ID, resolved.Session.KeyHash
+		}
 	}
 	if r.destination.DenyPrivate && !endpoint.TrustedRemoteDNS {
 		return gateway.Route{}, gateway.ErrDenied
@@ -399,10 +412,22 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 	}
 	route := gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, SessionID: sessionID, SessionHash: sessionHash, Rate: rate, Reserve: reserve, Transport: transport, Acquire: func() bool {
 		return r.health.Acquire(endpoint.ID, time.Now().UTC())
+	}, Retry: func(ctx context.Context) (gateway.Route, error) {
+		if sessionID != "" && r.sessions != nil {
+			if err := r.sessions.Rotate(ctx, sessionID, publicsession.ProxyFailed); err != nil {
+				return gateway.Route{}, ErrPoolUnavailable
+			}
+		}
+		nextExcluded := maps.Clone(excluded)
+		if nextExcluded == nil {
+			nextExcluded = map[model.ID]bool{}
+		}
+		nextExcluded[endpoint.ID] = true
+		return r.proxyExcluding(ctx, request, poolID, snapshot, nextExcluded)
 	}, Dial: func(ctx context.Context, target string) (net.Conn, error) {
 		return connector.Connect(ctx, endpoint, target)
-	}, Observe: func(success bool, status int) {
-		_, _ = r.health.Observe(endpoint.ID, publichealth.Observation{Success: success, HTTPStatus: status})
+	}, Observe: func(success bool, status int, latency time.Duration) {
+		_, _ = r.health.Observe(endpoint.ID, publichealth.Observation{Success: success, HTTPStatus: status, Latency: latency})
 		if !success && sessionID != "" && r.sessions != nil && !r.health.Eligible(endpoint.ID, time.Now().UTC()) {
 			_ = r.sessions.Rotate(context.Background(), sessionID, publicsession.ProxyFailed)
 		}
@@ -488,10 +513,14 @@ func (r *router) selectEndpointExcluding(ctx context.Context, poolID model.ID, r
 			return proxy.Endpoint{}, ErrPoolUnavailable
 		}
 		candidates := make([]routing.Candidate, 0, len(pool.EndpointIDs))
+		now := time.Now().UTC()
 		for _, endpointID := range pool.EndpointIDs {
 			endpoint := snapshot.endpoints[endpointID]
-			if endpoint.Enabled && !excluded[endpoint.ID] && matchesPool(endpoint, pool) && r.health.Eligible(endpoint.ID, time.Now().UTC()) {
-				candidates = append(candidates, routing.Candidate{Endpoint: endpoint, HealthScore: 100})
+			health, eligible := r.health.EligibleSnapshot(endpoint.ID, now)
+			if endpoint.Enabled && !excluded[endpoint.ID] && matchesPool(endpoint, pool) && eligible &&
+				(health.State == publichealth.Unknown || pool.MinHealthScore == 0 || health.Score >= pool.MinHealthScore) &&
+				(health.Latency == 0 || pool.MaxLatency == 0 || health.Latency <= pool.MaxLatency) {
+				candidates = append(candidates, routing.Candidate{Endpoint: endpoint, HealthScore: health.Score, Latency: health.Latency, ActiveConnections: health.ActiveConnections})
 			}
 		}
 		if len(candidates) > 0 {

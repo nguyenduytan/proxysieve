@@ -61,6 +61,13 @@ func (m *Manager) Observe(id model.ID, observation public.Observation) (public.S
 		state.State = public.HalfOpen
 		state.ConsecutiveSuccesses = 0
 	}
+	if observation.Latency > 0 {
+		if state.Latency == 0 {
+			state.Latency = observation.Latency
+		} else {
+			state.Latency += (observation.Latency - state.Latency) / 4
+		}
+	}
 	failed := failure(m.config, observation)
 	if failed {
 		state.ConsecutiveFailures++
@@ -106,18 +113,25 @@ func (m *Manager) Get(id model.ID, now time.Time) (public.Snapshot, error) {
 // actual observations say otherwise. Open circuits transition to half-open after
 // their cooldown and allow the next controlled attempt.
 func (m *Manager) Eligible(id model.ID, now time.Time) bool {
+	_, eligible := m.EligibleSnapshot(id, now)
+	return eligible
+}
+
+func (m *Manager) EligibleSnapshot(id model.ID, now time.Time) (public.Snapshot, bool) {
 	if !id.Valid() {
-		return false
+		return public.Snapshot{}, false
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	state, ok := m.states[id]
 	if !ok {
-		return true
+		state = public.Snapshot{EndpointID: id, State: public.Unknown, Circuit: public.CircuitClosed, Score: m.config.InitialScore}
 	}
 	state = afterCooldown(state, now)
-	m.states[id] = state
-	return state.Eligible(now) && !m.probes[id]
+	if ok {
+		m.states[id] = state
+	}
+	return state, state.Eligible(now) && !m.probes[id]
 }
 
 // Acquire allows one in-flight attempt while an endpoint is half-open.

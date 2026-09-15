@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,6 +143,53 @@ func TestProxyPoolRoutesToUpstream(t *testing.T) {
 	_ = response.Body.Close()
 	if string(body) != "proxied" || gotURL != "http://origin.example.invalid/path" {
 		t.Fatalf("%q %q", body, gotURL)
+	}
+}
+
+func TestProxyPoolRetriesOnlySafeBodylessRequests(t *testing.T) {
+	for _, test := range []struct {
+		method     string
+		body       string
+		wantStatus int
+		wantHits   int
+	}{{http.MethodGet, "", http.StatusOK, 1}, {http.MethodPost, "do-not-replay", http.StatusBadGateway, 0}} {
+		t.Run(test.method, func(t *testing.T) {
+			var hits int
+			working := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hits++
+				_, _ = io.WriteString(w, "ok")
+			}))
+			defer working.Close()
+			workingURL, _ := url.Parse(working.URL)
+			workingHost, workingPort, _ := net.SplitHostPort(workingURL.Host)
+			failedHost, failedPort, _ := net.SplitHostPort(freeBind(t))
+			c := config.Defaults(t.TempDir())
+			c.Listeners = c.Listeners[:1]
+			c.Admin.Enabled = false
+			c.Proxies = []proxy.Endpoint{
+				{ID: "failed", Name: "Failed", Protocol: proxy.HTTP, Host: failedHost, Port: parsePort(t, failedPort), Enabled: true, TrustedRemoteDNS: true},
+				{ID: "working", Name: "Working", Protocol: proxy.HTTP, Host: workingHost, Port: parsePort(t, workingPort), Enabled: true, TrustedRemoteDNS: true},
+			}
+			c.Pools = []routing.Pool{{ID: "pool", Name: "Pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"failed", "working"}, Enabled: true}}
+			c.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "Default", Rules: []policy.Rule{{ID: "route", Name: "Route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}}}}
+			runtime, err := Build(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			downstream := httptest.NewServer(runtime.Server.Handler)
+			defer downstream.Close()
+			downstreamURL, _ := url.Parse(downstream.URL)
+			client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(downstreamURL)}}
+			request, _ := http.NewRequest(test.method, "http://origin.example.invalid/path", strings.NewReader(test.body))
+			response, err := client.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = response.Body.Close()
+			if response.StatusCode != test.wantStatus || hits != test.wantHits {
+				t.Fatal(response.StatusCode, hits)
+			}
+		})
 	}
 }
 

@@ -11,7 +11,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-15.
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local/password SOCKS5 CONNECT and runtime multi-listener support implemented; UDP, metrics and transport-framing accounting pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
 - [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes and audited session API/Admin/CLI observability locally implemented; broader failover validation pending)
-- [ ] M7 — Health, circuit breaker, safe retries (health/circuit routing and conservative retry eligibility locally implemented; active checks/backoff/transport retry pending)
+- [ ] M7 — Health, circuit breaker, safe retries (live score/latency selection, controlled half-open probes and one-step HTTP/CONNECT/SOCKS5 retry/failover with jittered backoff locally implemented; active checks, health API/dashboard and per-attempt traffic attribution pending)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe hard byte-budget enforcement locally implemented; transport framing, billing windows, projections, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
@@ -176,6 +176,24 @@ source document.
   golangci-lint, govulncheck, actionlint, frontend lint/tests/build, dependency
   audit and six-target cross-compilation passed locally; Docker remains available
   only through hosted CI on this machine.
+
+### Latest local continuation — health-aware failover (2026-09-15)
+
+- Serialized half-open probes so only one recovery attempt can use a quarantined
+  endpoint after cooldown; disabled endpoints never transition to half-open.
+- Replaced placeholder selector metrics with rolling passive score/latency data;
+  pool health and latency constraints now affect active runtime selection while
+  unknown endpoints remain eligible to collect their first observation.
+- Added one-step failover to a different eligible endpoint or chain member for
+  bodyless safe HTTP requests and CONNECT/SOCKS5 dials before any client response.
+  Every replacement route passes health, budget and half-open checks, uses bounded
+  jittered backoff, and never falls back to DIRECT.
+- Fixed untracked `session_policy: none` routes carrying a temporary session ID,
+  which had incorrectly blocked failover by attempting to rotate a nonexistent
+  stored session. Body-bearing requests are not replayed by transport adapters.
+- Passed the full Go suite and vet plus focused race tests for health, app routing,
+  HTTP forwarding, SOCKS5 and retry policy. Active checks, health API/Admin views
+  and separate retry-attempt traffic/cost attribution remain M7 work.
 
 Vite child-process execution and golangci-lint's user cache required approved
 out-of-sandbox runs; no safety checks were disabled to work around those restrictions.

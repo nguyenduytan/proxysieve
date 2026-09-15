@@ -17,6 +17,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
+	retrypkg "github.com/nguyenduytan/proxysieve/pkg/retry"
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
@@ -104,17 +105,35 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 		writeReply(conn, 5)
 		return
 	}
-	upstream, err := route.Dial(ctx, net.JoinHostPort(host, strconv.Itoa(int(port))))
-	if err != nil {
-		if route.Observe != nil {
-			route.Observe(false, 0)
+	var upstream net.Conn
+	attempt := uint8(1)
+	for {
+		started := time.Now()
+		upstream, err = route.Dial(ctx, net.JoinHostPort(host, strconv.Itoa(int(port))))
+		latency := time.Since(started)
+		if err == nil {
+			if route.Observe != nil {
+				route.Observe(true, 0, latency)
+			}
+			break
 		}
+		if route.Observe != nil {
+			route.Observe(false, 0, latency)
+		}
+		if route.Retry == nil || attempt >= retrypkg.DefaultPolicy().MaxAttempts || retrypkg.Wait(ctx, attempt) != nil {
+			break
+		}
+		next, retryErr := route.Retry(ctx)
+		if retryErr != nil || next.Dial == nil || internalbudget.Available(ctx, next.Reserve) != nil || next.Acquire != nil && !next.Acquire() {
+			break
+		}
+		route = next
+		attempt++
+	}
+	if err != nil {
 		recordTunnel(s.recorder, ctx, request, route, 5, 0, 0, 0, 0)
 		writeReply(conn, 5)
 		return
-	}
-	if route.Observe != nil {
-		route.Observe(true, 0)
 	}
 	defer func() { _ = upstream.Close() }()
 	if !writeReply(conn, 0) {

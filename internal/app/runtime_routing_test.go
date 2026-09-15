@@ -16,6 +16,7 @@ import (
 	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
@@ -130,5 +131,44 @@ func TestRuntimeCompilationValidatesBundleChains(t *testing.T) {
 	}
 	if _, err := newRoutingRuntime(base, bundle, store.RuntimeRecord{Bundle: bundle}); !errors.Is(err, config.ErrInvalid) {
 		t.Fatalf("expected invalid bundle chain to fail compilation, got %v", err)
+	}
+}
+
+func TestPoolSelectionUsesHealthScoreAndLatency(t *testing.T) {
+	base := config.Defaults(t.TempDir())
+	endpoints := []proxy.Endpoint{
+		{ID: "fast", Name: "Fast", Protocol: proxy.HTTP, Host: "fast.example.invalid", Port: 8080, Enabled: true},
+		{ID: "slow", Name: "Slow", Protocol: proxy.HTTP, Host: "slow.example.invalid", Port: 8080, Enabled: true},
+		{ID: "degraded", Name: "Degraded", Protocol: proxy.HTTP, Host: "degraded.example.invalid", Port: 8080, Enabled: true},
+	}
+	pool := routing.Pool{ID: "pool", Name: "Pool", Strategy: routing.HighestHealth, EndpointIDs: []model.ID{"fast", "slow", "degraded"}, MinHealthScore: 60, MaxLatency: 50 * time.Millisecond, Enabled: true}
+	bundle := store.RuntimeBundle{Proxies: endpoints, Pools: []routing.Pool{pool}, Policies: base.Policies}
+	runtime, err := newRoutingRuntime(base, bundle, store.RuntimeRecord{Bundle: bundle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	health, _ := internalhealth.New(publichealth.Defaults(), nil)
+	for range 4 {
+		_, _ = health.Observe("fast", publichealth.Observation{Success: true, Latency: 10 * time.Millisecond})
+		_, _ = health.Observe("slow", publichealth.Observation{Success: true, Latency: 100 * time.Millisecond})
+	}
+	_, _ = health.Observe("degraded", publichealth.Observation{Success: false, Latency: 10 * time.Millisecond})
+	router := &router{health: health}
+	selected, err := router.selectEndpoint(t.Context(), "pool", policy.RequestContext{}, runtime.currentSnapshot())
+	if err != nil || selected.ID != "fast" {
+		t.Fatal(selected.ID, err)
+	}
+
+	pool.EndpointIDs = []model.ID{"unknown"}
+	pool.MinHealthScore = 100
+	unknown := proxy.Endpoint{ID: "unknown", Name: "Unknown", Protocol: proxy.HTTP, Host: "unknown.example.invalid", Port: 8080, Enabled: true}
+	bundle = store.RuntimeBundle{Proxies: []proxy.Endpoint{unknown}, Pools: []routing.Pool{pool}, Policies: base.Policies}
+	runtime, err = newRoutingRuntime(base, bundle, store.RuntimeRecord{Bundle: bundle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err = router.selectEndpoint(t.Context(), "pool", policy.RequestContext{}, runtime.currentSnapshot())
+	if err != nil || selected.ID != "unknown" {
+		t.Fatal("unknown endpoint was not allowed to collect initial health", selected.ID, err)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 	"net"
 	"net/http"
+	"time"
 )
 
 var ErrDenied = errors.New("request denied by gateway policy")
@@ -33,7 +34,8 @@ type Route struct {
 	Transport    http.RoundTripper
 	Dial         func(context.Context, string) (net.Conn, error)
 	Acquire      func() bool
-	Observe      func(bool, int)
+	Retry        func(context.Context) (Route, error)
+	Observe      func(bool, int, time.Duration)
 	Complete     func(context.Context, traffic.Bytes, traffic.Bytes)
 	Rate         *traffic.Rate
 	Reserve      budget.ReserveFunc

@@ -22,6 +22,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	retrypkg "github.com/nguyenduytan/proxysieve/pkg/retry"
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
@@ -189,19 +190,39 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stripHopByHop(out.Header)
 	out.Header.Del("Proxy-Authorization")
 	out.Header.Del("Proxy-Connection")
-	response, err := route.Transport.RoundTrip(out)
-	if err != nil {
-		if route.Observe != nil {
-			route.Observe(false, 0)
+	var response *http.Response
+	attempt := uint8(1)
+	for {
+		started := time.Now()
+		response, err = route.Transport.RoundTrip(out)
+		latency := time.Since(started)
+		if err == nil {
+			if route.Observe != nil {
+				route.Observe(true, response.StatusCode, latency)
+			}
+			break
 		}
+		if route.Observe != nil {
+			route.Observe(false, 0, latency)
+		}
+		canRetry := route.Retry != nil && retrypkg.DefaultPolicy().ShouldRetry(retrypkg.Request{Method: r.Method, BodyPresent: r.ContentLength != 0 || len(r.TransferEncoding) > 0, Attempt: attempt, Failure: retrypkg.ConnectFailure})
+		if !canRetry || retrypkg.Wait(r.Context(), attempt) != nil {
+			break
+		}
+		next, retryErr := route.Retry(r.Context())
+		if retryErr != nil || next.Transport == nil || internalbudget.Available(r.Context(), next.Reserve) != nil || next.Acquire != nil && !next.Acquire() {
+			break
+		}
+		route = next
+		attempt++
+	}
+	if err != nil {
 		recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), 0, 0, http.StatusBadGateway, 0)
 		http.Error(w, "UPSTREAM_FAILED", http.StatusBadGateway)
 		return
 	}
 	defer func() { _ = response.Body.Close() }()
-	if route.Observe != nil {
-		route.Observe(true, response.StatusCode)
-	}
+	cacheKey = cacheKeyFor(route, ctx, r)
 	download := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: r.Context(), Source: response.Body, Reserve: route.Reserve}}
 	responseHeaders := response.Header.Clone()
 	stripHopByHop(responseHeaders)
@@ -282,17 +303,35 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		http.Error(w, "ROUTE_UNAVAILABLE", http.StatusBadGateway)
 		return
 	}
-	upstream, err := route.Dial(r.Context(), net.JoinHostPort(host, portRaw))
-	if err != nil {
-		if route.Observe != nil {
-			route.Observe(false, 0)
+	var upstream net.Conn
+	attempt := uint8(1)
+	for {
+		started := time.Now()
+		upstream, err = route.Dial(r.Context(), net.JoinHostPort(host, portRaw))
+		latency := time.Since(started)
+		if err == nil {
+			if route.Observe != nil {
+				route.Observe(true, 0, latency)
+			}
+			break
 		}
+		if route.Observe != nil {
+			route.Observe(false, 0, latency)
+		}
+		if route.Retry == nil || attempt >= retrypkg.DefaultPolicy().MaxAttempts || retrypkg.Wait(r.Context(), attempt) != nil {
+			break
+		}
+		next, retryErr := route.Retry(r.Context())
+		if retryErr != nil || next.Dial == nil || internalbudget.Available(r.Context(), next.Reserve) != nil || next.Acquire != nil && !next.Acquire() {
+			break
+		}
+		route = next
+		attempt++
+	}
+	if err != nil {
 		recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusBadGateway, 0, 0, 0, 0)
 		http.Error(w, "UPSTREAM_FAILED", http.StatusBadGateway)
 		return
-	}
-	if route.Observe != nil {
-		route.Observe(true, 0)
 	}
 	defer func() { _ = upstream.Close() }()
 	hijacker, ok := w.(http.Hijacker)

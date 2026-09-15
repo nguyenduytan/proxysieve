@@ -64,6 +64,7 @@ type Snapshot struct {
 	State                State
 	Circuit              Circuit
 	Score                uint8
+	Latency              time.Duration
 	ConsecutiveFailures  uint32
 	ConsecutiveSuccesses uint32
 	LastSuccess          time.Time

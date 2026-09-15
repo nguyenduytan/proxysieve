@@ -2,8 +2,11 @@
 package retry
 
 import (
+	"context"
+	"crypto/rand"
 	"errors"
 	"net/http"
+	"time"
 )
 
 var ErrInvalid = errors.New("invalid retry policy")
@@ -32,6 +35,7 @@ func (p Policy) Validate() error {
 
 type Request struct {
 	Method            string
+	BodyPresent       bool
 	BodyReplayable    bool
 	ResponseDelivered bool
 	IdempotencyKey    bool
@@ -51,11 +55,25 @@ func (p Policy) ShouldRetry(request Request) bool {
 			return false
 		}
 	}
-	return !hasBody(request.Method) || request.BodyReplayable
+	return !request.BodyPresent || request.BodyReplayable
+}
+
+func Wait(ctx context.Context, attempt uint8) error {
+	if attempt == 0 {
+		attempt = 1
+	}
+	delay := 25 * time.Millisecond << min(attempt-1, 4)
+	var random [1]byte
+	_, _ = rand.Read(random[:])
+	timer := time.NewTimer(delay + time.Duration(random[0])*delay/512)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 func safeMethod(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions || method == http.MethodPut || method == http.MethodDelete
-}
-func hasBody(method string) bool {
-	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
 }
