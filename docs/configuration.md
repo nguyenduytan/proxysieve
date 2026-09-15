@@ -56,6 +56,11 @@ circuit-open duration control quarantine and half-open recovery. HTTP 403, 429,
 and 5xx treatment is independently configurable because a target response does
 not always mean the proxy is unhealthy.
 
+The health API exposes the most recent 100 accepted observations per proxy:
+success/failure totals plus timeout, proxy-auth, 403, 407, 429, and 5xx counts.
+HTTP 407 always counts as a proxy failure. These rolling counters are process-local;
+they reset on restart and are not provider billing or availability-SLA records.
+
 Active checks are off by default to avoid paid background traffic. When
 `health.active_checks` is enabled, ProxySieve checks each enabled active proxy at
 `health.check_interval` against `health.check_host:health.check_port`, with
@@ -64,6 +69,13 @@ destination policy as routed traffic, overlapping checks for one proxy are
 rejected, and proxy handshake bytes are recorded separately as health-check
 traffic. The Admin Health workspace also supports an operator-triggered target;
 viewer access remains read-only.
+
+Every active and manual probe is paced by both
+`health.global_checks_per_minute` and `health.pool_checks_per_minute`. Defaults
+permit 60 starts per minute globally and 30 starts per minute for endpoints in
+the same pool. Lower rates can make a large manual pool check exceed the Admin
+request deadline; completed probes remain valid and the caller receives a bounded
+failure instead of bypassing the configured rate.
 
 `budgets` accepts durable paid-route byte guards. Supported scopes are `system`,
 `client`, `pool`, and `proxy`; every non-system scope requires `scope_id`. Pool and

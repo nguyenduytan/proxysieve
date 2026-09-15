@@ -15,6 +15,7 @@ import (
 )
 
 var ErrHealthBusy = errors.New("health check already in progress")
+var ErrHealthDisabled = errors.New("health check target disabled")
 var ErrHealthTargetDenied = errors.New("health check target denied")
 
 type ProxyHealth struct {
@@ -24,6 +25,15 @@ type ProxyHealth struct {
 	Circuit             publichealth.Circuit `json:"circuit"`
 	Score               uint8                `json:"score"`
 	Latency             time.Duration        `json:"latency_ns"`
+	Observations        uint32               `json:"observations"`
+	Successes           uint32               `json:"successes"`
+	Failures            uint32               `json:"failures"`
+	Timeouts            uint32               `json:"timeouts"`
+	AuthFailures        uint32               `json:"auth_failures"`
+	Status403           uint32               `json:"status_403"`
+	Status407           uint32               `json:"status_407"`
+	Status429           uint32               `json:"status_429"`
+	Status5xx           uint32               `json:"status_5xx"`
 	ConsecutiveFailures uint32               `json:"consecutive_failures"`
 	LastSuccess         *time.Time           `json:"last_success,omitempty"`
 	LastFailure         *time.Time           `json:"last_failure,omitempty"`
@@ -136,6 +146,8 @@ func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request, kind, rawID
 			writeError(w, http.StatusNotFound, "HEALTH_TARGET_NOT_FOUND", "The active health target was not found.")
 		case errors.Is(err, ErrHealthBusy):
 			writeError(w, http.StatusConflict, "HEALTH_CHECK_BUSY", "A health check is already in progress.")
+		case errors.Is(err, ErrHealthDisabled):
+			writeError(w, http.StatusConflict, "HEALTH_TARGET_DISABLED", "The health check target is disabled.")
 		case errors.Is(err, ErrHealthTargetDenied):
 			writeError(w, http.StatusForbidden, "HEALTH_TARGET_DENIED", "The health check target is not allowed.")
 		default:

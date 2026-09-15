@@ -124,7 +124,7 @@ func TestHealthChecksEnforceMutationSecurityAndValidation(t *testing.T) {
 	if response.Code != http.StatusOK || control.id != "proxy" || control.host != "example.com" || control.port != 443 {
 		t.Fatal(response.Code, response.Body.String(), control.id, control.host, control.port)
 	}
-	for checkErr, status := range map[error]int{store.ErrNotFound: http.StatusNotFound, ErrHealthBusy: http.StatusConflict, ErrHealthTargetDenied: http.StatusForbidden} {
+	for checkErr, status := range map[error]int{store.ErrNotFound: http.StatusNotFound, ErrHealthBusy: http.StatusConflict, ErrHealthDisabled: http.StatusConflict, ErrHealthTargetDenied: http.StatusForbidden} {
 		control.err = checkErr
 		response = mutationRequest(handler, http.MethodPost, "/api/v1/health/pools/pool/check", body, operatorCookies)
 		if response.Code != status {

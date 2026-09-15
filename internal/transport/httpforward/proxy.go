@@ -198,12 +198,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		latency := time.Since(started)
 		if err == nil {
 			if route.Observe != nil {
-				route.Observe(true, response.StatusCode, latency)
+				route.Observe(true, response.StatusCode, latency, nil)
 			}
 			break
 		}
 		if route.Observe != nil {
-			route.Observe(false, 0, latency)
+			route.Observe(false, 0, latency, errors.Join(err, r.Context().Err()))
 		}
 		recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), 0, 0, http.StatusBadGateway, 0)
 		canRetry := route.Retry != nil && retrypkg.DefaultPolicy().ShouldRetry(retrypkg.Request{Method: r.Method, BodyPresent: r.ContentLength != 0 || len(r.TransferEncoding) > 0, Attempt: attempt, Failure: retrypkg.ConnectFailure})
@@ -311,12 +311,12 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		latency := time.Since(started)
 		if err == nil {
 			if route.Observe != nil {
-				route.Observe(true, 0, latency)
+				route.Observe(true, 0, latency, nil)
 			}
 			break
 		}
 		if route.Observe != nil {
-			route.Observe(false, 0, latency)
+			route.Observe(false, 0, latency, errors.Join(err, r.Context().Err()))
 		}
 		recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusBadGateway, 0, 0, 0, 0)
 		if route.Retry == nil || attempt >= retrypkg.DefaultPolicy().MaxAttempts || retrypkg.Wait(r.Context(), attempt) != nil {

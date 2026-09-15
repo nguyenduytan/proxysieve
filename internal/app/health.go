@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
 	"sync"
@@ -30,6 +31,11 @@ type healthControl struct {
 	targetPort  uint16
 	timeout     time.Duration
 	checks      sync.Map
+	rateMu      sync.Mutex
+	nextGlobal  time.Time
+	nextPools   map[model.ID]time.Time
+	globalPace  time.Duration
+	poolPace    time.Duration
 }
 
 func (h *healthControl) ProxyHealth(ctx context.Context) ([]api.ProxyHealth, error) {
@@ -51,7 +57,15 @@ func (h *healthControl) ProxyHealth(ctx context.Context) ([]api.ProxyHealth, err
 }
 
 func representProxyHealth(endpoint proxy.Endpoint, state publichealth.Snapshot) api.ProxyHealth {
-	return api.ProxyHealth{ProxyID: endpoint.ID, Name: endpoint.Name, State: state.State, Circuit: state.Circuit, Score: state.Score, Latency: state.Latency, ConsecutiveFailures: state.ConsecutiveFailures, LastSuccess: nonzeroTime(state.LastSuccess), LastFailure: nonzeroTime(state.LastFailure)}
+	return api.ProxyHealth{
+		ProxyID: endpoint.ID, Name: endpoint.Name, State: state.State, Circuit: state.Circuit,
+		Score: state.Score, Latency: state.Latency, Observations: state.Observations,
+		Successes: state.Successes, Failures: state.Failures, Timeouts: state.Timeouts,
+		AuthFailures: state.AuthFailures, Status403: state.Status403, Status407: state.Status407,
+		Status429: state.Status429, Status5xx: state.Status5xx,
+		ConsecutiveFailures: state.ConsecutiveFailures,
+		LastSuccess:         nonzeroTime(state.LastSuccess), LastFailure: nonzeroTime(state.LastFailure),
+	}
 }
 
 func nonzeroTime(value time.Time) *time.Time {
@@ -102,38 +116,45 @@ func (h *healthControl) PoolHealth(ctx context.Context) ([]api.PoolHealth, error
 }
 
 func (h *healthControl) CheckProxy(ctx context.Context, id model.ID, host string, port uint16) (api.ProxyHealth, error) {
-	if err := h.allowTarget(ctx, host); err != nil {
-		return api.ProxyHealth{}, err
-	}
 	snapshot := h.runtime.currentSnapshot()
 	endpoint, ok := snapshot.endpoints[id]
 	if !ok {
 		return api.ProxyHealth{}, store.ErrNotFound
 	}
-	state, attempted := h.checkEndpoint(ctx, endpoint, "", host, port)
+	if !endpoint.Enabled {
+		return api.ProxyHealth{}, api.ErrHealthDisabled
+	}
+	if err := h.allowTarget(ctx, host); err != nil {
+		return api.ProxyHealth{}, err
+	}
+	state, attempted := h.checkEndpoint(ctx, endpoint, "", endpointPools(snapshot, id), host, port)
 	if !attempted {
+		if err := ctx.Err(); err != nil {
+			return api.ProxyHealth{}, err
+		}
 		return api.ProxyHealth{}, api.ErrHealthBusy
 	}
 	return representProxyHealth(endpoint, state), nil
 }
 
 func (h *healthControl) CheckPool(ctx context.Context, id model.ID, host string, port uint16) (api.PoolHealth, error) {
-	if err := h.allowTarget(ctx, host); err != nil {
-		return api.PoolHealth{}, err
-	}
 	snapshot := h.runtime.currentSnapshot()
 	pool, ok := snapshot.pools[id]
 	if !ok {
 		return api.PoolHealth{}, store.ErrNotFound
+	}
+	if !pool.Enabled {
+		return api.PoolHealth{}, api.ErrHealthDisabled
+	}
+	if err := h.allowTarget(ctx, host); err != nil {
+		return api.PoolHealth{}, err
 	}
 	for _, endpointID := range pool.EndpointIDs {
 		if ctx.Err() != nil {
 			break
 		}
 		if endpoint := snapshot.endpoints[endpointID]; endpoint.Enabled {
-			checkCtx, cancel := context.WithTimeout(ctx, h.timeout)
-			h.checkEndpoint(checkCtx, endpoint, id, host, port)
-			cancel()
+			h.checkEndpoint(ctx, endpoint, id, []model.ID{id}, host, port)
 		}
 	}
 	items, err := h.PoolHealth(ctx)
@@ -160,9 +181,7 @@ func (h *healthControl) Run(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		checkCtx, cancel := context.WithTimeout(ctx, h.timeout)
-		h.checkEndpoint(checkCtx, endpoint, "", h.targetHost, h.targetPort)
-		cancel()
+		h.checkEndpoint(ctx, endpoint, "", endpointPools(snapshot, endpoint.ID), h.targetHost, h.targetPort)
 	}
 	return nil
 }
@@ -178,7 +197,7 @@ func (h *healthControl) allowTarget(ctx context.Context, host string) error {
 	return nil
 }
 
-func (h *healthControl) checkEndpoint(ctx context.Context, endpoint proxy.Endpoint, poolID model.ID, host string, port uint16) (publichealth.Snapshot, bool) {
+func (h *healthControl) checkEndpoint(ctx context.Context, endpoint proxy.Endpoint, poolID model.ID, ratePools []model.ID, host string, port uint16) (publichealth.Snapshot, bool) {
 	now := time.Now().UTC()
 	if !endpoint.Enabled {
 		state, _ := h.health.EligibleSnapshot(endpoint.ID, now)
@@ -189,10 +208,17 @@ func (h *healthControl) checkEndpoint(ctx context.Context, endpoint proxy.Endpoi
 		return state, false
 	}
 	defer h.checks.Delete(endpoint.ID)
+	if h.waitRate(ctx, ratePools) != nil {
+		state, _ := h.health.EligibleSnapshot(endpoint.ID, time.Now().UTC())
+		return state, false
+	}
+	now = time.Now().UTC()
 	if !h.health.Acquire(endpoint.ID, now) {
 		state, _ := h.health.EligibleSnapshot(endpoint.ID, now)
 		return state, false
 	}
+	checkCtx, cancel := context.WithTimeout(ctx, h.timeout)
+	defer cancel()
 	started := time.Now()
 	counter := &countingConn{}
 	connector := upstream.Connector{
@@ -207,20 +233,84 @@ func (h *healthControl) checkEndpoint(ctx context.Context, endpoint proxy.Endpoi
 			return counter, nil
 		},
 	}
-	connection, err := connector.Connect(ctx, endpoint, net.JoinHostPort(host, strconv.Itoa(int(port))))
+	connection, err := connector.Connect(checkCtx, endpoint, net.JoinHostPort(host, strconv.Itoa(int(port))))
 	if connection != nil {
 		_ = connection.Close()
 	}
-	state, _ := h.health.Observe(endpoint.ID, publichealth.Observation{Success: err == nil, Timeout: ctx.Err() != nil, Latency: time.Since(started), HealthCheck: true})
+	state, _ := h.health.Observe(endpoint.ID, publichealth.Observation{Success: err == nil, Timeout: checkCtx.Err() != nil, AuthFailure: errors.Is(err, upstream.ErrCredentials), Latency: time.Since(started), HealthCheck: true})
 	if h.recorder != nil {
 		bytes := trafficpkg.Bytes(counter.read.Load() + counter.written.Load())
 		status := 200
 		if err != nil {
 			status = 502
 		}
-		_ = h.recorder.Record(context.WithoutCancel(ctx), trafficpkg.Event{At: time.Now().UTC(), RequestID: model.NewID(), ConnectionID: model.NewID(), PoolID: poolID, ProxyID: endpoint.ID, Host: host, Protocol: "health", Action: "health_check", StatusCode: status, HealthCheck: bytes})
+		_ = h.recorder.Record(context.WithoutCancel(checkCtx), trafficpkg.Event{At: time.Now().UTC(), RequestID: model.NewID(), ConnectionID: model.NewID(), PoolID: poolID, ProxyID: endpoint.ID, Host: host, Protocol: "health", Action: "health_check", StatusCode: status, HealthCheck: bytes})
 	}
 	return state, true
+}
+
+func endpointPools(snapshot *routingSnapshot, endpointID model.ID) []model.ID {
+	var ids []model.ID
+	for _, pool := range snapshot.bundle.Pools {
+		if !pool.Enabled {
+			continue
+		}
+		for _, candidate := range pool.EndpointIDs {
+			if candidate == endpointID {
+				ids = append(ids, pool.ID)
+				break
+			}
+		}
+	}
+	return ids
+}
+
+func checkPace(perMinute uint32) time.Duration {
+	return time.Minute / time.Duration(perMinute)
+}
+
+func (h *healthControl) waitRate(ctx context.Context, poolIDs []model.ID) error {
+	for {
+		delay := h.reserveRate(time.Now(), poolIDs)
+		if delay <= 0 {
+			return nil
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (h *healthControl) reserveRate(now time.Time, poolIDs []model.ID) time.Duration {
+	h.rateMu.Lock()
+	defer h.rateMu.Unlock()
+	if h.nextGlobal.After(now) {
+		return h.nextGlobal.Sub(now)
+	}
+	if h.nextPools == nil {
+		h.nextPools = map[model.ID]time.Time{}
+	}
+	for poolID, next := range h.nextPools {
+		if !next.After(now) {
+			delete(h.nextPools, poolID)
+		}
+	}
+	for _, poolID := range poolIDs {
+		if next := h.nextPools[poolID]; next.After(now) {
+			return next.Sub(now)
+		}
+	}
+	h.nextGlobal = now.Add(h.globalPace)
+	for _, poolID := range poolIDs {
+		if poolID.Valid() {
+			h.nextPools[poolID] = now.Add(h.poolPace)
+		}
+	}
+	return 0
 }
 
 type countingConn struct {

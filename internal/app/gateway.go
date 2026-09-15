@@ -234,19 +234,19 @@ func (r *router) chainExcluding(ctx context.Context, request policy.RequestConte
 		Retry: func(ctx context.Context) (gateway.Route, error) {
 			return r.chainExcluding(ctx, request, chainID, snapshot, maps.Clone(excluded))
 		},
-		Observe: func(success bool, status int, _ time.Duration) {
+		Observe: func(success bool, status int, latency time.Duration, cause error) {
 			failureMu.Lock()
 			endpointID := failedEndpoint
 			failureMu.Unlock()
 			if success {
 				for _, proxyID := range proxies {
-					_, _ = r.health.Observe(proxyID, publichealth.Observation{Success: true, HTTPStatus: status})
+					_, _ = r.health.Observe(proxyID, healthObservation(true, status, latency, nil))
 				}
 				return
 			}
 			for _, proxyID := range proxies {
 				if proxyID == endpointID {
-					_, _ = r.health.Observe(proxyID, publichealth.Observation{Success: false})
+					_, _ = r.health.Observe(proxyID, healthObservation(false, status, latency, cause))
 				} else {
 					r.health.Release(proxyID)
 				}
@@ -280,14 +280,14 @@ func (r *router) testChain(ctx context.Context, chainID model.ID, host string, p
 			result.ProxyID = model.ID(chainErr.EndpointID)
 		}
 		if route.Observe != nil {
-			route.Observe(false, 0, 0)
+			route.Observe(false, 0, 0, err)
 		}
 		return result
 	}
 	_ = connection.Close()
 	result.Status = "healthy"
 	if route.Observe != nil {
-		route.Observe(true, 0, 0)
+		route.Observe(true, 0, 0, nil)
 	}
 	return result
 }
@@ -427,8 +427,8 @@ func (r *router) proxyExcluding(ctx context.Context, request policy.RequestConte
 		return r.proxyExcluding(ctx, request, poolID, snapshot, nextExcluded)
 	}, Dial: func(ctx context.Context, target string) (net.Conn, error) {
 		return connector.Connect(ctx, endpoint, target)
-	}, Observe: func(success bool, status int, latency time.Duration) {
-		_, _ = r.health.Observe(endpoint.ID, publichealth.Observation{Success: success, HTTPStatus: status, Latency: latency})
+	}, Observe: func(success bool, status int, latency time.Duration, cause error) {
+		_, _ = r.health.Observe(endpoint.ID, healthObservation(success, status, latency, cause))
 		if !success && sessionID != "" && r.sessions != nil && !r.health.Eligible(endpoint.ID, time.Now().UTC()) {
 			_ = r.sessions.Rotate(context.Background(), sessionID, publicsession.ProxyFailed)
 		}
@@ -439,6 +439,16 @@ func (r *router) proxyExcluding(ctx context.Context, request policy.RequestConte
 		}
 	}
 	return route, nil
+}
+
+func healthObservation(success bool, status int, latency time.Duration, cause error) publichealth.Observation {
+	timedOut := errors.Is(cause, context.DeadlineExceeded)
+	var networkError net.Error
+	return publichealth.Observation{
+		Success: success, HTTPStatus: status, Latency: latency,
+		AuthFailure: status == http.StatusProxyAuthRequired || errors.Is(cause, upstream.ErrCredentials),
+		Timeout:     timedOut || errors.As(cause, &networkError) && networkError.Timeout(),
+	}
 }
 
 func routingSessionKey(strategy publicsession.Strategy, clientID model.ID, request policy.RequestContext) (string, error) {
@@ -680,7 +690,7 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
-		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: resolver{}, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}}, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout)}
+		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: resolver{}, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}}, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout), globalPace: checkPace(c.Health.GlobalCheckRate), poolPace: checkPace(c.Health.PoolCheckRate)}
 		server.SetTrafficStatus(durableRecorder)
 		server.SetSessions(sessionManager)
 		server.SetHealth(healthService)
@@ -738,7 +748,7 @@ func Build(c config.Config) (Runtime, error) {
 		}
 	}
 	if healthService == nil {
-		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: resolver{}, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: trafficRecorder, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout)}
+		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: resolver{}, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: trafficRecorder, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout), globalPace: checkPace(c.Health.GlobalCheckRate), poolPace: checkPace(c.Health.PoolCheckRate)}
 	}
 	if c.Health.ActiveChecks {
 		runtime.HealthJob = scheduler.New(time.Duration(c.Health.CheckInterval), 0, healthService.Run)

@@ -81,17 +81,22 @@ func TestHTTPConnect(t *testing.T) {
 	}
 }
 func TestHTTPConnectAuthenticationAndProtocolFailures(t *testing.T) {
-	for _, response := range []string{"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n", "bad\r\n\r\n", "HTTP/1.1 200 OK\r\n Broken\r\n\r\n"} {
+	for _, test := range []struct {
+		response string
+		auth     bool
+	}{{"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n", true}, {"bad\r\n\r\n", false}, {"HTTP/1.1 200 OK\r\n Broken\r\n\r\n", false}} {
 		client, server := net.Pipe()
 		go func() {
 			defer func() { _ = server.Close() }()
 			_, _ = bufio.NewReader(server).ReadString('\n')
-			_, _ = io.WriteString(server, response)
+			_, _ = io.WriteString(server, test.response)
 		}()
 		c := Connector{DialContext: func(context.Context, string, string) (net.Conn, error) { return client, nil }}
 		if conn, err := c.Connect(context.Background(), endpoint(proxy.HTTP, "proxy.example.invalid:8080", ""), "target.example.invalid:443"); err == nil {
 			_ = conn.Close()
-			t.Fatal("accepted", response)
+			t.Fatal("accepted", test.response)
+		} else if errors.Is(err, ErrCredentials) != test.auth {
+			t.Fatal(test.response, err)
 		}
 	}
 }

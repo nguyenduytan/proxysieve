@@ -11,7 +11,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-15.
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local/password SOCKS5 CONNECT and runtime multi-listener support implemented; UDP, metrics and transport-framing accounting pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
 - [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes and audited session API/Admin/CLI observability locally implemented; broader failover validation pending)
-- [ ] M7 — Health, circuit breaker, safe retries (passive/active checks, score/latency selection, controlled half-open probes, health API/dashboard and per-attempt HTTP/CONNECT/SOCKS5 retry attribution locally implemented; broader metric inputs and explicit global/per-pool check-rate policy pending)
+- [ ] M7 — Health, circuit breaker, safe retries (passive/active checks, rolling outcome/status metrics, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard and per-attempt HTTP/CONNECT/SOCKS5 retry attribution locally implemented; DNS/TLS/TTFB/throughput signals pending)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe hard byte-budget enforcement locally implemented; transport framing, billing windows, projections, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
@@ -211,6 +211,12 @@ source document.
 - Added health config bounds and proved schema-v1 files without a `health` section
   retain safe defaults. The health scheduler no longer truncates multi-proxy scans
   at the traffic-maintenance job deadline.
+- Added a bounded 100-observation window for success/failure, timeout, proxy-auth,
+  403/407/429 and 5xx signals. Transport failures retain timeout causes, 407 always
+  degrades proxy health, and the Admin/API expose the explainable components.
+- Added configurable global and per-pool probe pacing shared by active, manual
+  proxy and manual pool checks. The per-proxy network timeout now lives in their
+  common execution path instead of inheriting the longer Admin request timeout.
 
 Vite child-process execution and golangci-lint's user cache required approved
 out-of-sandbox runs; no safety checks were disabled to work around those restrictions.

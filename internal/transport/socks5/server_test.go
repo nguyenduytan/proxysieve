@@ -45,7 +45,7 @@ func TestConnect(t *testing.T) {
 		done <- r
 		return policy.Result{Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
-		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int, _ time.Duration) { observed <- success }}, nil
+		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int, _ time.Duration, _ error) { observed <- success }}, nil
 	}), Recorder: recorded})
 	if err != nil {
 		t.Fatal(err)
@@ -104,9 +104,9 @@ func TestConnectRetriesBeforeReply(t *testing.T) {
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
 		return gateway.Route{
 			Action: "proxy", PoolID: "pool", ProxyID: "first", Dial: func(context.Context, string) (net.Conn, error) { return nil, errors.New("first proxy failed") },
-			Observe: func(success bool, _ int, _ time.Duration) { observed <- success },
+			Observe: func(success bool, _ int, _ time.Duration, _ error) { observed <- success },
 			Retry: func(context.Context) (gateway.Route, error) {
-				return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "second", Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int, _ time.Duration) { observed <- success }}, nil
+				return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "second", Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int, _ time.Duration, _ error) { observed <- success }}, nil
 			},
 		}, nil
 	}), Recorder: recorded})

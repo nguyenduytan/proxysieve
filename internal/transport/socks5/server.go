@@ -113,12 +113,12 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 		latency := time.Since(started)
 		if err == nil {
 			if route.Observe != nil {
-				route.Observe(true, 0, latency)
+				route.Observe(true, 0, latency, nil)
 			}
 			break
 		}
 		if route.Observe != nil {
-			route.Observe(false, 0, latency)
+			route.Observe(false, 0, latency, errors.Join(err, ctx.Err()))
 		}
 		recordTunnel(s.recorder, ctx, request, route, 5, 0, 0, 0, 0)
 		if route.Retry == nil || attempt >= retrypkg.DefaultPolicy().MaxAttempts || retrypkg.Wait(ctx, attempt) != nil {

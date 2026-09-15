@@ -23,7 +23,14 @@ type Manager struct {
 	clock  Clock
 	states map[model.ID]public.Snapshot
 	probes map[model.ID]bool
+	recent map[model.ID][]sample
 }
+
+type sample struct {
+	failed, timeout, auth, status403, status407, status429, status5xx bool
+}
+
+const metricWindowSize = 100
 
 func New(config public.Config, source Clock) (*Manager, error) {
 	if config.Validate() != nil {
@@ -32,7 +39,7 @@ func New(config public.Config, source Clock) (*Manager, error) {
 	if source == nil {
 		source = clock{}
 	}
-	return &Manager{config: config, clock: source, states: map[model.ID]public.Snapshot{}, probes: map[model.ID]bool{}}, nil
+	return &Manager{config: config, clock: source, states: map[model.ID]public.Snapshot{}, probes: map[model.ID]bool{}, recent: map[model.ID][]sample{}}, nil
 }
 func (m *Manager) Observe(id model.ID, observation public.Observation) (public.Snapshot, error) {
 	if !id.Valid() {
@@ -69,6 +76,7 @@ func (m *Manager) Observe(id model.ID, observation public.Observation) (public.S
 		}
 	}
 	failed := failure(m.config, observation)
+	state = m.track(id, state, observation, failed)
 	if failed {
 		state.ConsecutiveFailures++
 		state.ConsecutiveSuccesses = 0
@@ -96,6 +104,53 @@ func (m *Manager) Observe(id model.ID, observation public.Observation) (public.S
 	}
 	m.states[id] = state
 	return state, nil
+}
+
+func (m *Manager) track(id model.ID, state public.Snapshot, observation public.Observation, failed bool) public.Snapshot {
+	entry := sample{
+		failed: failed, timeout: observation.Timeout,
+		auth:      observation.AuthFailure || observation.HTTPStatus == 407,
+		status403: observation.HTTPStatus == 403, status407: observation.HTTPStatus == 407,
+		status429: observation.HTTPStatus == 429,
+		status5xx: observation.HTTPStatus >= 500 && observation.HTTPStatus <= 599,
+	}
+	recent := m.recent[id]
+	if len(recent) == metricWindowSize {
+		copy(recent, recent[1:])
+		recent[len(recent)-1] = entry
+	} else {
+		recent = append(recent, entry)
+	}
+	m.recent[id] = recent
+	state.Observations, state.Successes, state.Failures = uint32(len(recent)), 0, 0
+	state.Timeouts, state.AuthFailures = 0, 0
+	state.Status403, state.Status407, state.Status429, state.Status5xx = 0, 0, 0, 0
+	for _, item := range recent {
+		if item.failed {
+			state.Failures++
+		} else {
+			state.Successes++
+		}
+		if item.timeout {
+			state.Timeouts++
+		}
+		if item.auth {
+			state.AuthFailures++
+		}
+		if item.status403 {
+			state.Status403++
+		}
+		if item.status407 {
+			state.Status407++
+		}
+		if item.status429 {
+			state.Status429++
+		}
+		if item.status5xx {
+			state.Status5xx++
+		}
+	}
+	return state
 }
 func (m *Manager) Get(id model.ID, now time.Time) (public.Snapshot, error) {
 	m.mu.Lock()
@@ -197,6 +252,9 @@ func failure(config public.Config, observation public.Observation) bool {
 		return true
 	}
 	if observation.HTTPStatus == 403 && config.Treat403AsFailure {
+		return true
+	}
+	if observation.HTTPStatus == 407 {
 		return true
 	}
 	if observation.HTTPStatus == 429 && config.Treat429AsFailure {

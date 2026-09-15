@@ -26,6 +26,8 @@ func TestHealthConfigurationValidation(t *testing.T) {
 		"port":              func(c *Config) { c.Health.CheckPort = 0 },
 		"interval":          func(c *Config) { c.Health.CheckInterval = Duration(time.Second) },
 		"timeout":           func(c *Config) { c.Health.CheckTimeout = 0 },
+		"global rate":       func(c *Config) { c.Health.GlobalCheckRate = 0 },
+		"pool rate":         func(c *Config) { c.Health.PoolCheckRate = 60_001 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			configured := Defaults(t.TempDir())
@@ -104,7 +106,7 @@ func TestSafeDefaultsAndManager(t *testing.T) {
 	if c.Inspect.Enabled || c.Security.AllowDirect || !c.Security.DenyPrivate || c.Cache.Response.Enabled || c.Logging.CaptureBodies {
 		t.Fatal("unsafe defaults")
 	}
-	if c.Health.ActiveChecks || c.Health.RuntimeConfig().Validate() != nil {
+	if c.Health.ActiveChecks || c.Health.RuntimeConfig().Validate() != nil || c.Health.GlobalCheckRate != 60 || c.Health.PoolCheckRate != 30 {
 		t.Fatal("unsafe health defaults", c.Health)
 	}
 	if c.Traffic.RetentionDays != 30 || c.Traffic.MinuteRetentionDays != 90 || c.Traffic.HourRetentionDays != 365 || c.Traffic.DayRetentionDays != 3650 {

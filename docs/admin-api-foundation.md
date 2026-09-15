@@ -96,7 +96,9 @@ operator session and CSRF token, accept a validated host and port, and apply the
 runtime private-destination policy before connecting. Proxy and pool checks share
 the active runtime state; overlapping work for one proxy is rejected. Disabled
 resources remain visible but are not checkable. Check traffic is recorded under
-the dedicated `health_check_bytes` counter.
+the dedicated `health_check_bytes` counter. Proxy rows expose the last 100
+accepted outcome signals and success rate; these rolling values reset when the
+process restarts.
 
 Proxy inventory updates and deletes use an optimistic `revision` precondition. Send
 the complete endpoint document with its current revision to `PATCH`, or the current

@@ -244,6 +244,7 @@ export function HealthInventory({
                   <th>Circuit</th>
                   <th>Score</th>
                   <th>Latency</th>
+                  <th>Success</th>
                   <th>Failures</th>
                   <th>Last result</th>
                   {mutable ? <th>Actions</th> : null}
@@ -270,7 +271,13 @@ export function HealthInventory({
                     <td data-label="Latency">
                       {formatLatency(proxy.latency_ns)}
                     </td>
-                    <td data-label="Failures">{proxy.consecutive_failures}</td>
+                    <td data-label="Success">{formatSuccessRate(proxy)}</td>
+                    <td data-label="Failures">
+                      <div className="health-signal">
+                        <strong>{proxy.consecutive_failures} streak</strong>
+                        <span>{formatFailureSignals(proxy)}</span>
+                      </div>
+                    </td>
                     <td data-label="Last result">{formatLastResult(proxy)}</td>
                     {mutable ? (
                       <td className="pool-action-cell">
@@ -321,6 +328,28 @@ function formatLatency(nanoseconds: number): string {
   if (!Number.isFinite(nanoseconds) || nanoseconds <= 0) return "—";
   const milliseconds = nanoseconds / 1_000_000;
   return `${milliseconds.toFixed(milliseconds < 10 ? 1 : 0)} ms`;
+}
+
+export function formatSuccessRate(proxy: ProxyHealth): string {
+  if (proxy.observations <= 0) return "—";
+  return `${Math.round((proxy.successes / proxy.observations) * 100)}% (${proxy.successes}/${proxy.observations})`;
+}
+
+export function formatFailureSignals(proxy: ProxyHealth): string {
+  if (proxy.observations <= 0) return "No observations";
+  const signals = (
+    [
+      ["timeout", proxy.timeouts],
+      ["auth", proxy.auth_failures],
+      ["403", proxy.status_403],
+      ["407", proxy.status_407],
+      ["429", proxy.status_429],
+      ["5xx", proxy.status_5xx],
+    ] as [string, number][]
+  )
+    .filter(([, count]) => count > 0)
+    .map(([label, count]) => `${label} ${count}`);
+  return `${proxy.failures}/${proxy.observations} recent${signals.length ? ` · ${signals.join(" · ")}` : ""}`;
 }
 
 export function formatLastResult(proxy: ProxyHealth): string {

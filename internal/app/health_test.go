@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nguyenduytan/proxysieve/internal/api"
 	internalhealth "github.com/nguyenduytan/proxysieve/internal/health"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
@@ -43,7 +44,7 @@ func TestHealthControlReportsRuntimeEligibility(t *testing.T) {
 	_, _ = manager.Observe("degraded", publichealth.Observation{Success: false})
 	control := &healthControl{runtime: runtime, health: manager}
 	proxies, err := control.ProxyHealth(t.Context())
-	if err != nil || len(proxies) != 3 || proxies[0].State != publichealth.Healthy || proxies[1].State != publichealth.Degraded || proxies[2].State != publichealth.Disabled {
+	if err != nil || len(proxies) != 3 || proxies[0].State != publichealth.Healthy || proxies[0].Observations != 4 || proxies[0].Successes != 4 || proxies[1].State != publichealth.Degraded || proxies[1].Failures != 1 || proxies[2].State != publichealth.Disabled {
 		t.Fatal(proxies, err)
 	}
 	pools, err := control.PoolHealth(t.Context())
@@ -86,8 +87,50 @@ func TestHealthCheckSerializesEachEndpoint(t *testing.T) {
 	control := &healthControl{health: manager}
 	endpoint := proxy.Endpoint{ID: "proxy", Enabled: true}
 	control.checks.Store(endpoint.ID, struct{}{})
-	if _, attempted := control.checkEndpoint(t.Context(), endpoint, "", "example.com", 443); attempted {
+	if _, attempted := control.checkEndpoint(t.Context(), endpoint, "", nil, "example.com", 443); attempted {
 		t.Fatal("overlapping health check was admitted")
 	}
 	control.checks.Delete(endpoint.ID)
+}
+
+func TestHealthCheckRateReservationsAreGlobalAndPerPool(t *testing.T) {
+	control := &healthControl{globalPace: time.Second, poolPace: 3 * time.Second}
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if delay := control.reserveRate(now, []model.ID{"first", "shared"}); delay != 0 {
+		t.Fatal(delay)
+	}
+	if delay := control.reserveRate(now, []model.ID{"second"}); delay != time.Second {
+		t.Fatal(delay)
+	}
+	if delay := control.reserveRate(now, []model.ID{"second"}); delay != time.Second {
+		t.Fatal("a rejected reservation changed the schedule", delay)
+	}
+	if delay := control.reserveRate(now.Add(time.Second), []model.ID{"second"}); delay != 0 {
+		t.Fatal(delay)
+	}
+	if delay := control.reserveRate(now.Add(2*time.Second), []model.ID{"first"}); delay != time.Second {
+		t.Fatal(delay)
+	}
+	if delay := control.reserveRate(now.Add(3*time.Second), []model.ID{"shared"}); delay != 0 {
+		t.Fatal(delay)
+	}
+}
+
+func TestManualHealthCheckRejectsDisabledResources(t *testing.T) {
+	base := config.Defaults(t.TempDir())
+	endpoint := proxy.Endpoint{ID: "proxy", Name: "Proxy", Protocol: proxy.HTTP, Host: "proxy.example.invalid", Port: 8080}
+	pool := routing.Pool{ID: "pool", Name: "Pool", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{endpoint.ID}}
+	bundle := store.RuntimeBundle{Proxies: []proxy.Endpoint{endpoint}, Pools: []routing.Pool{pool}, Policies: base.Policies}
+	runtime, err := newRoutingRuntime(base, bundle, store.RuntimeRecord{Bundle: bundle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, _ := internalhealth.New(publichealth.Defaults(), nil)
+	control := &healthControl{runtime: runtime, health: manager}
+	if _, err = control.CheckProxy(t.Context(), endpoint.ID, "example.com", 443); err != api.ErrHealthDisabled {
+		t.Fatal(err)
+	}
+	if _, err = control.CheckPool(t.Context(), pool.ID, "example.com", 443); err != api.ErrHealthDisabled {
+		t.Fatal(err)
+	}
 }

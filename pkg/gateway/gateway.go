@@ -35,7 +35,7 @@ type Route struct {
 	Dial         func(context.Context, string) (net.Conn, error)
 	Acquire      func() bool
 	Retry        func(context.Context) (Route, error)
-	Observe      func(bool, int, time.Duration)
+	Observe      func(bool, int, time.Duration, error)
 	Complete     func(context.Context, traffic.Bytes, traffic.Bytes)
 	Rate         *traffic.Rate
 	Reserve      budget.ReserveFunc

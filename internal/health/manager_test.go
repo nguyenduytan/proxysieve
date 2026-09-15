@@ -106,3 +106,30 @@ func TestLatencyUsesRollingAverage(t *testing.T) {
 		t.Fatal(state.Latency)
 	}
 }
+
+func TestRollingMetricsClassifyAndBound(t *testing.T) {
+	config := public.Defaults()
+	config.FailureThreshold = 1000
+	m, _ := New(config, nil)
+	for _, observation := range []public.Observation{
+		{Success: true, HTTPStatus: 403},
+		{Success: true, HTTPStatus: 407},
+		{Success: true, HTTPStatus: 429},
+		{Success: true, HTTPStatus: 500},
+		{Success: false, Timeout: true},
+		{Success: true, AuthFailure: true},
+	} {
+		_, _ = m.Observe("proxy", observation)
+	}
+	state, _ := m.Get("proxy", time.Now().UTC())
+	if state.Observations != 6 || state.Successes != 1 || state.Failures != 5 || state.Timeouts != 1 || state.AuthFailures != 2 || state.Status403 != 1 || state.Status407 != 1 || state.Status429 != 1 || state.Status5xx != 1 {
+		t.Fatal(state)
+	}
+	for range metricWindowSize {
+		_, _ = m.Observe("proxy", public.Observation{Success: true})
+	}
+	state, _ = m.Get("proxy", time.Now().UTC())
+	if state.Observations != metricWindowSize || state.Successes != metricWindowSize || state.Failures != 0 || state.Timeouts != 0 || state.AuthFailures != 0 || state.Status403 != 0 || state.Status407 != 0 || state.Status429 != 0 || state.Status5xx != 0 {
+		t.Fatal(state)
+	}
+}

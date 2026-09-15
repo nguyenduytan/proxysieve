@@ -147,6 +147,15 @@ export interface ProxyHealth {
   circuit: "closed" | "open" | "half_open";
   score: number;
   latency_ns: number;
+  observations: number;
+  successes: number;
+  failures: number;
+  timeouts: number;
+  auth_failures: number;
+  status_403: number;
+  status_407: number;
+  status_429: number;
+  status_5xx: number;
   consecutive_failures: number;
   last_success?: string;
   last_failure?: string;

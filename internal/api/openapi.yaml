@@ -151,6 +151,7 @@ paths:
         '200': {description: Updated proxy health, content: {application/json: {schema: {type: object, required: [result], properties: {result: {$ref: '#/components/schemas/ProxyHealth'}}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Proxy disabled or check already running}
   /api/v1/health/pools/{poolId}/check:
     post:
       tags: [Health]
@@ -161,6 +162,7 @@ paths:
         '200': {description: Updated pool health, content: {application/json: {schema: {type: object, required: [result], properties: {result: {$ref: '#/components/schemas/PoolHealth'}}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Pool disabled or an endpoint check already running}
   /api/v1/audit:
     get:
       tags: [Audit]
@@ -868,7 +870,7 @@ components:
         proxy_id: {type: string}
     ProxyHealth:
       type: object
-      required: [proxy_id, name, state, circuit, score, latency_ns, consecutive_failures]
+      required: [proxy_id, name, state, circuit, score, latency_ns, observations, successes, failures, timeouts, auth_failures, status_403, status_407, status_429, status_5xx, consecutive_failures]
       properties:
         proxy_id: {type: string}
         name: {type: string}
@@ -876,6 +878,15 @@ components:
         circuit: {type: string, enum: [closed, open, half_open]}
         score: {type: integer, minimum: 0, maximum: 100}
         latency_ns: {type: integer, minimum: 0}
+        observations: {type: integer, minimum: 0, maximum: 100}
+        successes: {type: integer, minimum: 0, maximum: 100}
+        failures: {type: integer, minimum: 0, maximum: 100}
+        timeouts: {type: integer, minimum: 0, maximum: 100}
+        auth_failures: {type: integer, minimum: 0, maximum: 100}
+        status_403: {type: integer, minimum: 0, maximum: 100}
+        status_407: {type: integer, minimum: 0, maximum: 100}
+        status_429: {type: integer, minimum: 0, maximum: 100}
+        status_5xx: {type: integer, minimum: 0, maximum: 100}
         consecutive_failures: {type: integer, minimum: 0}
         last_success: {type: string, format: date-time}
         last_failure: {type: string, format: date-time}

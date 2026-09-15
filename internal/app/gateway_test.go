@@ -96,6 +96,13 @@ func TestBuildCreatesActiveHealthJobWithoutAdmin(t *testing.T) {
 	}
 }
 
+func TestHealthObservationClassifiesProxyAuthAndTimeout(t *testing.T) {
+	observation := healthObservation(false, http.StatusProxyAuthRequired, time.Second, context.DeadlineExceeded)
+	if !observation.AuthFailure || !observation.Timeout || observation.HTTPStatus != http.StatusProxyAuthRequired || observation.Latency != time.Second {
+		t.Fatal(observation)
+	}
+}
+
 type fixedResolver struct{ addresses []netip.Addr }
 
 func (r fixedResolver) LookupNetIP(context.Context, string) ([]netip.Addr, error) {

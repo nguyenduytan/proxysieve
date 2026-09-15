@@ -310,6 +310,21 @@
   font-size: 10px;
   overflow-wrap: anywhere;
 }
+.health-signal {
+  display: grid;
+  gap: 4px;
+  max-width: 250px;
+  white-space: normal;
+}
+.health-signal strong {
+  font-size: 12px;
+}
+.health-signal span {
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
 .pool-action-button span {
   display: none;
 }

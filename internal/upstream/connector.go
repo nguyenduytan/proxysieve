@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -215,7 +216,13 @@ func (c Connector) connectHTTP(ctx context.Context, endpoint proxy.Endpoint, tar
 	}
 	reader := bufio.NewReader(conn)
 	status, err := readConnectResponse(reader)
-	if err != nil || status < 200 || status > 299 {
+	if err != nil {
+		return nil, ErrProtocol
+	}
+	if status == http.StatusProxyAuthRequired {
+		return nil, ErrCredentials
+	}
+	if status < 200 || status > 299 {
 		return nil, ErrProtocol
 	}
 	closeOnError = false

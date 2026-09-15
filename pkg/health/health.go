@@ -65,6 +65,15 @@ type Snapshot struct {
 	Circuit              Circuit
 	Score                uint8
 	Latency              time.Duration
+	Observations         uint32
+	Successes            uint32
+	Failures             uint32
+	Timeouts             uint32
+	AuthFailures         uint32
+	Status403            uint32
+	Status407            uint32
+	Status429            uint32
+	Status5xx            uint32
 	ConsecutiveFailures  uint32
 	ConsecutiveSuccesses uint32
 	LastSuccess          time.Time

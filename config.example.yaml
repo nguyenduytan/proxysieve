@@ -32,6 +32,8 @@ health:
   check_port: 443
   check_interval: 5m
   check_timeout: 15s
+  global_checks_per_minute: 60
+  pool_checks_per_minute: 30
 budgets: []
 # Ordered proxy chains are optional. Each referenced pool must already exist.
 # chains:

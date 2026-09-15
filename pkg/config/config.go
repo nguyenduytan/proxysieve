@@ -114,6 +114,8 @@ type Health struct {
 	CheckPort         uint16   `json:"check_port" yaml:"check_port"`
 	CheckInterval     Duration `json:"check_interval" yaml:"check_interval"`
 	CheckTimeout      Duration `json:"check_timeout" yaml:"check_timeout"`
+	GlobalCheckRate   uint32   `json:"global_checks_per_minute" yaml:"global_checks_per_minute"`
+	PoolCheckRate     uint32   `json:"pool_checks_per_minute" yaml:"pool_checks_per_minute"`
 }
 
 func (h Health) RuntimeConfig() publichealth.Config {
@@ -164,7 +166,7 @@ func Defaults(home string) Config {
 		Admin:    Admin{Enabled: true, Bind: "127.0.0.1:9090", AuthRequired: true},
 		Storage:  Storage{Driver: "sqlite", Path: filepath.Join(dir, "proxysieve.db"), BusyTimeout: Duration(5 * time.Second)},
 		Traffic:  Traffic{RetentionDays: 30, MinuteRetentionDays: 90, HourRetentionDays: 365, DayRetentionDays: 3650, AggregationInterval: Duration(time.Minute)},
-		Health:   Health{FailureThreshold: 3, SuccessThreshold: 2, OpenDuration: Duration(time.Minute), InitialScore: 50, SuccessGain: 5, FailurePenalty: 15, Treat429AsFailure: true, Treat5xxAsFailure: true, CheckHost: "example.com", CheckPort: 443, CheckInterval: Duration(5 * time.Minute), CheckTimeout: Duration(15 * time.Second)},
+		Health:   Health{FailureThreshold: 3, SuccessThreshold: 2, OpenDuration: Duration(time.Minute), InitialScore: 50, SuccessGain: 5, FailurePenalty: 15, Treat429AsFailure: true, Treat5xxAsFailure: true, CheckHost: "example.com", CheckPort: 443, CheckInterval: Duration(5 * time.Minute), CheckTimeout: Duration(15 * time.Second), GlobalCheckRate: 60, PoolCheckRate: 30},
 		Cache:    Cache{DNS: CacheLimit{Enabled: true, MaxEntries: 4096, MaxBytes: 4 << 20}, Response: CacheLimit{MaxEntries: 1024, MaxBytes: 64 << 20}},
 		Security: Security{DenyPrivate: true},
 		Logging:  Logging{Level: "info", Format: "json"},
@@ -231,7 +233,7 @@ func (c Config) Validate() error {
 		c.Traffic.AggregationInterval <= 0 || c.Traffic.AggregationInterval > Duration(time.Hour) {
 		return ErrInvalid
 	}
-	if c.Health.RuntimeConfig().Validate() != nil || c.Health.CheckPort == 0 || !proxy.ValidHost(c.Health.CheckHost) || c.Health.CheckInterval < Duration(time.Minute) || c.Health.CheckInterval > Duration(24*time.Hour) || c.Health.CheckTimeout <= 0 || c.Health.CheckTimeout > Duration(time.Minute) {
+	if c.Health.RuntimeConfig().Validate() != nil || c.Health.CheckPort == 0 || !proxy.ValidHost(c.Health.CheckHost) || c.Health.CheckInterval < Duration(time.Minute) || c.Health.CheckInterval > Duration(24*time.Hour) || c.Health.CheckTimeout <= 0 || c.Health.CheckTimeout > Duration(time.Minute) || c.Health.GlobalCheckRate < 1 || c.Health.GlobalCheckRate > 60_000 || c.Health.PoolCheckRate < 1 || c.Health.PoolCheckRate > 60_000 {
 		return ErrInvalid
 	}
 	for _, v := range []CacheLimit{c.Cache.DNS, c.Cache.Response} {
