@@ -1,11 +1,13 @@
 package configload
 
 import (
+	"encoding/json"
 	"errors"
 	"github.com/nguyenduytan/proxysieve/pkg/config"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPrecedence(t *testing.T) {
@@ -83,6 +85,64 @@ func TestOverridesAndDurations(t *testing.T) {
 		if _, err := Load(opts); err == nil {
 			t.Fatal("invalid override accepted")
 		}
+	}
+}
+
+func TestChainHopDurationLoadsFromYAMLAndRemainsNumericJSON(t *testing.T) {
+	doc := `version: 1
+proxies:
+  - id: first-proxy
+    name: First proxy
+    protocol: http
+    host: first.example.com
+    port: 8080
+    enabled: true
+    trusted_remote_dns: true
+  - id: second-proxy
+    name: Second proxy
+    protocol: http
+    host: second.example.com
+    port: 8080
+    enabled: true
+    trusted_remote_dns: true
+pools:
+  - id: first-pool
+    name: First pool
+    strategy: round-robin
+    endpoint_ids: [first-proxy]
+    fallback_pool_ids: []
+    required_tags: []
+    country: ""
+    min_health_score: 0
+    max_latency: 0s
+    enabled: true
+  - id: second-pool
+    name: Second pool
+    strategy: round-robin
+    endpoint_ids: [second-proxy]
+    fallback_pool_ids: []
+    required_tags: []
+    country: ""
+    min_health_score: 0
+    max_latency: 0s
+    enabled: true
+chains:
+  - id: ordered-chain
+    name: Ordered chain
+    enabled: true
+    hops:
+      - pool: first-pool
+        timeout: 10s
+      - pool: second-pool
+        timeout: 20s
+`
+	effective, err := Load(Options{Home: t.TempDir(), File: strings.NewReader(doc)})
+	if err != nil || len(effective.Config.Chains) != 1 || effective.Config.Chains[0].Hops[0].EffectiveTimeout() != 10*time.Second {
+		t.Fatal(effective.Config.Chains, err)
+	}
+	raw, err := json.Marshal(effective.Config.Chains[0])
+	if err != nil || !strings.Contains(string(raw), `"timeout_ns":10000000000`) {
+		t.Fatal(string(raw), err)
 	}
 }
 

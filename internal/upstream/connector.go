@@ -64,6 +64,77 @@ func (c Connector) Connect(ctx context.Context, endpoint proxy.Endpoint, target 
 		return nil, ErrConnect
 	}
 }
+
+// ChainHop is one already-selected endpoint in a mandatory ordered chain.
+type ChainHop struct {
+	PoolID   string
+	Endpoint proxy.Endpoint
+	Timeout  time.Duration
+}
+
+type ChainError struct {
+	Hop        int
+	PoolID     string
+	EndpointID string
+	Cause      error
+}
+
+func (e *ChainError) Error() string { return fmt.Sprintf("proxy chain failed at hop %d", e.Hop+1) }
+func (e *ChainError) Unwrap() error { return e.Cause }
+
+// ConnectChain opens every proxy tunnel in deterministic order. A failed hop
+// closes the partial chain and is never skipped.
+func (c Connector) ConnectChain(ctx context.Context, hops []ChainHop, target string) (net.Conn, error) {
+	if len(hops) < 2 || len(hops) > 8 {
+		return nil, ErrConnect
+	}
+	if _, _, err := net.SplitHostPort(target); err != nil {
+		return nil, ErrConnect
+	}
+	seen := map[string]bool{}
+	var connection net.Conn
+	for index, hop := range hops {
+		if hop.Endpoint.Validate() != nil || seen[string(hop.Endpoint.ID)] {
+			if connection != nil {
+				_ = connection.Close()
+			}
+			return nil, &ChainError{Hop: index, PoolID: hop.PoolID, EndpointID: string(hop.Endpoint.ID), Cause: ErrConnect}
+		}
+		seen[string(hop.Endpoint.ID)] = true
+		next := target
+		if index+1 < len(hops) {
+			next = hops[index+1].Endpoint.Address()
+		}
+		connector := c
+		if connection != nil {
+			partial := connection
+			expected := hop.Endpoint.Address()
+			used := false
+			connector.DialContext = func(_ context.Context, network, address string) (net.Conn, error) {
+				if used || network != "tcp" || address != expected {
+					return nil, ErrConnect
+				}
+				used = true
+				return partial, nil
+			}
+		}
+		timeout := hop.Timeout
+		if timeout <= 0 {
+			timeout = 15 * time.Second
+		}
+		hopCtx, cancel := context.WithTimeout(ctx, timeout)
+		nextConnection, err := connector.Connect(hopCtx, hop.Endpoint, next)
+		cancel()
+		if err != nil {
+			if connection != nil {
+				_ = connection.Close()
+			}
+			return nil, &ChainError{Hop: index, PoolID: hop.PoolID, EndpointID: string(hop.Endpoint.ID), Cause: err}
+		}
+		connection = nextConnection
+	}
+	return connection, nil
+}
 func (c Connector) dial(ctx context.Context, address string) (net.Conn, error) {
 	if c.DialContext != nil {
 		return c.DialContext(ctx, "tcp", address)
@@ -73,6 +144,15 @@ func (c Connector) dial(ctx context.Context, address string) (net.Conn, error) {
 		timeout = 15 * time.Second
 	}
 	return (&net.Dialer{Timeout: timeout}).DialContext(ctx, "tcp", address)
+}
+
+func applyContextDeadline(ctx context.Context, conn net.Conn) func() {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return func() {}
+	}
+	_ = conn.SetDeadline(deadline)
+	return func() { _ = conn.SetDeadline(time.Time{}) }
 }
 func (c Connector) credentials(ctx context.Context, ref secret.Ref) (Credentials, error) {
 	if ref == "" {
@@ -92,6 +172,8 @@ func (c Connector) connectHTTP(ctx context.Context, endpoint proxy.Endpoint, tar
 	if err != nil {
 		return nil, ErrConnect
 	}
+	clearDeadline := applyContextDeadline(ctx, conn)
+	defer clearDeadline()
 	closeOnError := true
 	defer func() {
 		if closeOnError {

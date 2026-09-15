@@ -200,6 +200,17 @@ func (s *Server) deletePool(w http.ResponseWriter, r *http.Request, id model.ID,
 		writeError(w, http.StatusConflict, "POOL_IN_USE", "The pool is used as a fallback by another pool.")
 		return
 	}
+	if s.chains != nil {
+		referenced, err = s.chainUsesPool(r, id)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Chain references could not be checked.")
+			return
+		}
+		if referenced {
+			writeError(w, http.StatusConflict, "POOL_IN_USE", "The pool is used by a saved proxy chain.")
+			return
+		}
+	}
 	err = s.pools.DeletePool(r.Context(), id, input.Revision)
 	switch {
 	case err == nil:

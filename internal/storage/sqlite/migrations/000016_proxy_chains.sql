@@ -1,0 +1,8 @@
+CREATE TABLE proxy_chains (
+    id TEXT PRIMARY KEY NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    document TEXT NOT NULL CHECK (length(document) <= 1048576 AND json_valid(document)),
+    CHECK (json_extract(document, '$.id') = id)
+) STRICT;
+
+CREATE INDEX proxy_chains_enabled ON proxy_chains(json_extract(document, '$.enabled'));

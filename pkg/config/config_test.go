@@ -7,7 +7,48 @@ import (
 	"testing"
 
 	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
+	"github.com/nguyenduytan/proxysieve/pkg/model"
+	"github.com/nguyenduytan/proxysieve/pkg/policy"
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	"github.com/nguyenduytan/proxysieve/pkg/routing"
+	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 )
+
+func TestChainConfigurationReferencesAndIsolation(t *testing.T) {
+	configured := Defaults(t.TempDir())
+	configured.Proxies = []proxy.Endpoint{
+		{ID: "first-proxy", Name: "First", Protocol: proxy.HTTP, Host: "first.example.invalid", Port: 8080, Enabled: true, TrustedRemoteDNS: true},
+		{ID: "second-proxy", Name: "Second", Protocol: proxy.SOCKS5H, Host: "second.example.invalid", Port: 1080, Enabled: true, TrustedRemoteDNS: true},
+	}
+	configured.Pools = []routing.Pool{
+		{ID: "first-pool", Name: "First", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"first-proxy"}, Enabled: true},
+		{ID: "second-pool", Name: "Second", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"second-proxy"}, Enabled: true},
+	}
+	configured.Chains = []routing.Chain{{ID: "privacy-chain", Name: "Privacy chain", Hops: []routing.Hop{{PoolID: "first-pool"}, {PoolID: "second-pool"}}, Enabled: true}}
+	configured.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "Default", Rules: []policy.Rule{{ID: "chain", Name: "Chain", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "chain", ChainID: "privacy-chain"}}}}}}
+	if err := configured.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	clone := configured.Clone()
+	configured.Chains[0].Hops[0].PoolID = "mutated"
+	if clone.Chains[0].Hops[0].PoolID != "first-pool" {
+		t.Fatal("chain configuration aliased")
+	}
+	for name, mutate := range map[string]func(*Config){
+		"missing chain":          func(c *Config) { c.Policies[0].Rules[0].Actions[0].ChainID = "missing" },
+		"missing pool":           func(c *Config) { c.Chains[0].Hops[0].PoolID = "missing" },
+		"overlapping membership": func(c *Config) { c.Pools[1].EndpointIDs[0] = "first-proxy" },
+		"sticky hop":             func(c *Config) { c.Pools[0].SessionPolicy = publicsession.Policy{Strategy: publicsession.Client} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := clone.Clone()
+			mutate(&candidate)
+			if err := candidate.Validate(); !errors.Is(err, ErrInvalid) {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 func TestBudgetConfigurationScopes(t *testing.T) {
 	c := Defaults(t.TempDir())

@@ -59,7 +59,7 @@ not be treated as lossless provider-billed usage.
 
 `GET /api/v1/traffic/summary` and `GET /api/v1/traffic/timeseries` are
 authenticated. Both accept `from` and `until` RFC 3339 timestamps plus optional
-`client_id`, `pool_id`, `proxy_id`, `action` and `protocol` filters. Timeseries
+`client_id`, `pool_id`, `proxy_id`, `chain_id`, `action` and `protocol` filters. Timeseries
 also accepts `granularity=minute|hour|day`.
 
 Ranges are half-open, must align to the chosen bucket (one minute for summary),
@@ -81,6 +81,13 @@ currency. Each entry also reports the upstream upload/download bytes covered by 
 rate. Routes without an active rate remain in ordinary traffic totals but are not
 silently presented as zero-cost traffic. A future-dated rate only becomes active at
 its `effective_at` timestamp.
+
+Schema 17 adds `chain_id` to raw traffic plus minute/hour/day traffic and cost
+aggregates. Existing rows upgrade with an empty chain ID and retain their totals.
+Chain routes record one end-to-end byte stream, not one duplicate event per hop.
+Per-hop configured costs remain unpriced because the current event model stores
+one rate snapshot; presenting the last hop's rate as the whole chain would be
+misleading.
 
 Verified regression cases include schema-5 upgrade through schema 9, restart, late arrival,
 idempotent rollup/retention, partial cutoff preservation, aggregate overflow

@@ -26,6 +26,7 @@ type Store struct {
 	endpoints
 	sources
 	pools
+	chains
 	policies
 }
 
@@ -73,7 +74,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	s := &Store{db: db, endpoints: endpoints{q: db}, sources: sources{q: db}, pools: pools{q: db}, policies: policies{q: db}}
+	s := &Store{db: db, endpoints: endpoints{q: db}, sources: sources{q: db}, pools: pools{q: db}, chains: chains{q: db}, policies: policies{q: db}}
 	if err = db.PingContext(ctx); err == nil {
 		_, err = db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
 	}
@@ -128,6 +129,7 @@ type Status struct {
 	EndpointCount int    `json:"endpoint_count"`
 	SourceCount   int    `json:"source_count"`
 	PoolCount     int    `json:"pool_count"`
+	ChainCount    int    `json:"chain_count"`
 	PolicyCount   int    `json:"policy_count"`
 	JournalMode   string `json:"journal_mode"`
 }
@@ -144,6 +146,9 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 		return Status{}, safeError(ctx, err)
 	}
 	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM proxy_pools").Scan(&status.PoolCount); err != nil {
+		return Status{}, safeError(ctx, err)
+	}
+	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM proxy_chains").Scan(&status.ChainCount); err != nil {
 		return Status{}, safeError(ctx, err)
 	}
 	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM policies").Scan(&status.PolicyCount); err != nil {

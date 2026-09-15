@@ -57,11 +57,11 @@ explicitly scoped features.
 | Area | Available locally | Still in progress |
 | --- | --- | --- |
 | Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, HTTP Basic/SOCKS5 password auth, graceful shutdown, listener limits | UDP, transport-framing accounting |
-| Routing | Deterministic policies, atomic revisioned inventory activation/rollback, simulation, selection strategies, durable bounded sticky affinity with Admin/API/CLI observability, configured upstream HTTP/HTTPS/SOCKS | Chains, full failover |
+| Routing | Deterministic policies, atomic revisioned inventory activation/rollback, simulation, selection strategies, durable bounded sticky affinity, ordered HTTP/HTTPS/SOCKS proxy chains with active probes, configured upstream HTTP/HTTPS/SOCKS | Full failover, per-hop chain cost |
 | Safety | Loopback defaults, private destination checks, pinned DIRECT DNS, no implicit DIRECT, source fetch guard | Persistent encrypted secret store, TLS remote admin |
 | Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited revisioned proxy/source/pool/policy/client/API-key APIs, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore, versioned safe config import/export and published OpenAPI contract | SSE |
 | Measurement | HTTP/CONNECT/SOCKS5 application-stream counters, newest-event live buffer, bounded batched SQLite history, restart-safe minute/hour/day rollups, tier-specific pruning, bounded summary/timeseries queries, currency-separated configured-cost estimates, health/circuit state, restart-safe hard byte-budget enforcement | Transport/proxy framing, billing windows, soft/cost budgets, projections, provider billing reconciliation |
-| Dashboard | Embedded authenticated admin shell with Overview, Traffic, Proxies, Sources, Pools, Sessions, Policies, Clients, Audit and System; responsive navigation; inventory CRUD/import/simulation/activation/rollback workflows; session inspection/rotation; source scheduling; client/API-key lifecycle; sanitized audit history; real 24-hour traffic metrics/chart | Full visual rule builder, broader analytics/cost views, Alerts when its backend exists |
+| Dashboard | Embedded authenticated admin shell with Overview, Traffic, Proxies, Sources, Pools, Chains, Sessions, Policies, Clients, Audit and System; responsive navigation; inventory CRUD/import/simulation/activation/rollback workflows; chain probes; session inspection/rotation; source scheduling; client/API-key lifecycle; sanitized audit history; real 24-hour traffic metrics/chart | Full visual rule builder, broader analytics/cost views, Alerts when its backend exists |
 
 Read [PROGRESS.md](PROGRESS.md) for the precise milestone checklist. A green local
 test does not imply an unimplemented capability is available.
@@ -150,6 +150,7 @@ paste proxy credentials, cookies, API keys, setup tokens, or user traffic in iss
 - [Configuration](docs/configuration.md)
 - [Admin control plane](docs/admin-api-foundation.md)
 - [Pool inventory](docs/pools.md)
+- [Proxy chains](docs/chains.md)
 - [Sticky sessions](docs/sessions.md)
 - [Policy inventory and simulation](docs/policies.md)
 - [Runtime activation and rollback](docs/runtime-activation.md)

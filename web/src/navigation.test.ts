@@ -13,6 +13,7 @@ describe("admin navigation", () => {
       "Proxies",
       "Sources",
       "Pools",
+      "Chains",
       "Sessions",
       "Policies",
       "Clients",

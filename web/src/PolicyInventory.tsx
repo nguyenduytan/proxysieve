@@ -283,6 +283,7 @@ export function PolicyInventory({
           <div className="runtime-counts" aria-label="Active resource counts">
             <span>{runtime.proxy_count} proxies</span>
             <span>{runtime.pool_count} pools</span>
+            <span>{runtime.chain_count} chains</span>
             <span>{runtime.policy_count} policies</span>
           </div>
           {mutable &&
@@ -616,7 +617,7 @@ function PolicyEditor({
       <h2>{initial ? "Edit policy" : "Create policy"}</h2>
       <p className="field-help">
         Edit the canonical JSON document. The API validates rule fields, action
-        types and pool references before saving.
+        types and pool or chain references before saving.
       </p>
       <textarea
         aria-label="Policy JSON"

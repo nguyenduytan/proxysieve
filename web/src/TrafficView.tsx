@@ -57,7 +57,7 @@ export function TrafficView({
   const rows = useMemo(
     () =>
       (data?.events ?? []).filter((row) =>
-        `${row.host} ${row.protocol} ${row.action} ${row.pool_id} ${row.proxy_id}`
+        `${row.host} ${row.protocol} ${row.action} ${row.pool_id} ${row.proxy_id} ${row.chain_id}`
           .toLowerCase()
           .includes(filter.toLowerCase()),
       ),
@@ -159,7 +159,7 @@ export function TrafficView({
               <Search size={15} />
               <input
                 aria-label="Search live traffic"
-                placeholder="Host, protocol, action, pool…"
+                placeholder="Host, action, pool, chain…"
                 value={filter}
                 onChange={(event) => setFilter(event.target.value)}
               />
@@ -184,7 +184,7 @@ export function TrafficView({
             <h3>{filter ? "No matching events" : "No gateway events yet"}</h3>
             <p>
               {filter
-                ? "Try another host, protocol, action or pool."
+                ? "Try another host, protocol, action, pool or chain."
                 : "Configure an explicit route and send HTTP, CONNECT or SOCKS5 traffic through the gateway."}
             </p>
           </div>
@@ -198,6 +198,7 @@ export function TrafficView({
                   <th>Protocol</th>
                   <th>Host</th>
                   <th>Pool</th>
+                  <th>Chain</th>
                   <th>Proxy</th>
                   <th>Status</th>
                   <th>Paid proxy bytes</th>
@@ -323,6 +324,7 @@ function TrafficLine({ row }: { row: TrafficEvent }) {
       <td className="mono">{row.protocol.toUpperCase()}</td>
       <td className="host-cell">{row.host}</td>
       <td>{row.pool_id || "—"}</td>
+      <td>{row.chain_id || "—"}</td>
       <td>{row.proxy_id || "—"}</td>
       <td>{trafficStatus(row)}</td>
       <td>

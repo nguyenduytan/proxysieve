@@ -22,17 +22,20 @@ type Evaluator interface {
 // Route contains adapter-local objects selected after policy evaluation. It is
 // scoped to one normalized destination and must not cross credential boundaries.
 type Route struct {
-	Action      string
-	PoolID      model.ID
-	ProxyID     model.ID
-	SessionID   model.ID
-	SessionHash string
-	Transport   http.RoundTripper
-	Dial        func(context.Context, string) (net.Conn, error)
-	Observe     func(bool, int)
-	Complete    func(context.Context, traffic.Bytes, traffic.Bytes)
-	Rate        *traffic.Rate
-	Reserve     budget.ReserveFunc
+	Action       string
+	PoolID       model.ID
+	ProxyID      model.ID
+	ChainID      model.ID
+	ChainPools   []model.ID
+	ChainProxies []model.ID
+	SessionID    model.ID
+	SessionHash  string
+	Transport    http.RoundTripper
+	Dial         func(context.Context, string) (net.Conn, error)
+	Observe      func(bool, int)
+	Complete     func(context.Context, traffic.Bytes, traffic.Bytes)
+	Rate         *traffic.Rate
+	Reserve      budget.ReserveFunc
 }
 
 type Router interface {

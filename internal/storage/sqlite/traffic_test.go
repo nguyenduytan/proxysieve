@@ -48,6 +48,39 @@ func TestTrafficPersistenceRollupAndRetention(t *testing.T) {
 		t.Fatal(deleted, err)
 	}
 }
+
+func TestTrafficChainDimensionSurvivesRollupAndRawRetention(t *testing.T) {
+	s, err := Open(t.Context(), tempDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	base := time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
+	for _, event := range []traffic.Event{
+		{At: base.Add(time.Second), RequestID: "chain-request", ConnectionID: "chain-connection", PoolID: "first-pool", ProxyID: "last-proxy", ChainID: "privacy-chain", Host: "example.invalid", Protocol: "http", Action: "chain", StatusCode: 200, UpstreamDownload: 10},
+		{At: base.Add(2 * time.Second), RequestID: "proxy-request", ConnectionID: "proxy-connection", PoolID: "first-pool", ProxyID: "last-proxy", Host: "example.invalid", Protocol: "http", Action: "proxy", StatusCode: 200, UpstreamDownload: 20},
+	} {
+		if err = s.RecordTraffic(t.Context(), event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := s.ListTraffic(t.Context(), TrafficPage{Limit: 10})
+	if err != nil || len(events) != 2 || events[1].ChainID != "privacy-chain" {
+		t.Fatal(events, err)
+	}
+	if _, err = s.RetainTraffic(t.Context(), base.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	query := TrafficQuery{From: base, Until: base.Add(time.Hour), ChainID: "privacy-chain"}
+	summary, err := s.TrafficSummary(t.Context(), query)
+	if err != nil || summary.Totals.RequestCount != 1 || summary.Totals.UpstreamDownload != 10 {
+		t.Fatal(summary, err)
+	}
+	other, err := s.TrafficSummary(t.Context(), TrafficQuery{From: base, Until: base.Add(time.Hour), Action: "proxy"})
+	if err != nil || other.Totals.RequestCount != 1 || other.Totals.UpstreamDownload != 20 {
+		t.Fatal(other, err)
+	}
+}
 func trafficID(value string) model.ID { return model.ID(value) }
 
 func TestTrafficBatchIsAtomic(t *testing.T) {
@@ -243,6 +276,65 @@ func TestTrafficUpgradeSeedsDirtyBucketsAndLateArrivals(t *testing.T) {
 		var count, total int
 		if err = s.db.QueryRow("SELECT request_count,upstream_download FROM traffic_aggregates_minute").Scan(&count, &total); err != nil || count != 2 || total != 15 {
 			t.Fatal(count, total, err)
+		}
+	}
+}
+
+func TestSchemaSeventeenUpgradePreservesTrafficAndCostAggregates(t *testing.T) {
+	path := tempDatabase(t)
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := &Store{db: database}
+	files := fstest.MapFS{}
+	names, err := fs.Glob(migrations, "migrations/*.sql")
+	if err != nil || len(names) != 17 {
+		t.Fatal(names, err)
+	}
+	for _, name := range names[:16] {
+		data, readErr := migrations.ReadFile(name)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		files[name] = &fstest.MapFile{Data: data}
+	}
+	if err = old.migrate(t.Context(), files); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"traffic_aggregates_minute", "traffic_aggregates_hour", "traffic_aggregates_day"} {
+		_, err = database.Exec(`INSERT INTO ` + table + ` (bucket_start,action,protocol,client_id,pool_id,proxy_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided) VALUES (1,'proxy','http','client','pool','proxy',2,3,4,5,6,7,8,9,10)`)
+		if err != nil {
+			t.Fatal(table, err)
+		}
+	}
+	for _, table := range []string{"traffic_cost_aggregates_minute", "traffic_cost_aggregates_hour", "traffic_cost_aggregates_day"} {
+		_, err = database.Exec(`INSERT INTO ` + table + ` (bucket_start,action,protocol,client_id,pool_id,proxy_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download) VALUES (1,'proxy','http','client','pool','proxy','USD',11,12,13)`)
+		if err != nil {
+			t.Fatal(table, err)
+		}
+	}
+	if err = old.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	repository, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repository.Close() })
+	for _, table := range []string{"traffic_aggregates_minute", "traffic_aggregates_hour", "traffic_aggregates_day"} {
+		var chain string
+		var requests, download int64
+		if err = repository.db.QueryRow(`SELECT chain_id,request_count,upstream_download FROM `+table).Scan(&chain, &requests, &download); err != nil || chain != "" || requests != 2 || download != 6 {
+			t.Fatal(table, chain, requests, download, err)
+		}
+	}
+	for _, table := range []string{"traffic_cost_aggregates_minute", "traffic_cost_aggregates_hour", "traffic_cost_aggregates_day"} {
+		var chain, currency string
+		var cost int64
+		if err = repository.db.QueryRow(`SELECT chain_id,currency,configured_cost_micros FROM `+table).Scan(&chain, &currency, &cost); err != nil || chain != "" || currency != "USD" || cost != 11 {
+			t.Fatal(table, chain, currency, cost, err)
 		}
 	}
 }

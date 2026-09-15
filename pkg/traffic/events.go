@@ -20,6 +20,7 @@ type Event struct {
 	ClientID         model.ID      `json:"client_id"`
 	PoolID           model.ID      `json:"pool_id"`
 	ProxyID          model.ID      `json:"proxy_id"`
+	ChainID          model.ID      `json:"chain_id"`
 	Host             string        `json:"host"`
 	Protocol         string        `json:"protocol"`
 	Action           string        `json:"action"`
@@ -73,7 +74,7 @@ func (e Event) Validate() error {
 	if e.At.Before(time.Unix(0, 0)) || !time.Unix(0, e.At.UnixNano()).Equal(e.At) || !e.RequestID.Valid() || !e.ConnectionID.Valid() || len(e.Host) > 253 || len(e.Protocol) > 32 || len(e.Action) > 32 || e.StatusCode < 0 || e.StatusCode > 999 {
 		return ErrInvalidEvent
 	}
-	if e.ClientID != "" && !e.ClientID.Valid() || e.PoolID != "" && !e.PoolID.Valid() || e.ProxyID != "" && !e.ProxyID.Valid() {
+	if e.ClientID != "" && !e.ClientID.Valid() || e.PoolID != "" && !e.PoolID.Valid() || e.ProxyID != "" && !e.ProxyID.Valid() || e.ChainID != "" && !e.ChainID.Valid() {
 		return ErrInvalidEvent
 	}
 	for _, value := range []Bytes{e.ClientUpload, e.ClientDownload, e.UpstreamUpload, e.UpstreamDownload, e.Direct, e.CacheServed, e.HealthCheck, e.EstimatedAvoided} {

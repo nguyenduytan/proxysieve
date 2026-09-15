@@ -15,6 +15,7 @@ import (
 const maxRuntimeDocumentBytes = 16 << 20
 const maxRuntimeProxies = 100_000
 const maxRuntimePools = 10_000
+const maxRuntimeChains = 10_000
 const maxRuntimePolicies = 1_000
 const maxRuntimeHistory = 100
 
@@ -27,8 +28,9 @@ func (s *Store) LoadRuntimeInventory(ctx context.Context) (store.RuntimeBundle, 
 	source := struct {
 		*endpoints
 		*pools
+		*chains
 		*policies
-	}{&endpoints{q: tx}, &pools{q: tx}, &policies{q: tx}}
+	}{&endpoints{q: tx}, &pools{q: tx}, &chains{q: tx}, &policies{q: tx}}
 	bundle, err := readRuntimeInventory(ctx, source)
 	if err != nil {
 		return store.RuntimeBundle{}, err
@@ -42,6 +44,7 @@ func (s *Store) LoadRuntimeInventory(ctx context.Context) (store.RuntimeBundle, 
 type runtimeInventoryReader interface {
 	store.Endpoints
 	store.Pools
+	store.Chains
 	store.Policies
 }
 
@@ -63,6 +66,23 @@ func readRuntimeInventory(ctx context.Context, source runtimeInventoryReader) (s
 			break
 		}
 		after = page[len(page)-1].Endpoint.ID
+	}
+	after = ""
+	for {
+		page, err := source.ListChains(ctx, store.Page{After: after, Limit: 1000})
+		if err != nil {
+			return store.RuntimeBundle{}, err
+		}
+		for _, record := range page {
+			bundle.Chains = append(bundle.Chains, record.Chain)
+			if len(bundle.Chains) > maxRuntimeChains {
+				return store.RuntimeBundle{}, store.ErrInvalid
+			}
+		}
+		if len(page) < 1000 {
+			break
+		}
+		after = page[len(page)-1].Chain.ID
 	}
 	after = ""
 	for {

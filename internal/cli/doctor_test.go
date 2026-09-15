@@ -41,7 +41,7 @@ func TestDoctorChecksDatabase(t *testing.T) {
 	if err := databaseFile.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if check := checkDatabase(context.Background(), path); check.Status != "pass" || !strings.Contains(check.Detail, "schema 15") {
+	if check := checkDatabase(context.Background(), path); check.Status != "pass" || !strings.Contains(check.Detail, "schema 17") {
 		t.Fatalf("database schema check failed: %+v", check)
 	}
 	if check := checkDatabase(context.Background(), "file:unsafe"); check.Status != "fail" {

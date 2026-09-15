@@ -17,6 +17,7 @@ import (
 )
 
 var errPolicyPoolMissing = errors.New("policy pool is missing")
+var errPolicyChainMissing = errors.New("policy chain is missing")
 
 func (s *Server) policiesCollection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -227,17 +228,27 @@ func (s *Server) validatePolicyReferences(r *http.Request, document policy.Polic
 	}
 	for _, rule := range document.Rules {
 		for _, action := range rule.Actions {
-			if action.Type != "proxy" {
-				continue
-			}
-			if s.pools == nil {
-				return store.ErrUnavailable
-			}
-			if _, err := s.pools.GetPool(r.Context(), action.PoolID); err != nil {
-				if errors.Is(err, store.ErrNotFound) {
-					return errPolicyPoolMissing
+			switch action.Type {
+			case "proxy":
+				if s.pools == nil {
+					return store.ErrUnavailable
 				}
-				return err
+				if _, err := s.pools.GetPool(r.Context(), action.PoolID); err != nil {
+					if errors.Is(err, store.ErrNotFound) {
+						return errPolicyPoolMissing
+					}
+					return err
+				}
+			case "chain":
+				if s.chains == nil {
+					return store.ErrUnavailable
+				}
+				if _, err := s.chains.GetChain(r.Context(), action.ChainID); err != nil {
+					if errors.Is(err, store.ErrNotFound) {
+						return errPolicyChainMissing
+					}
+					return err
+				}
 			}
 		}
 	}
@@ -248,6 +259,8 @@ func writePolicyValidationError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errPolicyPoolMissing):
 		writeError(w, http.StatusBadRequest, "POLICY_POOL_NOT_FOUND", "A pool referenced by the policy was not found.")
+	case errors.Is(err, errPolicyChainMissing):
+		writeError(w, http.StatusBadRequest, "POLICY_CHAIN_NOT_FOUND", "A chain referenced by the policy was not found.")
 	case errors.Is(err, store.ErrInvalid):
 		writeError(w, http.StatusBadRequest, "INVALID_POLICY", "Policy metadata was not accepted.")
 	default:
@@ -264,6 +277,23 @@ func (s *Server) policyUsesPool(r *http.Request, id model.ID) (bool, error) {
 		for _, rule := range record.Policy.Rules {
 			for _, action := range rule.Actions {
 				if action.Type == "proxy" && action.PoolID == id {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
+}
+
+func (s *Server) policyUsesChain(r *http.Request, id model.ID) (bool, error) {
+	records, err := allPolicyRecords(r, s.policies)
+	if err != nil {
+		return false, err
+	}
+	for _, record := range records {
+		for _, rule := range record.Policy.Rules {
+			for _, action := range rule.Actions {
+				if action.Type == "chain" && action.ChainID == id {
 					return true, nil
 				}
 			}
@@ -434,7 +464,7 @@ func representPolicySimulation(record store.PolicyRecord, result policy.Result) 
 terminalAction:
 	for _, action := range result.Actions {
 		switch action.Type {
-		case "block", "reject", "proxy", "direct", "cache", "mock", "redirect", "rewrite":
+		case "block", "reject", "proxy", "chain", "direct", "cache", "mock", "redirect", "rewrite":
 			response.Outcome = action.Type
 			break terminalAction
 		}

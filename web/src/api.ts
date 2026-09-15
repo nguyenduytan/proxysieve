@@ -138,7 +138,49 @@ export interface PoolResponse {
   activation: "active" | "staged";
   runtime_revision: number;
 }
-export type PolicyAction = { type: string; pool_id?: string; value?: string };
+export interface ChainHop {
+  pool_id: string;
+  timeout_ns: number;
+}
+export interface ProxyChain {
+  id: string;
+  name: string;
+  hops: ChainHop[];
+  enabled: boolean;
+}
+export interface ChainRecord {
+  chain: ProxyChain;
+  revision: number;
+}
+export interface ChainResponse {
+  chain: ChainRecord;
+  runtime_active: boolean;
+  activation: "active" | "staged";
+  runtime_revision: number;
+  health?: ChainHealth;
+}
+export interface ChainPage {
+  items: ChainResponse[];
+  next_after: string;
+}
+export interface ChainHealth {
+  status: "untested" | "healthy" | "unhealthy";
+  tested_at?: string;
+  latency_ns?: number;
+  failure_reason?: "route_unavailable" | "connect_failed";
+  failed_hop?: number;
+  pool_id?: string;
+  proxy_id?: string;
+}
+export interface ChainTestResponse {
+  result: ChainHealth;
+}
+export type PolicyAction = {
+  type: string;
+  pool_id?: string;
+  chain_id?: string;
+  value?: string;
+};
 export interface PolicyCondition {
   field?: string;
   operator?: string;
@@ -184,6 +226,7 @@ export interface RuntimeState {
   source_revision?: number;
   proxy_count: number;
   pool_count: number;
+  chain_count: number;
   policy_count: number;
   staged_changes: boolean;
 }
@@ -268,6 +311,7 @@ export interface TrafficEvent {
   status_code: number;
   pool_id: string;
   proxy_id: string;
+  chain_id: string;
   client_upload_bytes: number;
   client_download_bytes: number;
   upstream_upload_bytes: number;

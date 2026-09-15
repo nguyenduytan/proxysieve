@@ -19,6 +19,7 @@ function event(
     status_code: 200,
     pool_id: "default",
     proxy_id: "proxy-one",
+    chain_id: "",
     client_upload_bytes: 0,
     client_download_bytes: 0,
     upstream_upload_bytes: 0,

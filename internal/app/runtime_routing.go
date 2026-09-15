@@ -21,6 +21,7 @@ type routingSnapshot struct {
 	documents map[model.ID]policy.Policy
 	endpoints map[model.ID]proxy.Endpoint
 	pools     map[model.ID]routing.Pool
+	chains    map[model.ID]routing.Chain
 	selectors map[routing.Strategy]*routing.BuiltIn
 }
 
@@ -50,6 +51,7 @@ func (r *routingRuntime) compile(bundle store.RuntimeBundle, revision int64) (*r
 	candidate := r.base.Clone()
 	candidate.Proxies = bundle.Clone().Proxies
 	candidate.Pools = bundle.Clone().Pools
+	candidate.Chains = bundle.Clone().Chains
 	candidate.Policies = bundle.Clone().Policies
 	if candidate.Validate() != nil {
 		return nil, config.ErrInvalid
@@ -57,6 +59,7 @@ func (r *routingRuntime) compile(bundle store.RuntimeBundle, revision int64) (*r
 	snapshot := &routingSnapshot{
 		revision: revision, bundle: bundle.Clone(), documents: map[model.ID]policy.Policy{},
 		endpoints: map[model.ID]proxy.Endpoint{}, pools: map[model.ID]routing.Pool{},
+		chains:    map[model.ID]routing.Chain{},
 		selectors: map[routing.Strategy]*routing.BuiltIn{},
 	}
 	for _, document := range snapshot.bundle.Policies {
@@ -74,6 +77,9 @@ func (r *routingRuntime) compile(bundle store.RuntimeBundle, revision int64) (*r
 			}
 			snapshot.selectors[pool.Strategy] = selector
 		}
+	}
+	for _, chain := range snapshot.bundle.Chains {
+		snapshot.chains[chain.ID] = chain.Clone()
 	}
 	return snapshot, nil
 }

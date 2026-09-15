@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
-	"github.com/nguyenduytan/proxysieve/pkg/proxy"
-	"github.com/nguyenduytan/proxysieve/pkg/secret"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +15,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	"github.com/nguyenduytan/proxysieve/pkg/secret"
 )
 
 type credentials struct{ values map[secret.Ref]Credentials }
@@ -214,4 +218,111 @@ func TestHTTPSUpstreamTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = conn.Close()
+}
+
+func TestConnectorConnectChainUsesEveryHopInOrder(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = client.Close() }()
+	done := make(chan error, 1)
+	go func() {
+		defer func() { _ = server.Close() }()
+		reader := bufio.NewReader(server)
+		for _, target := range []string{"second.example.invalid:8081", "target.example.invalid:443"} {
+			line, err := reader.ReadString('\n')
+			if err != nil || line != "CONNECT "+target+" HTTP/1.1\r\n" {
+				done <- fmt.Errorf("unexpected request line %q: %w", line, err)
+				return
+			}
+			for {
+				line, err = reader.ReadString('\n')
+				if err != nil {
+					done <- err
+					return
+				}
+				if line == "\r\n" {
+					break
+				}
+			}
+			if _, err = io.WriteString(server, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+				done <- err
+				return
+			}
+		}
+		payload := make([]byte, 4)
+		if _, err := io.ReadFull(reader, payload); err != nil || string(payload) != "ping" {
+			done <- fmt.Errorf("unexpected payload %q: %w", payload, err)
+			return
+		}
+		_, err := io.WriteString(server, "pong")
+		done <- err
+	}()
+	first := endpoint(proxy.HTTP, "first.example.invalid:8080", "")
+	first.ID = "first"
+	second := endpoint(proxy.HTTP, "second.example.invalid:8081", "")
+	second.ID = "second"
+	dials := 0
+	connector := Connector{DialContext: func(_ context.Context, network, address string) (net.Conn, error) {
+		dials++
+		if network != "tcp" || address != first.Address() {
+			return nil, fmt.Errorf("unexpected dial %s %s", network, address)
+		}
+		return client, nil
+	}}
+	connection, err := connector.ConnectChain(t.Context(), []ChainHop{{PoolID: "first-pool", Endpoint: first, Timeout: time.Second}, {PoolID: "second-pool", Endpoint: second, Timeout: time.Second}}, "target.example.invalid:443")
+	if err != nil || dials != 1 {
+		t.Fatal(connection, err, dials)
+	}
+	defer func() { _ = connection.Close() }()
+	if _, err = io.WriteString(connection, "ping"); err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, 4)
+	if _, err = io.ReadFull(connection, reply); err != nil || string(reply) != "pong" {
+		t.Fatal(string(reply), err)
+	}
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConnectorConnectChainReportsFailedHopAndTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		responders []string
+		timeout    time.Duration
+		wantHop    int
+	}{
+		{name: "second hop rejection", responders: []string{"HTTP/1.1 200 OK\r\n\r\n", "HTTP/1.1 502 Bad Gateway\r\n\r\n"}, timeout: time.Second, wantHop: 1},
+		{name: "first hop timeout", timeout: 25 * time.Millisecond, wantHop: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client, server := net.Pipe()
+			defer func() { _ = server.Close() }()
+			go func() {
+				reader := bufio.NewReader(server)
+				for _, response := range tc.responders {
+					for {
+						line, err := reader.ReadString('\n')
+						if err != nil {
+							return
+						}
+						if line == "\r\n" {
+							break
+						}
+					}
+					_, _ = io.WriteString(server, response)
+				}
+			}()
+			first := endpoint(proxy.HTTP, "first.example.invalid:8080", "")
+			first.ID = "first"
+			second := endpoint(proxy.HTTP, "second.example.invalid:8081", "")
+			second.ID = "second"
+			connector := Connector{DialContext: func(context.Context, string, string) (net.Conn, error) { return client, nil }}
+			_, err := connector.ConnectChain(t.Context(), []ChainHop{{PoolID: "first-pool", Endpoint: first, Timeout: tc.timeout}, {PoolID: "second-pool", Endpoint: second, Timeout: tc.timeout}}, "target.example.invalid:443")
+			var chainErr *ChainError
+			if !errors.As(err, &chainErr) || chainErr.Hop != tc.wantHop || chainErr.EndpointID == "" || chainErr.PoolID == "" {
+				t.Fatalf("unexpected chain error: %#v %v", chainErr, err)
+			}
+		})
+	}
 }

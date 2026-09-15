@@ -15,6 +15,8 @@ func (c Connector) connectSOCKS(ctx context.Context, endpoint proxy.Endpoint, ta
 	if err != nil {
 		return nil, ErrConnect
 	}
+	clearDeadline := applyContextDeadline(ctx, conn)
+	defer clearDeadline()
 	closeOnError := true
 	defer func() {
 		if closeOnError {

@@ -5,6 +5,7 @@ import {
   Globe2,
   KeyRound,
   Layers3,
+  Link2,
   Fingerprint,
   Route,
   LayoutDashboard,
@@ -19,6 +20,7 @@ export type Page =
   | "Proxies"
   | "Sources"
   | "Pools"
+  | "Chains"
   | "Sessions"
   | "Policies"
   | "Clients"
@@ -65,6 +67,12 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Pools",
     description: "Revisioned routing groups",
     icon: Layers3,
+  },
+  {
+    page: "Chains",
+    label: "Chains",
+    description: "Ordered multi-proxy routes",
+    icon: Link2,
   },
   {
     page: "Sessions",

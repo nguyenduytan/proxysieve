@@ -16,6 +16,7 @@ import (
 	goruntime "runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
@@ -124,6 +125,15 @@ func (r *router) Route(ctx context.Context, request policy.RequestContext, resul
 			return gateway.Route{}, gateway.ErrDenied
 		}
 		return r.proxy(ctx, request, action.PoolID, snapshot)
+	case "chain":
+		if r.runtime == nil {
+			return gateway.Route{}, gateway.ErrDenied
+		}
+		snapshot, ok := r.runtime.snapshot(result.RuntimeRevision)
+		if !ok {
+			return gateway.Route{}, gateway.ErrDenied
+		}
+		return r.chain(ctx, request, action.ChainID, snapshot)
 	case "block", "reject":
 		return gateway.Route{Action: action.Type}, nil
 	}
@@ -132,11 +142,124 @@ func (r *router) Route(ctx context.Context, request policy.RequestContext, resul
 func terminal(actions []policy.Action) policy.Action {
 	for _, action := range actions {
 		switch action.Type {
-		case "block", "reject", "proxy", "direct", "cache", "mock", "redirect", "rewrite":
+		case "block", "reject", "proxy", "chain", "direct", "cache", "mock", "redirect", "rewrite":
 			return action
 		}
 	}
 	return policy.Action{}
+}
+
+func (r *router) chain(ctx context.Context, request policy.RequestContext, chainID model.ID, snapshot *routingSnapshot) (gateway.Route, error) {
+	chain, ok := snapshot.chains[chainID]
+	if !ok || !chain.Enabled {
+		return gateway.Route{}, ErrPoolUnavailable
+	}
+	hops := make([]upstream.ChainHop, 0, len(chain.Hops))
+	pools := make([]model.ID, 0, len(chain.Hops))
+	proxies := make([]model.ID, 0, len(chain.Hops))
+	excluded := map[model.ID]bool{}
+	for _, configured := range chain.Hops {
+		endpoint, err := r.selectEndpointExcluding(ctx, configured.PoolID, request, snapshot, excluded)
+		if err != nil || r.destination.DenyPrivate && !endpoint.TrustedRemoteDNS {
+			return gateway.Route{}, ErrPoolUnavailable
+		}
+		excluded[endpoint.ID] = true
+		pools = append(pools, configured.PoolID)
+		proxies = append(proxies, endpoint.ID)
+		hops = append(hops, upstream.ChainHop{PoolID: string(configured.PoolID), Endpoint: endpoint, Timeout: configured.EffectiveTimeout()})
+	}
+	connector := upstream.Connector{Credentials: r.credentials, Resolver: safeResolver{base: r.resolver, policy: r.destination}}
+	var failureMu sync.Mutex
+	var failedEndpoint model.ID
+	dial := func(ctx context.Context, target string) (net.Conn, error) {
+		connection, err := connector.ConnectChain(ctx, hops, target)
+		failureMu.Lock()
+		failedEndpoint = ""
+		var chainErr *upstream.ChainError
+		if errors.As(err, &chainErr) {
+			failedEndpoint = model.ID(chainErr.EndpointID)
+		}
+		failureMu.Unlock()
+		return connection, err
+	}
+	transport := &http.Transport{
+		Proxy: nil, ForceAttemptHTTP2: false, MaxIdleConns: 8, MaxIdleConnsPerHost: 2,
+		IdleConnTimeout: 30 * time.Second, TLSHandshakeTimeout: 10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			if network != "tcp" {
+				return nil, upstream.ErrConnect
+			}
+			return dial(ctx, address)
+		},
+	}
+	var reserve publicbudget.ReserveFunc
+	if r.budgets != nil {
+		seenBudget := map[model.ID]bool{}
+		ids := make([]model.ID, 0)
+		for index, endpointID := range proxies {
+			for _, id := range r.budgets.ApplicableIDs(request.ClientID, pools[index], endpointID) {
+				if !seenBudget[id] {
+					seenBudget[id] = true
+					ids = append(ids, id)
+				}
+			}
+		}
+		if len(ids) > 0 {
+			reserve = func(ctx context.Context, amount trafficpkg.Bytes) (publicbudget.Lease, error) {
+				return r.budgets.Reserve(ctx, ids, amount)
+			}
+		}
+	}
+	return gateway.Route{
+		Action: "chain", ChainID: chainID, ChainPools: pools, ChainProxies: proxies,
+		PoolID: pools[0], ProxyID: proxies[len(proxies)-1], Transport: transport, Dial: dial, Reserve: reserve,
+		Observe: func(success bool, status int) {
+			if success {
+				for _, endpointID := range proxies {
+					_, _ = r.health.Observe(endpointID, publichealth.Observation{Success: true, HTTPStatus: status})
+				}
+				return
+			}
+			failureMu.Lock()
+			endpointID := failedEndpoint
+			failureMu.Unlock()
+			if endpointID != "" {
+				_, _ = r.health.Observe(endpointID, publichealth.Observation{Success: false})
+			}
+		},
+	}, nil
+}
+
+func (r *router) testChain(ctx context.Context, chainID model.ID, host string, port uint16) api.ChainTestResult {
+	started := time.Now()
+	result := api.ChainTestResult{Status: "unhealthy"}
+	route, err := r.chain(ctx, policy.RequestContext{Host: host, Port: port, Timestamp: started.UTC()}, chainID, r.runtime.currentSnapshot())
+	if err != nil {
+		result.FailureReason = "route_unavailable"
+		result.Latency = time.Since(started).Nanoseconds()
+		return result
+	}
+	connection, err := route.Dial(ctx, net.JoinHostPort(host, strconv.Itoa(int(port))))
+	result.Latency = time.Since(started).Nanoseconds()
+	if err != nil {
+		result.FailureReason = "connect_failed"
+		var chainErr *upstream.ChainError
+		if errors.As(err, &chainErr) {
+			result.FailedHop = chainErr.Hop + 1
+			result.PoolID = model.ID(chainErr.PoolID)
+			result.ProxyID = model.ID(chainErr.EndpointID)
+		}
+		if route.Observe != nil {
+			route.Observe(false, 0)
+		}
+		return result
+	}
+	_ = connection.Close()
+	result.Status = "healthy"
+	if route.Observe != nil {
+		route.Observe(true, 0)
+	}
+	return result
 }
 func (r *router) direct(ctx context.Context, request policy.RequestContext) (gateway.Route, error) {
 	dial, err := r.pinnedDial(ctx, request)
@@ -325,6 +448,10 @@ func (r *router) sessionEndpointRotationReason(endpointID, poolID model.ID, snap
 	return ""
 }
 func (r *router) selectEndpoint(ctx context.Context, poolID model.ID, request policy.RequestContext, snapshot *routingSnapshot) (proxy.Endpoint, error) {
+	return r.selectEndpointExcluding(ctx, poolID, request, snapshot, nil)
+}
+
+func (r *router) selectEndpointExcluding(ctx context.Context, poolID model.ID, request policy.RequestContext, snapshot *routingSnapshot, excluded map[model.ID]bool) (proxy.Endpoint, error) {
 	seen := map[model.ID]bool{}
 	var selectPool func(model.ID) (proxy.Endpoint, error)
 	selectPool = func(id model.ID) (proxy.Endpoint, error) {
@@ -339,7 +466,7 @@ func (r *router) selectEndpoint(ctx context.Context, poolID model.ID, request po
 		candidates := make([]routing.Candidate, 0, len(pool.EndpointIDs))
 		for _, endpointID := range pool.EndpointIDs {
 			endpoint := snapshot.endpoints[endpointID]
-			if endpoint.Enabled && matchesPool(endpoint, pool) && r.health.Eligible(endpoint.ID, time.Now().UTC()) {
+			if endpoint.Enabled && !excluded[endpoint.ID] && matchesPool(endpoint, pool) && r.health.Eligible(endpoint.ID, time.Now().UTC()) {
 				candidates = append(candidates, routing.Candidate{Endpoint: endpoint, HealthScore: 100})
 			}
 		}
@@ -419,7 +546,7 @@ func Build(c config.Config) (Runtime, error) {
 	if err := os.MkdirAll(c.Server.DataDir, 0700); err != nil {
 		return Runtime{}, err
 	}
-	configuredBundle := store.RuntimeBundle{Proxies: c.Proxies, Pools: c.Pools, Policies: c.Policies}.Clone()
+	configuredBundle := store.RuntimeBundle{Proxies: c.Proxies, Pools: c.Pools, Chains: c.Chains, Policies: c.Policies}.Clone()
 	trafficRecorder, err := internaltraffic.NewMemory(10_000)
 	if err != nil {
 		return Runtime{}, err
@@ -499,6 +626,8 @@ func Build(c config.Config) (Runtime, error) {
 		server.SetSessions(sessionManager)
 		server.SetSourceRefresher(sourceRefresher)
 		server.SetRuntimeControl(&runtimeControl{runtime: routeRuntime, store: controlStore, now: func() time.Time { return time.Now().UTC() }})
+		chainTester := &router{runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager}
+		server.SetChainTester(chainTester.testChain)
 		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}
 		runtime.AdminBind = c.Admin.Bind
 		runtime.AdminMax = 32

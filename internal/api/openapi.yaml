@@ -15,6 +15,7 @@ tags:
   - name: Proxies
   - name: Sources
   - name: Pools
+  - name: Chains
   - name: Sessions
   - name: Policies
   - name: Runtime
@@ -118,13 +119,13 @@ paths:
   /api/v1/traffic/summary:
     get:
       tags: [Traffic]
-      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}]
+      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/ChainID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}]
       responses:
         '200': {description: Bounded traffic summary}
   /api/v1/traffic/timeseries:
     get:
       tags: [Traffic]
-      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}, {name: granularity, in: query, required: true, schema: {type: string, enum: [minute, hour, day]}}]
+      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/ChainID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}, {name: granularity, in: query, required: true, schema: {type: string, enum: [minute, hour, day]}}]
       responses:
         '200': {description: Bounded traffic series}
   /api/v1/audit:
@@ -370,6 +371,71 @@ paths:
         '204': {description: Pool inventory record deleted}
         '404': {description: Pool not found}
         '409': {description: Stale revision or pool is used as a fallback}
+  /api/v1/chains:
+    get:
+      tags: [Chains]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {name: after, in: query, schema: {type: string}}]
+      responses:
+        '200': {description: Revisioned ordered proxy-chain inventory, content: {application/json: {schema: {$ref: '#/components/schemas/ChainPage'}}}}
+    post:
+      tags: [Chains]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [chain], properties: {chain: {$ref: '#/components/schemas/ChainInput'}}}}}
+      responses:
+        '201': {description: Chain inventory record created, content: {application/json: {schema: {$ref: '#/components/schemas/ChainResponse'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {description: Chain ID already exists}
+  /api/v1/chains/{chainId}:
+    parameters: [{name: chainId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Chains]
+      responses:
+        '200': {description: Chain inventory record, content: {application/json: {schema: {$ref: '#/components/schemas/ChainResponse'}}}}
+        '404': {description: Chain not found}
+    patch:
+      tags: [Chains]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [chain, revision], properties: {chain: {$ref: '#/components/schemas/Chain'}, revision: {type: integer, minimum: 1}}}}}
+      responses:
+        '200': {description: Chain inventory record updated, content: {application/json: {schema: {$ref: '#/components/schemas/ChainResponse'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {description: Chain not found}
+        '409': {description: Stale chain revision}
+    delete:
+      tags: [Chains]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [revision], properties: {revision: {type: integer, minimum: 1}}}}}
+      responses:
+        '204': {description: Chain inventory record deleted}
+        '404': {description: Chain not found}
+        '409': {description: Stale revision or chain is referenced by a policy}
+  /api/v1/chains/{chainId}/test:
+    parameters: [{name: chainId, in: path, required: true, schema: {type: string}}]
+    post:
+      tags: [Chains]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_host, target_port]
+              properties:
+                target_host: {type: string, minLength: 1, maxLength: 253}
+                target_port: {type: integer, minimum: 1, maximum: 65535}
+      responses:
+        '200': {description: Sanitized connectivity result for the exact active chain revision, content: {application/json: {schema: {$ref: '#/components/schemas/ChainTestResponse'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {description: Chain not found}
+        '409': {description: Saved chain does not exactly match the active runtime revision}
+        '503': {description: Chain testing unavailable}
   /api/v1/sessions:
     get:
       tags: [Sessions]
@@ -550,6 +616,7 @@ components:
     ClientID: {name: client_id, in: query, schema: {type: string}}
     PoolID: {name: pool_id, in: query, schema: {type: string}}
     ProxyID: {name: proxy_id, in: query, schema: {type: string}}
+    ChainID: {name: chain_id, in: query, schema: {type: string}}
     Action: {name: action, in: query, schema: {type: string}}
     Protocol: {name: protocol, in: query, schema: {type: string}}
   responses:
@@ -711,6 +778,53 @@ components:
         runtime_active: {type: boolean}
         activation: {type: string, enum: [active, staged]}
         runtime_revision: {type: integer, minimum: 0}
+    ChainHop:
+      type: object
+      required: [pool_id, timeout_ns]
+      properties:
+        pool_id: {type: string}
+        timeout_ns: {type: integer, minimum: 0, maximum: 120000000000}
+    ChainInput:
+      type: object
+      description: Ordered chain metadata accepted on create; omit id to let the server generate it.
+      required: [name, hops, enabled]
+      properties:
+        id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 256}
+        hops: {type: array, minItems: 2, maxItems: 8, items: {$ref: '#/components/schemas/ChainHop'}}
+        enabled: {type: boolean}
+    Chain:
+      allOf:
+        - {$ref: '#/components/schemas/ChainInput'}
+        - {type: object, required: [id]}
+    ChainRecord:
+      type: object
+      required: [chain, revision]
+      properties: {chain: {$ref: '#/components/schemas/Chain'}, revision: {type: integer, minimum: 1}}
+    ChainResponse:
+      type: object
+      required: [chain, runtime_active, activation, runtime_revision]
+      properties: {chain: {$ref: '#/components/schemas/ChainRecord'}, runtime_active: {type: boolean}, activation: {type: string, enum: [active, staged]}, runtime_revision: {type: integer, minimum: 0}, health: {$ref: '#/components/schemas/ChainHealth'}}
+    ChainPage:
+      type: object
+      required: [items, next_after]
+      properties: {items: {type: array, items: {$ref: '#/components/schemas/ChainResponse'}}, next_after: {type: string}}
+    ChainHealth:
+      type: object
+      required: [status]
+      properties:
+        status: {type: string, enum: [untested, healthy, unhealthy]}
+        tested_at: {type: string, format: date-time}
+        latency_ns: {type: integer, minimum: 0}
+        failure_reason: {type: string, enum: [route_unavailable, connect_failed]}
+        failed_hop: {type: integer, minimum: 1, maximum: 8}
+        pool_id: {type: string}
+        proxy_id: {type: string}
+    ChainTestResponse:
+      type: object
+      required: [result]
+      properties:
+        result: {$ref: '#/components/schemas/ChainHealth'}
     Policy:
       type: object
       required: [version, id, name, rules]
@@ -744,7 +858,7 @@ components:
       properties: {policy: {$ref: '#/components/schemas/PolicyRecord'}, runtime_active: {type: boolean}, activation: {type: string, enum: [active, staged]}, runtime_revision: {type: integer, minimum: 0}}
     RuntimeState:
       type: object
-      required: [revision, source, proxy_count, pool_count, policy_count, staged_changes]
+      required: [revision, source, proxy_count, pool_count, chain_count, policy_count, staged_changes]
       properties:
         revision: {type: integer, minimum: 0}
         source: {type: string, enum: [configuration, inventory, rollback]}
@@ -753,6 +867,7 @@ components:
         source_revision: {type: integer, minimum: 1}
         proxy_count: {type: integer, minimum: 0}
         pool_count: {type: integer, minimum: 0}
+        chain_count: {type: integer, minimum: 0}
         policy_count: {type: integer, minimum: 0}
         staged_changes: {type: boolean, description: Saved inventory differs from the active snapshot; false for history entries}
     RuntimeHistory:

@@ -46,6 +46,17 @@ func TestPoolContract(t *testing.T) {
 		return repository
 	})
 }
+func TestChainContract(t *testing.T) {
+	contract.RunChains(t, func(t *testing.T) store.Chains {
+		t.Helper()
+		repository, err := Open(t.Context(), filepath.Join(t.TempDir(), "chains.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = repository.Close() })
+		return repository
+	})
+}
 func TestPolicyContract(t *testing.T) {
 	contract.RunPolicies(t, func(t *testing.T) store.Policies {
 		t.Helper()
@@ -116,7 +127,7 @@ func TestPersistenceAndMigrationChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 15 || status.JournalMode != "wal" || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
+	if err != nil || status.SchemaVersion != 17 || status.JournalMode != "wal" || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
 		t.Fatalf("%+v %v", status, err)
 	}
 	if err = s.Close(); err != nil {
@@ -155,7 +166,7 @@ func TestFutureSchemaRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (16,'future','unknown')"); err != nil {
+	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (18,'future','unknown')"); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.Close()
@@ -174,7 +185,7 @@ func TestSchemaTwelveUpgradePreservesInventoryAndAddsPolicies(t *testing.T) {
 	}
 	old := &Store{db: database, endpoints: endpoints{q: database}}
 	names, err := fs.Glob(migrations, "migrations/*.sql")
-	if err != nil || len(names) != 15 {
+	if err != nil || len(names) != 17 {
 		t.Fatal(names, err)
 	}
 	files := fstest.MapFS{}
@@ -221,7 +232,7 @@ func TestSchemaTwelveUpgradePreservesInventoryAndAddsPolicies(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := repository.Status(t.Context())
-	if err != nil || status.SchemaVersion != 15 || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
+	if err != nil || status.SchemaVersion != 17 || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
 		t.Fatal(status, err)
 	}
 }
@@ -247,7 +258,7 @@ func TestMigrationAtomicity(t *testing.T) {
 		t.Fatalf("table survived rollback: %d %v", n, err)
 	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 15 {
+	if err != nil || status.SchemaVersion != 17 {
 		t.Fatalf("%+v %v", status, err)
 	}
 }

@@ -3,6 +3,17 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
+	"net/url"
+	"os"
+	"path"
+	"testing"
+	"time"
+
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internalsession "github.com/nguyenduytan/proxysieve/internal/session"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
@@ -14,16 +25,6 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	"github.com/nguyenduytan/proxysieve/pkg/secret"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
-	"io"
-	"net"
-	"net/http"
-	"net/http/httptest"
-	"net/netip"
-	"net/url"
-	"os"
-	"path"
-	"testing"
-	"time"
 )
 
 func TestBuildSafety(t *testing.T) {
@@ -142,6 +143,104 @@ func TestProxyPoolRoutesToUpstream(t *testing.T) {
 	if string(body) != "proxied" || gotURL != "http://origin.example.invalid/path" {
 		t.Fatalf("%q %q", body, gotURL)
 	}
+}
+
+func TestProxyChainRoutesThroughEveryHop(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "through-chain")
+	}))
+	defer target.Close()
+	secondTargets := make(chan string, 1)
+	second := newConnectProxy(t, secondTargets)
+	defer second.Close()
+	firstTargets := make(chan string, 1)
+	first := newConnectProxy(t, firstTargets)
+	defer first.Close()
+	endpoint := func(id model.ID, rawURL string) proxy.Endpoint {
+		parsed, _ := url.Parse(rawURL)
+		host, portRaw, _ := net.SplitHostPort(parsed.Host)
+		return proxy.Endpoint{ID: id, Name: string(id), Protocol: proxy.HTTP, Host: host, Port: parsePort(t, portRaw), Enabled: true, TrustedRemoteDNS: true}
+	}
+	c := config.Defaults(t.TempDir())
+	c.Listeners = c.Listeners[:1]
+	c.Admin.Enabled = false
+	c.Proxies = []proxy.Endpoint{endpoint("first-proxy", first.URL), endpoint("second-proxy", second.URL)}
+	c.Pools = []routing.Pool{
+		{ID: "first-pool", Name: "First", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"first-proxy"}, Enabled: true},
+		{ID: "second-pool", Name: "Second", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"second-proxy"}, Enabled: true},
+	}
+	c.Chains = []routing.Chain{{ID: "ordered-chain", Name: "Ordered chain", Hops: []routing.Hop{{PoolID: "first-pool", Timeout: time.Second}, {PoolID: "second-pool", Timeout: time.Second}}, Enabled: true}}
+	c.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "default", Rules: []policy.Rule{{ID: "route", Name: "route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "chain", ChainID: "ordered-chain"}}}}}}
+	runtime, err := Build(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downstream := httptest.NewServer(runtime.Server.Handler)
+	defer downstream.Close()
+	downstreamURL, _ := url.Parse(downstream.URL)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(downstreamURL)}}
+	response, err := client.Get(target.URL + "/chain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if string(body) != "through-chain" {
+		t.Fatal(string(body))
+	}
+	secondURL, _ := url.Parse(second.URL)
+	targetURL, _ := url.Parse(target.URL)
+	if got := <-firstTargets; got != secondURL.Host {
+		t.Fatalf("first hop target=%q want=%q", got, secondURL.Host)
+	}
+	if got := <-secondTargets; got != targetURL.Host {
+		t.Fatalf("second hop target=%q want=%q", got, targetURL.Host)
+	}
+	events, _ := runtime.Traffic.Snapshot()
+	if len(events) != 1 || events[0].Action != "chain" || events[0].ChainID != "ordered-chain" || events[0].PoolID != "first-pool" || events[0].ProxyID != "second-proxy" {
+		t.Fatalf("unexpected chain traffic event: %+v", events)
+	}
+}
+
+func newConnectProxy(t *testing.T, targets chan<- string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodConnect {
+			http.Error(w, "CONNECT required", http.StatusMethodNotAllowed)
+			return
+		}
+		upstream, err := net.DialTimeout("tcp", r.Host, time.Second)
+		if err != nil {
+			http.Error(w, "connect failed", http.StatusBadGateway)
+			return
+		}
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			_ = upstream.Close()
+			t.Error("hijacking unavailable")
+			return
+		}
+		client, buffer, err := hijacker.Hijack()
+		if err != nil {
+			_ = upstream.Close()
+			t.Error(err)
+			return
+		}
+		targets <- r.Host
+		if _, err = buffer.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err == nil {
+			err = buffer.Flush()
+		}
+		if err != nil {
+			_ = client.Close()
+			_ = upstream.Close()
+			return
+		}
+		done := make(chan struct{}, 2)
+		go func() { _, _ = io.Copy(upstream, client); _ = upstream.Close(); done <- struct{}{} }()
+		go func() { _, _ = io.Copy(client, upstream); _ = client.Close(); done <- struct{}{} }()
+		<-done
+		<-done
+	}))
 }
 
 func TestExplicitSessionAffinityReusesSelectedProxy(t *testing.T) {

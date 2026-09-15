@@ -119,3 +119,16 @@ func TestRuntimeActivationIsAtomicRevisionedAndRestartSafe(t *testing.T) {
 		t.Fatal(reloadedRecord, err)
 	}
 }
+
+func TestRuntimeCompilationValidatesBundleChains(t *testing.T) {
+	base := config.Defaults(t.TempDir())
+	bundle := store.RuntimeBundle{
+		Chains: []routing.Chain{{
+			ID: "invalid-chain", Name: "Invalid chain",
+			Hops: []routing.Hop{{PoolID: "missing-one"}, {PoolID: "missing-two"}}, Enabled: true,
+		}},
+	}
+	if _, err := newRoutingRuntime(base, bundle, store.RuntimeRecord{Bundle: bundle}); !errors.Is(err, config.ErrInvalid) {
+		t.Fatalf("expected invalid bundle chain to fail compilation, got %v", err)
+	}
+}

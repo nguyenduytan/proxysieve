@@ -146,13 +146,13 @@ func recordTunnel(recorder trafficpkg.Recorder, ctx context.Context, request pol
 	switch route.Action {
 	case "direct":
 		direct, _ = routeUpload.Add(routeDownload)
-	case "proxy":
+	case "proxy", "chain":
 		proxyUpload, proxyDownload = routeUpload, routeDownload
 	}
 	cost, _ := trafficpkg.NewCostSnapshot(route.Rate, proxyUpload, proxyDownload)
 	_ = recorder.Record(context.WithoutCancel(ctx), trafficpkg.Event{
 		At: time.Now().UTC(), RequestID: request.RequestID, ConnectionID: request.ConnectionID,
-		ClientID: request.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID,
+		ClientID: request.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID,
 		Host: request.Host, Protocol: "socks5", Action: route.Action, StatusCode: status,
 		ClientUpload: clientUpload, ClientDownload: clientDownload,
 		UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, ConfiguredCost: cost,

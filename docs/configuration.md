@@ -71,10 +71,27 @@ Full config migration/rollback CLI and live reload come with the owning mileston
 
 ## Local Proxy Resources
 
-The runtime also accepts `proxies`, `pools`, and `policies`. A policy route action
-references a configured pool by ID; a pool lists endpoint IDs and selection strategy.
+The runtime also accepts `proxies`, `pools`, `chains`, and `policies`. A policy
+route action references a configured pool or chain by ID; a pool lists endpoint
+IDs and selection strategy, while a chain lists 2 to 8 ordered pool hops.
 ProxySieve does not silently substitute `DIRECT` when a pool is empty, unhealthy,
 misconfigured, or its credentials are unavailable.
+
+```yaml
+chains:
+  - id: corporate-to-residential
+    name: Corporate to residential
+    enabled: true
+    hops:
+      - pool: corporate
+        timeout: 10s
+      - pool: residential-ca
+        timeout: 20s
+```
+
+Chain hop pools must not share reachable endpoints, including through fallbacks.
+Sticky session policies on chain hop pools are rejected until multi-hop affinity
+can preserve correct semantics. See [proxy chains](chains.md).
 
 An endpoint may include a deterministic configured price snapshot:
 

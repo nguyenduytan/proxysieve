@@ -7,6 +7,7 @@ import { ClientAccess } from "./ClientAccess";
 import { AuditLog } from "./AuditLog";
 import { ProxyInventory } from "./ProxyInventory";
 import { PoolInventory } from "./PoolInventory";
+import { ChainInventory } from "./ChainInventory";
 import { PolicyInventory } from "./PolicyInventory";
 import { SourceInventory } from "./SourceInventory";
 import { SessionInventory } from "./SessionInventory";
@@ -224,6 +225,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
         )}
         {page === "Pools" && (
           <PoolInventory role={user.role} onExpired={onExpired} />
+        )}
+        {page === "Chains" && (
+          <ChainInventory role={user.role} onExpired={onExpired} />
         )}
         {page === "Sessions" && (
           <SessionInventory role={user.role} onExpired={onExpired} />

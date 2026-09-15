@@ -29,6 +29,7 @@ type runtimeState struct {
 	SourceRevision int64    `json:"source_revision,omitempty"`
 	ProxyCount     int      `json:"proxy_count"`
 	PoolCount      int      `json:"pool_count"`
+	ChainCount     int      `json:"chain_count"`
 	PolicyCount    int      `json:"policy_count"`
 	StagedChanges  bool     `json:"staged_changes"`
 }
@@ -43,7 +44,7 @@ func runtimeRepresentation(record store.RuntimeRecord) runtimeState {
 	state := runtimeState{
 		Revision: record.Revision, Source: source, ActivatedBy: record.ActivatedBy,
 		SourceRevision: record.SourceRevision, ProxyCount: len(record.Bundle.Proxies),
-		PoolCount: len(record.Bundle.Pools), PolicyCount: len(record.Bundle.Policies),
+		PoolCount: len(record.Bundle.Pools), ChainCount: len(record.Bundle.Chains), PolicyCount: len(record.Bundle.Policies),
 	}
 	if !record.ActivatedAt.IsZero() {
 		state.ActivatedAt = record.ActivatedAt.UTC().Format(time.RFC3339Nano)

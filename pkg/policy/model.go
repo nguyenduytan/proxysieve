@@ -23,9 +23,10 @@ type Condition struct {
 	Not      *Condition  `json:"not,omitempty" yaml:"not,omitempty"`
 }
 type Action struct {
-	Type   string   `json:"type" yaml:"type"`
-	PoolID model.ID `json:"pool_id,omitempty" yaml:"pool_id,omitempty"`
-	Value  string   `json:"value,omitempty" yaml:"value,omitempty"`
+	Type    string   `json:"type" yaml:"type"`
+	PoolID  model.ID `json:"pool_id,omitempty" yaml:"pool_id,omitempty"`
+	ChainID model.ID `json:"chain_id,omitempty" yaml:"chain_id,omitempty"`
+	Value   string   `json:"value,omitempty" yaml:"value,omitempty"`
 }
 type Rule struct {
 	ID             model.ID  `json:"id" yaml:"id"`
@@ -180,9 +181,11 @@ func supportedConditionOperator(operator string) bool {
 func (a Action) Valid() bool {
 	switch a.Type {
 	case "allow", "block", "reject", "direct", "cache", "throttle", "mock", "redirect", "rewrite", "set_tag", "set_session_policy":
-		return a.PoolID == "" && len(a.Value) <= 4096
+		return a.PoolID == "" && a.ChainID == "" && len(a.Value) <= 4096
 	case "proxy":
-		return a.PoolID.Valid() && a.Value == ""
+		return a.PoolID.Valid() && a.ChainID == "" && a.Value == ""
+	case "chain":
+		return a.ChainID.Valid() && a.PoolID == "" && a.Value == ""
 	}
 	return false
 }

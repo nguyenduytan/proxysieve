@@ -2,11 +2,12 @@ package upstream
 
 import (
 	"context"
-	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"net"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 )
 
 type HTTPTransport struct {

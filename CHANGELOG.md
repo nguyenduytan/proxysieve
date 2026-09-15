@@ -5,8 +5,8 @@
 ### Added
 
 - Authenticated responsive Admin Panel with API-backed Overview, Traffic, Proxies,
-  Sources, Pools, Sessions, Policies, Clients, Audit and System destinations; duplicate/inert Alerts
-  navigation was removed.
+  Sources, Pools, Chains, Sessions, Policies, Clients, Audit and System
+  destinations; duplicate/inert Alerts navigation was removed.
 - Bounded asynchronous traffic persistence, HTTP/CONNECT/SOCKS5 application-stream
   accounting, tiered rollups/retention, configured-cost snapshots and durable hard
   byte budgets with restart-safe reservations.
@@ -38,6 +38,9 @@
 - Added viewer-safe session list/detail APIs and a responsive Sessions workspace,
   plus CSRF-protected audited operator rotation/deletion without interrupting
   active tunnels or exposing raw affinity keys.
+- Added revisioned 2-to-8-hop proxy chains with ordered mandatory routing,
+  per-hop timeouts, runtime activation/rollback, active probes, audited CRUD,
+  Admin controls and chain-attributed traffic events/rollups.
 - Added a responsive Pools workspace for viewer-safe inventory and operator
   create/edit, enable/disable and inline-confirmed delete workflows with explicit
   staged-state semantics.
@@ -72,4 +75,4 @@
 - Engineering refinements, milestone tracker, contribution and security documents.
 - Frontend tooling workspace, CI definitions, container and release scaffolds.
 
-No gateway or dashboard is released. See PROGRESS.md for verification status.
+No public release is published. See PROGRESS.md for verification status.

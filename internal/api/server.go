@@ -47,6 +47,7 @@ type Server struct {
 	endpoints      store.Endpoints
 	sources        store.Sources
 	pools          store.Pools
+	chains         store.Chains
 	policies       store.Policies
 	clients        ClientStore
 	trafficStore   TrafficStore
@@ -61,6 +62,9 @@ type Server struct {
 	ui             http.Handler
 	limitMu        sync.Mutex
 	routingMu      sync.Mutex
+	chainHealthMu  sync.RWMutex
+	chainHealth    map[model.ID]chainHealthRecord
+	chainTester    ChainTester
 	windowStart    time.Time
 	authAttempts   int
 }
@@ -118,9 +122,14 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 	if policyStore, ok := endpoints.(store.Policies); ok {
 		policies = policyStore
 	}
+	var chains store.Chains
+	if chainStore, ok := endpoints.(store.Chains); ok {
+		chains = chainStore
+	}
 	return &Server{
-		admin: service, traffic: traffic, endpoints: endpoints, sources: sources, pools: pools, policies: policies,
+		admin: service, traffic: traffic, endpoints: endpoints, sources: sources, pools: pools, chains: chains, policies: policies,
 		clients: clients, trafficStore: durable, audit: auditWriter, ui: dashboardHandler(),
+		chainHealth:    map[model.ID]chainHealthRecord{},
 		now:            func() time.Time { return time.Now().UTC() },
 		sourceResolver: sourceResolver{},
 		sourcePolicy:   security.DestinationPolicy{DenyPrivate: true},
@@ -137,6 +146,7 @@ func (s *Server) Handler() http.Handler                    { return securityHead
 func (s *Server) SetTrafficStatus(status TrafficStatus)    { s.trafficStatus = status }
 func (s *Server) SetRuntimeControl(control RuntimeControl) { s.runtimeControl = control }
 func (s *Server) SetSessions(sessions SessionStore)        { s.sessions = sessions }
+func (s *Server) SetChainTester(tester ChainTester)        { s.chainTester = tester }
 func (s *Server) SetSourceRefresher(refresher *internalsource.Refresher) {
 	if refresher != nil {
 		s.sourceRefresh = refresher
@@ -232,6 +242,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.sourcesCollection(w, r)
 	case "/api/v1/pools":
 		s.poolsCollection(w, r)
+	case "/api/v1/chains":
+		s.chainsCollection(w, r)
 	case "/api/v1/policies":
 		s.policiesCollection(w, r)
 	case "/api/v1/sessions":
@@ -281,6 +293,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.sessionByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/pools/") {
 			s.poolByID(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/chains/") && strings.HasSuffix(r.URL.Path, "/test") {
+			s.chainTest(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/chains/") {
+			s.chainByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/policies/") {
 			s.policyByID(w, r)
 		} else {
@@ -744,7 +760,7 @@ func (s *Server) parseTrafficQuery(r *http.Request, series bool) (sqlite.Traffic
 	}
 	query := sqlite.TrafficQuery{
 		From: from.UTC(), Until: until.UTC(), Granularity: granularity,
-		ClientID: model.ID(values.Get("client_id")), PoolID: model.ID(values.Get("pool_id")), ProxyID: model.ID(values.Get("proxy_id")),
+		ClientID: model.ID(values.Get("client_id")), PoolID: model.ID(values.Get("pool_id")), ProxyID: model.ID(values.Get("proxy_id")), ChainID: model.ID(values.Get("chain_id")),
 		Action: values.Get("action"), Protocol: values.Get("protocol"),
 	}
 	if series {

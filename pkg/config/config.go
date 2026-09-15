@@ -20,6 +20,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	"github.com/nguyenduytan/proxysieve/pkg/secret"
+	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 )
 
 var ErrInvalid = errors.New("invalid configuration")
@@ -58,6 +59,7 @@ type Config struct {
 	Logging   Logging               `json:"logging" yaml:"logging"`
 	Proxies   []proxy.Endpoint      `json:"proxies" yaml:"proxies"`
 	Pools     []routing.Pool        `json:"pools" yaml:"pools"`
+	Chains    []routing.Chain       `json:"chains" yaml:"chains"`
 	Policies  []pspolicy.Policy     `json:"policies" yaml:"policies"`
 	Budgets   []publicbudget.Config `json:"budgets" yaml:"budgets"`
 }
@@ -253,6 +255,26 @@ func (c Config) Validate() error {
 	if hasPoolCycle(poolIDs) {
 		return ErrInvalid
 	}
+	chainIDs := map[model.ID]bool{}
+	for _, chain := range c.Chains {
+		if chain.Validate() != nil || chainIDs[chain.ID] {
+			return ErrInvalid
+		}
+		chainEndpoints := map[model.ID]bool{}
+		for _, hop := range chain.Hops {
+			pool, exists := poolIDs[hop.PoolID]
+			if !exists || pool.SessionPolicy.Normalized().Strategy != publicsession.None {
+				return ErrInvalid
+			}
+			for endpointID := range poolEndpointIDs(hop.PoolID, poolIDs, map[model.ID]bool{}) {
+				if chainEndpoints[endpointID] {
+					return ErrInvalid
+				}
+				chainEndpoints[endpointID] = true
+			}
+		}
+		chainIDs[chain.ID] = true
+	}
 	policyIDs := map[model.ID]bool{}
 	for _, document := range c.Policies {
 		if document.Validate() != nil || policyIDs[document.ID] {
@@ -265,6 +287,8 @@ func (c Config) Validate() error {
 					if _, exists := poolIDs[action.PoolID]; !exists {
 						return ErrInvalid
 					}
+				} else if action.Type == "chain" && !chainIDs[action.ChainID] {
+					return ErrInvalid
 				}
 			}
 		}
@@ -290,6 +314,24 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func poolEndpointIDs(id model.ID, pools map[model.ID]routing.Pool, seen map[model.ID]bool) map[model.ID]bool {
+	result := map[model.ID]bool{}
+	if seen[id] {
+		return result
+	}
+	seen[id] = true
+	pool := pools[id]
+	for _, endpointID := range pool.EndpointIDs {
+		result[endpointID] = true
+	}
+	for _, fallbackID := range pool.FallbackPoolIDs {
+		for endpointID := range poolEndpointIDs(fallbackID, pools, seen) {
+			result[endpointID] = true
+		}
+	}
+	return result
 }
 
 func hasPoolCycle(pools map[model.ID]routing.Pool) bool {
@@ -333,6 +375,10 @@ func (c Config) Clone() Config {
 	c.Pools = slices.Clone(c.Pools)
 	for i := range c.Pools {
 		c.Pools[i] = c.Pools[i].Clone()
+	}
+	c.Chains = slices.Clone(c.Chains)
+	for i := range c.Chains {
+		c.Chains[i] = c.Chains[i].Clone()
 	}
 	c.Policies = slices.Clone(c.Policies)
 	for i := range c.Policies {

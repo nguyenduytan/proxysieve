@@ -648,6 +648,135 @@ func TestPoolLifecycleValidatesReferencesCyclesAndRevisions(t *testing.T) {
 	}
 }
 
+func TestChainLifecycleValidatesReferencesOverlapAndPolicyUse(t *testing.T) {
+	repository, err := sqlite.Open(t.Context(), t.TempDir()+"/chains.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repository.Close() })
+	firstEndpoint := contract.Endpoint("first-proxy")
+	secondEndpoint := contract.Endpoint("second-proxy")
+	secondEndpoint.Host = "second.example.invalid"
+	for _, endpoint := range []proxy.Endpoint{firstEndpoint, secondEndpoint} {
+		if _, err = repository.Put(t.Context(), endpoint, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	firstPool := routing.Pool{ID: "first-pool", Name: "First", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"first-proxy"}, Enabled: true}
+	secondPool := routing.Pool{ID: "second-pool", Name: "Second", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"second-proxy"}, Enabled: true}
+	for _, pool := range []routing.Pool{firstPool, secondPool} {
+		if _, err = repository.PutPool(t.Context(), pool, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	server, _ := New(service, nil, repository, repository, repository)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	cookies := cookiesFor(setup)
+	viewerToken, _ := service.CreateSession(auth.User{ID: "viewer", Username: "viewer", Role: auth.RoleViewer, Enabled: true, CreatedAt: time.Now().UTC()})
+	viewerCookies := sessionCookie + "=" + viewerToken + "; " + csrfCookie + "=" + service.CSRFToken(viewerToken)
+
+	chain := routing.Chain{ID: "ordered-chain", Name: "Ordered chain", Hops: []routing.Hop{{PoolID: "first-pool", Timeout: time.Second}, {PoolID: "second-pool", Timeout: 2 * time.Second}}, Enabled: true}
+	if response := mutationRequest(handler, http.MethodPost, "/api/v1/chains", map[string]any{"chain": chain}, viewerCookies); response.Code != http.StatusForbidden {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	missing := chain.Clone()
+	missing.ID = "missing"
+	missing.Hops[1].PoolID = "unknown"
+	response := mutationRequest(handler, http.MethodPost, "/api/v1/chains", map[string]any{"chain": missing}, cookies)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("CHAIN_POOL_NOT_FOUND")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	overlapPool := routing.Pool{ID: "overlap-pool", Name: "Overlap", Strategy: routing.Random, EndpointIDs: []model.ID{"first-proxy"}, Enabled: true}
+	if _, err = repository.PutPool(t.Context(), overlapPool, 0); err != nil {
+		t.Fatal(err)
+	}
+	overlap := chain.Clone()
+	overlap.ID = "overlap"
+	overlap.Hops[1].PoolID = "overlap-pool"
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/chains", map[string]any{"chain": overlap}, cookies)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("CHAIN_ENDPOINT_OVERLAP")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	firstPool.SessionPolicy = session.Policy{Strategy: session.Client}
+	if _, err = repository.PutPool(t.Context(), firstPool, 1); err != nil {
+		t.Fatal(err)
+	}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/chains", map[string]any{"chain": chain}, cookies)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("CHAIN_SESSION_UNSUPPORTED")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	firstPool.SessionPolicy = session.Policy{}
+	if _, err = repository.PutPool(t.Context(), firstPool, 2); err != nil {
+		t.Fatal(err)
+	}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/chains", map[string]any{"chain": chain}, cookies)
+	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"revision":1`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"runtime_active":false`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	chain.Name = "Updated ordered chain"
+	response = mutationRequest(handler, http.MethodPatch, "/api/v1/chains/ordered-chain", map[string]any{"chain": chain, "revision": 1}, cookies)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"revision":2`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = request(handler, http.MethodGet, "/api/v1/chains?limit=1", nil, viewerCookies)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"id":"ordered-chain"`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/chains/ordered-chain/test", map[string]any{"target_host": "example.com", "target_port": 443}, cookies)
+	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("CHAIN_NOT_ACTIVE")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	server.SetRuntimeControl(&fakeRuntimeControl{current: store.RuntimeRecord{Revision: 1, Bundle: store.RuntimeBundle{Chains: []routing.Chain{chain}}}})
+	server.SetChainTester(func(_ context.Context, id model.ID, host string, port uint16) ChainTestResult {
+		if id != chain.ID || host != "example.com" || port != 443 {
+			t.Fatalf("unexpected chain test target: %s %s:%d", id, host, port)
+		}
+		return ChainTestResult{Status: "healthy", Latency: int64(5 * time.Millisecond)}
+	})
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/chains/ordered-chain/test", map[string]any{"target_host": "example.com", "target_port": 443}, viewerCookies)
+	if response.Code != http.StatusForbidden {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/chains/ordered-chain/test", map[string]any{"target_host": "bad host", "target_port": 443}, cookies)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("INVALID_CHAIN_TARGET")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/chains/ordered-chain/test", map[string]any{"target_host": "example.com", "target_port": 443}, cookies)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"status":"healthy"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"latency_ns":5000000`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = request(handler, http.MethodGet, "/api/v1/chains/ordered-chain", nil, viewerCookies)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"health":{"status":"healthy"`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	document := policy.Policy{Version: 1, ID: "chain-policy", Name: "Chain policy", Rules: []policy.Rule{{ID: "chain", Name: "Chain", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "chain", ChainID: chain.ID}}}}}
+	response = mutationRequest(handler, http.MethodPost, "/api/v1/policies", map[string]any{"policy": document}, cookies)
+	if response.Code != http.StatusCreated {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodDelete, "/api/v1/chains/ordered-chain", map[string]any{"revision": 2}, cookies)
+	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("CHAIN_IN_USE")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = mutationRequest(handler, http.MethodDelete, "/api/v1/pools/first-pool", map[string]any{"revision": 3}, cookies)
+	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("POOL_IN_USE")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	if response = mutationRequest(handler, http.MethodDelete, "/api/v1/policies/chain-policy", map[string]any{"revision": 1}, cookies); response.Code != http.StatusNoContent {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	if response = mutationRequest(handler, http.MethodDelete, "/api/v1/chains/ordered-chain", map[string]any{"revision": 2}, cookies); response.Code != http.StatusNoContent {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	if events, err := repository.ListAudit(t.Context(), audit.Page{Limit: 30}); err != nil || !hasAuditActions(events, "chain.created", "chain.updated", "chain.tested", "chain.deleted") {
+		t.Fatal(events, err)
+	}
+}
+
 func hasAuditActions(events []audit.Event, actions ...string) bool {
 	seen := make(map[string]bool, len(events))
 	for _, event := range events {

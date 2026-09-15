@@ -160,7 +160,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_, copyErr := delivered.Write(cached.Body)
 			completeRoute(r.Context(), route, 0, 0)
 			if h.recorder != nil {
-				_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: "cache", StatusCode: cached.Status, ClientDownload: delivered.Bytes(), CacheServed: delivered.Bytes()})
+				_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID, Host: host, Protocol: "http", Action: "cache", StatusCode: cached.Status, ClientDownload: delivered.Bytes(), CacheServed: delivered.Bytes()})
 			}
 			if copyErr != nil {
 				panic(http.ErrAbortHandler)
@@ -389,11 +389,11 @@ func recordHTTP(recorder trafficpkg.Recorder, request *http.Request, ctx policy.
 	switch route.Action {
 	case "direct":
 		direct = upload + download
-	case "proxy":
+	case "proxy", "chain":
 		proxyUpload, proxyDownload = upload, download
 	}
 	cost, _ := trafficpkg.NewCostSnapshot(route.Rate, proxyUpload, proxyDownload)
-	_ = recorder.Record(context.WithoutCancel(request.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host, Protocol: "http", Action: route.Action, StatusCode: status, ClientUpload: upload, ClientDownload: delivered, UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, CacheServed: cacheServed, ConfiguredCost: cost})
+	_ = recorder.Record(context.WithoutCancel(request.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID, Host: host, Protocol: "http", Action: route.Action, StatusCode: status, ClientUpload: upload, ClientDownload: delivered, UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, CacheServed: cacheServed, ConfiguredCost: cost})
 }
 
 func recordTunnel(recorder trafficpkg.Recorder, recordContext context.Context, request policy.RequestContext, route gateway.Route, host, protocol string, status int, clientUpload, clientDownload, routeUpload, routeDownload trafficpkg.Bytes) {
@@ -406,13 +406,13 @@ func recordTunnel(recorder trafficpkg.Recorder, recordContext context.Context, r
 	switch route.Action {
 	case "direct":
 		direct, _ = routeUpload.Add(routeDownload)
-	case "proxy":
+	case "proxy", "chain":
 		proxyUpload, proxyDownload = routeUpload, routeDownload
 	}
 	cost, _ := trafficpkg.NewCostSnapshot(route.Rate, proxyUpload, proxyDownload)
 	_ = recorder.Record(context.WithoutCancel(recordContext), trafficpkg.Event{
 		At: time.Now().UTC(), RequestID: request.RequestID, ConnectionID: request.ConnectionID,
-		ClientID: request.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, Host: host,
+		ClientID: request.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID, Host: host,
 		Protocol: protocol, Action: route.Action, StatusCode: status,
 		ClientUpload: clientUpload, ClientDownload: clientDownload,
 		UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, ConfiguredCost: cost,

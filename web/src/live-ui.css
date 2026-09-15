@@ -388,6 +388,53 @@
   margin: 1px 0 0;
   padding: 0;
 }
+.chain-hops {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.chain-hops > legend {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.chain-hop {
+  display: grid;
+  grid-template-columns: 28px minmax(180px, 1fr) minmax(130px, 0.45fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--canvas);
+}
+.chain-hop + .chain-hop {
+  margin-top: 8px;
+}
+.chain-hop-number {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.chain-hop-actions {
+  display: flex;
+  gap: 5px;
+}
+.chain-hop-actions .icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.chain-add-hop {
+  margin-top: 10px;
+}
 .choice-grid span {
   min-width: 0;
   display: grid;
@@ -976,6 +1023,9 @@ textarea:focus-visible {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
   }
+  .pool-inventory-table .chain-action-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
   .pool-inventory-table .pool-action-button {
     width: 100%;
     min-height: 38px;
@@ -985,6 +1035,14 @@ textarea:focus-visible {
   }
   .pool-action-button span {
     display: inline;
+  }
+  .chain-hop {
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: start;
+  }
+  .chain-hop > label,
+  .chain-hop-actions {
+    grid-column: 2;
   }
   .session-inventory-table thead {
     position: absolute;

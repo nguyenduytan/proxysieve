@@ -18,6 +18,16 @@ traffic:
   day_retention_days: 3650
   aggregation_interval: 1m
 budgets: []
+# Ordered proxy chains are optional. Each referenced pool must already exist.
+# chains:
+#   - id: corporate-to-residential
+#     name: Corporate to residential
+#     enabled: true
+#     hops:
+#       - pool: corporate
+#         timeout: 10s
+#       - pool: residential-ca
+#         timeout: 20s
 inspect:
   enabled: false
 cache:

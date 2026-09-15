@@ -16,6 +16,7 @@ import (
 type RuntimeBundle struct {
 	Proxies  []proxy.Endpoint `json:"proxies"`
 	Pools    []routing.Pool   `json:"pools"`
+	Chains   []routing.Chain  `json:"chains"`
 	Policies []policy.Policy  `json:"policies"`
 }
 
@@ -27,6 +28,10 @@ func (b RuntimeBundle) Clone() RuntimeBundle {
 	b.Pools = slices.Clone(b.Pools)
 	for i := range b.Pools {
 		b.Pools[i] = b.Pools[i].Clone()
+	}
+	b.Chains = slices.Clone(b.Chains)
+	for i := range b.Chains {
+		b.Chains[i] = b.Chains[i].Clone()
 	}
 	b.Policies = slices.Clone(b.Policies)
 	for i := range b.Policies {
