@@ -4,11 +4,13 @@ package httpforward
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +21,7 @@ import (
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	cachepkg "github.com/nguyenduytan/proxysieve/pkg/cache"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
+	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
@@ -194,16 +197,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	attempt := uint8(1)
 	for {
 		started := time.Now()
-		response, err = route.Transport.RoundTrip(out)
+		trace := newAttemptTrace(started)
+		attemptRequest := out.Clone(httptrace.WithClientTrace(out.Context(), trace.clientTrace()))
+		response, err = route.Transport.RoundTrip(attemptRequest)
 		latency := time.Since(started)
 		if err == nil {
 			if route.Observe != nil {
-				route.Observe(true, response.StatusCode, latency, nil)
+				route.Observe(trace.observation(true, response.StatusCode, latency, nil))
 			}
 			break
 		}
 		if route.Observe != nil {
-			route.Observe(false, 0, latency, errors.Join(err, r.Context().Err()))
+			route.Observe(trace.observation(false, 0, latency, errors.Join(err, r.Context().Err())))
 		}
 		recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), 0, 0, http.StatusBadGateway, 0)
 		canRetry := route.Retry != nil && retrypkg.DefaultPolicy().ShouldRetry(retrypkg.Request{Method: r.Method, BodyPresent: r.ContentLength != 0 || len(r.TransferEncoding) > 0, Attempt: attempt, Failure: retrypkg.ConnectFailure})
@@ -235,9 +240,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(response.StatusCode)
 			delivered := &internaltraffic.Writer{Destination: w}
 			_, copyErr := delivered.Write(body)
-			if h.recorder != nil {
-				recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), download.Bytes(), delivered.Bytes(), response.StatusCode, 0)
-			}
+			recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), download.Bytes(), delivered.Bytes(), response.StatusCode, 0)
 			if copyErr != nil {
 				panic(http.ErrAbortHandler)
 			}
@@ -249,9 +252,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(response.StatusCode)
 	delivered := &internaltraffic.Writer{Destination: w}
 	_, copyErr := io.Copy(delivered, download)
-	if h.recorder != nil {
-		recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), download.Bytes(), delivered.Bytes(), response.StatusCode, 0)
-	}
+	recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), download.Bytes(), delivered.Bytes(), response.StatusCode, 0)
 	if copyErr != nil {
 		panic(http.ErrAbortHandler)
 	}
@@ -311,12 +312,12 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		latency := time.Since(started)
 		if err == nil {
 			if route.Observe != nil {
-				route.Observe(true, 0, latency, nil)
+				route.Observe(publichealth.Observation{Success: true, Latency: latency, ConnectLatency: latency})
 			}
 			break
 		}
 		if route.Observe != nil {
-			route.Observe(false, 0, latency, errors.Join(err, r.Context().Err()))
+			route.Observe(publichealth.Observation{Success: false, Latency: latency, ConnectLatency: latency, Cause: errors.Join(err, r.Context().Err())})
 		}
 		recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusBadGateway, 0, 0, 0, 0)
 		if route.Retry == nil || attempt >= retrypkg.DefaultPolicy().MaxAttempts || retrypkg.Wait(r.Context(), attempt) != nil {
@@ -471,6 +472,67 @@ func recordTunnel(recorder trafficpkg.Recorder, recordContext context.Context, r
 func completeRoute(ctx context.Context, route gateway.Route, upload, download trafficpkg.Bytes) {
 	if route.Complete != nil {
 		route.Complete(context.WithoutCancel(ctx), upload, download)
+	}
+}
+
+type attemptTrace struct {
+	mu             sync.Mutex
+	started        time.Time
+	connectStarted map[string]time.Time
+	connectLatency time.Duration
+	ttfb           time.Duration
+	dnsFailure     bool
+	tlsFailure     bool
+}
+
+func newAttemptTrace(started time.Time) *attemptTrace {
+	return &attemptTrace{started: started, connectStarted: make(map[string]time.Time)}
+}
+
+func (t *attemptTrace) clientTrace() *httptrace.ClientTrace {
+	return &httptrace.ClientTrace{
+		DNSDone: func(info httptrace.DNSDoneInfo) {
+			t.mu.Lock()
+			t.dnsFailure = t.dnsFailure || info.Err != nil
+			t.mu.Unlock()
+		},
+		ConnectStart: func(network, address string) {
+			t.mu.Lock()
+			t.connectStarted[network+"\x00"+address] = time.Now()
+			t.mu.Unlock()
+		},
+		ConnectDone: func(network, address string, err error) {
+			t.mu.Lock()
+			key := network + "\x00" + address
+			started := t.connectStarted[key]
+			delete(t.connectStarted, key)
+			if !started.IsZero() && (err == nil || t.connectLatency == 0) {
+				t.connectLatency = time.Since(started)
+			}
+			t.mu.Unlock()
+		},
+		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
+			t.mu.Lock()
+			t.tlsFailure = t.tlsFailure || err != nil
+			t.mu.Unlock()
+		},
+		GotFirstResponseByte: func() {
+			t.mu.Lock()
+			if t.ttfb == 0 {
+				t.ttfb = time.Since(t.started)
+			}
+			t.mu.Unlock()
+		},
+	}
+}
+
+func (t *attemptTrace) observation(success bool, status int, latency time.Duration, cause error) publichealth.Observation {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return publichealth.Observation{
+		Success: success, HTTPStatus: status, Latency: latency, Cause: cause,
+		ConnectLatency: t.connectLatency, TTFB: t.ttfb,
+		DNSFailure: t.dnsFailure, TLSFailure: t.tlsFailure,
 	}
 }
 func (h *Handler) authenticateRequest(w http.ResponseWriter, r *http.Request) (model.ID, bool) {

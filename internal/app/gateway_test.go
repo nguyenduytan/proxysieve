@@ -18,8 +18,10 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internalsession "github.com/nguyenduytan/proxysieve/internal/session"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
+	"github.com/nguyenduytan/proxysieve/internal/upstream"
 	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/config"
+	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
@@ -97,8 +99,12 @@ func TestBuildCreatesActiveHealthJobWithoutAdmin(t *testing.T) {
 }
 
 func TestHealthObservationClassifiesProxyAuthAndTimeout(t *testing.T) {
-	observation := healthObservation(false, http.StatusProxyAuthRequired, time.Second, context.DeadlineExceeded)
-	if !observation.AuthFailure || !observation.Timeout || observation.HTTPStatus != http.StatusProxyAuthRequired || observation.Latency != time.Second {
+	observation := healthObservation(publichealth.Observation{
+		HTTPStatus: http.StatusProxyAuthRequired,
+		Latency:    time.Second,
+		Cause:      errors.Join(context.DeadlineExceeded, &net.DNSError{Err: "lookup failed"}, upstream.ErrTLS),
+	})
+	if !observation.AuthFailure || !observation.Timeout || !observation.DNSFailure || !observation.TLSFailure || observation.HTTPStatus != http.StatusProxyAuthRequired || observation.Latency != time.Second {
 		t.Fatal(observation)
 	}
 }

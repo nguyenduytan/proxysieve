@@ -61,8 +61,10 @@ func representProxyHealth(endpoint proxy.Endpoint, state publichealth.Snapshot) 
 		ProxyID: endpoint.ID, Name: endpoint.Name, State: state.State, Circuit: state.Circuit,
 		Score: state.Score, Latency: state.Latency, Observations: state.Observations,
 		Successes: state.Successes, Failures: state.Failures, Timeouts: state.Timeouts,
-		AuthFailures: state.AuthFailures, Status403: state.Status403, Status407: state.Status407,
+		AuthFailures: state.AuthFailures, DNSFailures: state.DNSFailures, TLSFailures: state.TLSFailures,
+		Status403: state.Status403, Status407: state.Status407,
 		Status429: state.Status429, Status5xx: state.Status5xx,
+		ConnectLatency: state.ConnectLatency, TTFB: state.TTFB, Throughput: state.ThroughputBytesPerSec,
 		ConsecutiveFailures: state.ConsecutiveFailures,
 		LastSuccess:         nonzeroTime(state.LastSuccess), LastFailure: nonzeroTime(state.LastFailure),
 	}
@@ -237,7 +239,8 @@ func (h *healthControl) checkEndpoint(ctx context.Context, endpoint proxy.Endpoi
 	if connection != nil {
 		_ = connection.Close()
 	}
-	state, _ := h.health.Observe(endpoint.ID, publichealth.Observation{Success: err == nil, Timeout: checkCtx.Err() != nil, AuthFailure: errors.Is(err, upstream.ErrCredentials), Latency: time.Since(started), HealthCheck: true})
+	latency := time.Since(started)
+	state, _ := h.health.Observe(endpoint.ID, healthObservation(publichealth.Observation{Success: err == nil, Latency: latency, ConnectLatency: latency, HealthCheck: true, Cause: errors.Join(err, checkCtx.Err())}))
 	if h.recorder != nil {
 		bytes := trafficpkg.Bytes(counter.read.Load() + counter.written.Load())
 		status := 200

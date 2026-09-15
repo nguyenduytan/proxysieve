@@ -4,6 +4,7 @@ import {
   ApiError,
   api,
   errorMessage,
+  formatBytes,
   type PoolHealth,
   type PoolHealthPage,
   type ProxyHealth,
@@ -269,9 +270,17 @@ export function HealthInventory({
                     </td>
                     <td data-label="Score">{proxy.score}</td>
                     <td data-label="Latency">
-                      {formatLatency(proxy.latency_ns)}
+                      <div className="health-signal">
+                        <strong>{formatLatency(proxy.latency_ns)}</strong>
+                        <span>{formatTimingSignals(proxy)}</span>
+                      </div>
                     </td>
-                    <td data-label="Success">{formatSuccessRate(proxy)}</td>
+                    <td data-label="Success">
+                      <div className="health-signal">
+                        <strong>{formatSuccessRate(proxy)}</strong>
+                        <span>{formatThroughput(proxy)}</span>
+                      </div>
+                    </td>
                     <td data-label="Failures">
                       <div className="health-signal">
                         <strong>{proxy.consecutive_failures} streak</strong>
@@ -335,12 +344,24 @@ export function formatSuccessRate(proxy: ProxyHealth): string {
   return `${Math.round((proxy.successes / proxy.observations) * 100)}% (${proxy.successes}/${proxy.observations})`;
 }
 
+export function formatTimingSignals(proxy: ProxyHealth): string {
+  return `Connect ${formatLatency(proxy.connect_latency_ns)} · TTFB ${formatLatency(proxy.ttfb_ns)}`;
+}
+
+export function formatThroughput(proxy: ProxyHealth): string {
+  return proxy.throughput_bytes_per_sec > 0
+    ? `${formatBytes(proxy.throughput_bytes_per_sec)}/s`
+    : "—";
+}
+
 export function formatFailureSignals(proxy: ProxyHealth): string {
   if (proxy.observations <= 0) return "No observations";
   const signals = (
     [
       ["timeout", proxy.timeouts],
       ["auth", proxy.auth_failures],
+      ["DNS", proxy.dns_failures],
+      ["TLS", proxy.tls_failures],
       ["403", proxy.status_403],
       ["407", proxy.status_407],
       ["429", proxy.status_429],

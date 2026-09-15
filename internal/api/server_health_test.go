@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -19,7 +20,7 @@ import (
 type staticHealth struct{}
 
 func (staticHealth) ProxyHealth(context.Context) ([]ProxyHealth, error) {
-	return []ProxyHealth{{ProxyID: "proxy", Name: "Proxy", State: publichealth.Healthy, Circuit: publichealth.CircuitClosed, Score: 75}}, nil
+	return []ProxyHealth{{ProxyID: "proxy", Name: "Proxy", State: publichealth.Healthy, Circuit: publichealth.CircuitClosed, Score: 75, DNSFailures: 1, TLSFailures: 2, ConnectLatency: time.Millisecond, TTFB: 2 * time.Millisecond, Throughput: 3}}, nil
 }
 func (staticHealth) PoolHealth(context.Context) ([]PoolHealth, error) {
 	return []PoolHealth{{PoolID: "pool", Name: "Pool", Enabled: true, Total: 1, Eligible: 1, Healthy: 1}}, nil
@@ -45,6 +46,13 @@ func TestHealthCollections(t *testing.T) {
 		}
 		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &body) != nil || len(body.Items) != 1 {
 			t.Fatal(test.path, response.Code, response.Body.String())
+		}
+		if test.path == "/api/v1/health/proxies" {
+			for _, field := range [][]byte{[]byte(`"dns_failures":1`), []byte(`"tls_failures":2`), []byte(`"connect_latency_ns":1000000`), []byte(`"ttfb_ns":2000000`), []byte(`"throughput_bytes_per_sec":3`)} {
+				if !bytes.Contains(response.Body.Bytes(), field) {
+					t.Fatalf("missing %s in %s", field, response.Body.String())
+				}
+			}
 		}
 	}
 }

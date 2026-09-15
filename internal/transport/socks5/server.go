@@ -15,6 +15,7 @@ import (
 	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
+	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	retrypkg "github.com/nguyenduytan/proxysieve/pkg/retry"
@@ -113,12 +114,12 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 		latency := time.Since(started)
 		if err == nil {
 			if route.Observe != nil {
-				route.Observe(true, 0, latency, nil)
+				route.Observe(publichealth.Observation{Success: true, Latency: latency, ConnectLatency: latency})
 			}
 			break
 		}
 		if route.Observe != nil {
-			route.Observe(false, 0, latency, errors.Join(err, ctx.Err()))
+			route.Observe(publichealth.Observation{Success: false, Latency: latency, ConnectLatency: latency, Cause: errors.Join(err, ctx.Err())})
 		}
 		recordTunnel(s.recorder, ctx, request, route, 5, 0, 0, 0, 0)
 		if route.Retry == nil || attempt >= retrypkg.DefaultPolicy().MaxAttempts || retrypkg.Wait(ctx, attempt) != nil {

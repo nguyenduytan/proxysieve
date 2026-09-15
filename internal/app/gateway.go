@@ -215,6 +215,7 @@ func (r *router) chainExcluding(ctx context.Context, request policy.RequestConte
 			}
 		}
 	}
+	routeStarted := time.Now()
 	return gateway.Route{
 		Action: "chain", ChainID: chainID, ChainPools: pools, ChainProxies: proxies,
 		PoolID: pools[0], ProxyID: proxies[len(proxies)-1], Transport: transport, Dial: dial, Reserve: reserve,
@@ -234,23 +235,27 @@ func (r *router) chainExcluding(ctx context.Context, request policy.RequestConte
 		Retry: func(ctx context.Context) (gateway.Route, error) {
 			return r.chainExcluding(ctx, request, chainID, snapshot, maps.Clone(excluded))
 		},
-		Observe: func(success bool, status int, latency time.Duration, cause error) {
+		Observe: func(observation publichealth.Observation) {
+			observation = healthObservation(observation)
 			failureMu.Lock()
 			endpointID := failedEndpoint
 			failureMu.Unlock()
-			if success {
+			if observation.Success {
 				for _, proxyID := range proxies {
-					_, _ = r.health.Observe(proxyID, healthObservation(true, status, latency, nil))
+					_, _ = r.health.Observe(proxyID, observation)
 				}
 				return
 			}
 			for _, proxyID := range proxies {
 				if proxyID == endpointID {
-					_, _ = r.health.Observe(proxyID, healthObservation(false, status, latency, cause))
+					_, _ = r.health.Observe(proxyID, observation)
 				} else {
 					r.health.Release(proxyID)
 				}
 			}
+		},
+		Complete: func(_ context.Context, upload, download trafficpkg.Bytes) {
+			r.recordThroughput(proxies, routeStarted, upload, download)
 		},
 	}, nil
 }
@@ -269,7 +274,9 @@ func (r *router) testChain(ctx context.Context, chainID model.ID, host string, p
 		result.Latency = time.Since(started).Nanoseconds()
 		return result
 	}
+	dialStarted := time.Now()
 	connection, err := route.Dial(ctx, net.JoinHostPort(host, strconv.Itoa(int(port))))
+	connectLatency := time.Since(dialStarted)
 	result.Latency = time.Since(started).Nanoseconds()
 	if err != nil {
 		result.FailureReason = "connect_failed"
@@ -280,14 +287,14 @@ func (r *router) testChain(ctx context.Context, chainID model.ID, host string, p
 			result.ProxyID = model.ID(chainErr.EndpointID)
 		}
 		if route.Observe != nil {
-			route.Observe(false, 0, 0, err)
+			route.Observe(publichealth.Observation{Success: false, Latency: connectLatency, ConnectLatency: connectLatency, Cause: err})
 		}
 		return result
 	}
 	_ = connection.Close()
 	result.Status = "healthy"
 	if route.Observe != nil {
-		route.Observe(true, 0, 0, nil)
+		route.Observe(publichealth.Observation{Success: true, Latency: connectLatency, ConnectLatency: connectLatency})
 	}
 	return result
 }
@@ -411,6 +418,7 @@ func (r *router) proxyExcluding(ctx context.Context, request policy.RequestConte
 			}
 		}
 	}
+	routeStarted := time.Now()
 	route := gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, SessionID: sessionID, SessionHash: sessionHash, Rate: rate, Reserve: reserve, Transport: transport, Acquire: func() bool {
 		return r.health.Acquire(endpoint.ID, time.Now().UTC())
 	}, Retry: func(ctx context.Context) (gateway.Route, error) {
@@ -427,27 +435,40 @@ func (r *router) proxyExcluding(ctx context.Context, request policy.RequestConte
 		return r.proxyExcluding(ctx, request, poolID, snapshot, nextExcluded)
 	}, Dial: func(ctx context.Context, target string) (net.Conn, error) {
 		return connector.Connect(ctx, endpoint, target)
-	}, Observe: func(success bool, status int, latency time.Duration, cause error) {
-		_, _ = r.health.Observe(endpoint.ID, healthObservation(success, status, latency, cause))
-		if !success && sessionID != "" && r.sessions != nil && !r.health.Eligible(endpoint.ID, time.Now().UTC()) {
+	}, Observe: func(observation publichealth.Observation) {
+		observation = healthObservation(observation)
+		_, _ = r.health.Observe(endpoint.ID, observation)
+		if !observation.Success && sessionID != "" && r.sessions != nil && !r.health.Eligible(endpoint.ID, time.Now().UTC()) {
 			_ = r.sessions.Rotate(context.Background(), sessionID, publicsession.ProxyFailed)
 		}
 	}}
-	if r.sessions != nil && sessionPolicy.Strategy != publicsession.None {
-		route.Complete = func(ctx context.Context, upload, download trafficpkg.Bytes) {
+	route.Complete = func(ctx context.Context, upload, download trafficpkg.Bytes) {
+		r.recordThroughput([]model.ID{endpoint.ID}, routeStarted, upload, download)
+		if r.sessions != nil && sessionPolicy.Strategy != publicsession.None {
 			_ = r.sessions.RecordUsage(ctx, sessionID, upload, download)
 		}
 	}
 	return route, nil
 }
 
-func healthObservation(success bool, status int, latency time.Duration, cause error) publichealth.Observation {
-	timedOut := errors.Is(cause, context.DeadlineExceeded)
+func healthObservation(observation publichealth.Observation) publichealth.Observation {
+	timedOut := errors.Is(observation.Cause, context.DeadlineExceeded)
 	var networkError net.Error
-	return publichealth.Observation{
-		Success: success, HTTPStatus: status, Latency: latency,
-		AuthFailure: status == http.StatusProxyAuthRequired || errors.Is(cause, upstream.ErrCredentials),
-		Timeout:     timedOut || errors.As(cause, &networkError) && networkError.Timeout(),
+	var dnsError *net.DNSError
+	observation.AuthFailure = observation.AuthFailure || observation.HTTPStatus == http.StatusProxyAuthRequired || errors.Is(observation.Cause, upstream.ErrCredentials)
+	observation.Timeout = observation.Timeout || timedOut || errors.As(observation.Cause, &networkError) && networkError.Timeout()
+	observation.DNSFailure = observation.DNSFailure || errors.As(observation.Cause, &dnsError)
+	observation.TLSFailure = observation.TLSFailure || errors.Is(observation.Cause, upstream.ErrTLS)
+	return observation
+}
+
+func (r *router) recordThroughput(ids []model.ID, started time.Time, upload, download trafficpkg.Bytes) {
+	total, err := upload.Add(download)
+	if err != nil || total == 0 {
+		return
+	}
+	for _, id := range ids {
+		_ = r.health.RecordThroughput(id, uint64(total), time.Since(started))
 	}
 }
 

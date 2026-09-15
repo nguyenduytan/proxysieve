@@ -225,6 +225,24 @@ func TestHTTPSUpstreamTLS(t *testing.T) {
 	_ = conn.Close()
 }
 
+func TestConnectorPreservesDNSAndTLSFailures(t *testing.T) {
+	dnsFailure := &net.DNSError{Err: "lookup failed", Name: "proxy.example.invalid"}
+	connector := Connector{DialContext: func(context.Context, string, string) (net.Conn, error) { return nil, dnsFailure }}
+	_, err := connector.Connect(t.Context(), endpoint(proxy.HTTP, "proxy.example.invalid:8080", ""), "target.example.invalid:443")
+	var dnsError *net.DNSError
+	if !errors.Is(err, ErrConnect) || !errors.As(err, &dnsError) {
+		t.Fatalf("DNS cause was lost: %v", err)
+	}
+
+	plain := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer plain.Close()
+	plainURL, _ := url.Parse(plain.URL)
+	_, err = (Connector{}).Connect(t.Context(), endpoint(proxy.HTTPS, plainURL.Host, ""), "target.example.invalid:443")
+	if !errors.Is(err, ErrConnect) || !errors.Is(err, ErrTLS) {
+		t.Fatalf("TLS cause was lost: %v", err)
+	}
+}
+
 func TestConnectorConnectChainUsesEveryHopInOrder(t *testing.T) {
 	client, server := net.Pipe()
 	defer func() { _ = client.Close() }()

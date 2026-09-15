@@ -3,17 +3,19 @@ package upstream
 import (
 	"context"
 	"encoding/binary"
-	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	"errors"
 	"io"
 	"net"
 	"net/netip"
 	"strconv"
+
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 )
 
 func (c Connector) connectSOCKS(ctx context.Context, endpoint proxy.Endpoint, target string) (net.Conn, error) {
 	conn, err := c.dial(ctx, endpoint.Address())
 	if err != nil {
-		return nil, ErrConnect
+		return nil, errors.Join(ErrConnect, err)
 	}
 	clearDeadline := applyContextDeadline(ctx, conn)
 	defer clearDeadline()
@@ -110,7 +112,7 @@ func (c Connector) socksAddress(ctx context.Context, protocol proxy.Protocol, ho
 	}
 	ips, err := c.Resolver.LookupNetIP(ctx, host)
 	if err != nil || len(ips) == 0 {
-		return nil, ErrConnect
+		return nil, errors.Join(ErrConnect, err)
 	}
 	return socksIP(ips[0]), nil
 }

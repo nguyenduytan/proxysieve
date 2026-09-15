@@ -100,10 +100,10 @@ func TestEligibility(t *testing.T) {
 
 func TestLatencyUsesRollingAverage(t *testing.T) {
 	m, _ := New(public.Defaults(), nil)
-	_, _ = m.Observe("proxy", public.Observation{Success: true, Latency: 100 * time.Millisecond})
-	state, _ := m.Observe("proxy", public.Observation{Success: true, Latency: 20 * time.Millisecond})
-	if state.Latency != 80*time.Millisecond {
-		t.Fatal(state.Latency)
+	_, _ = m.Observe("proxy", public.Observation{Success: true, Latency: 100 * time.Millisecond, ConnectLatency: 80 * time.Millisecond, TTFB: 120 * time.Millisecond})
+	state, _ := m.Observe("proxy", public.Observation{Success: true, Latency: 20 * time.Millisecond, ConnectLatency: 40 * time.Millisecond, TTFB: 40 * time.Millisecond})
+	if state.Latency != 80*time.Millisecond || state.ConnectLatency != 70*time.Millisecond || state.TTFB != 100*time.Millisecond {
+		t.Fatal(state)
 	}
 }
 
@@ -116,20 +116,43 @@ func TestRollingMetricsClassifyAndBound(t *testing.T) {
 		{Success: true, HTTPStatus: 407},
 		{Success: true, HTTPStatus: 429},
 		{Success: true, HTTPStatus: 500},
-		{Success: false, Timeout: true},
+		{Success: false, Timeout: true, DNSFailure: true},
+		{Success: false, TLSFailure: true},
 		{Success: true, AuthFailure: true},
 	} {
 		_, _ = m.Observe("proxy", observation)
 	}
 	state, _ := m.Get("proxy", time.Now().UTC())
-	if state.Observations != 6 || state.Successes != 1 || state.Failures != 5 || state.Timeouts != 1 || state.AuthFailures != 2 || state.Status403 != 1 || state.Status407 != 1 || state.Status429 != 1 || state.Status5xx != 1 {
+	if state.Observations != 7 || state.Successes != 1 || state.Failures != 6 || state.Timeouts != 1 || state.AuthFailures != 2 || state.DNSFailures != 1 || state.TLSFailures != 1 || state.Status403 != 1 || state.Status407 != 1 || state.Status429 != 1 || state.Status5xx != 1 {
 		t.Fatal(state)
 	}
 	for range metricWindowSize {
 		_, _ = m.Observe("proxy", public.Observation{Success: true})
 	}
 	state, _ = m.Get("proxy", time.Now().UTC())
-	if state.Observations != metricWindowSize || state.Successes != metricWindowSize || state.Failures != 0 || state.Timeouts != 0 || state.AuthFailures != 0 || state.Status403 != 0 || state.Status407 != 0 || state.Status429 != 0 || state.Status5xx != 0 {
+	if state.Observations != metricWindowSize || state.Successes != metricWindowSize || state.Failures != 0 || state.Timeouts != 0 || state.AuthFailures != 0 || state.DNSFailures != 0 || state.TLSFailures != 0 || state.Status403 != 0 || state.Status407 != 0 || state.Status429 != 0 || state.Status5xx != 0 {
 		t.Fatal(state)
+	}
+}
+
+func TestThroughputUsesRollingAverage(t *testing.T) {
+	m, _ := New(public.Defaults(), nil)
+	_, _ = m.Observe("proxy", public.Observation{Success: true})
+	if err := m.RecordThroughput("proxy", 1_000, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RecordThroughput("proxy", 2_000, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := m.Get("proxy", time.Now().UTC())
+	if state.ThroughputBytesPerSec != 1_250 {
+		t.Fatal(state.ThroughputBytesPerSec)
+	}
+	if err := m.RecordThroughput("proxy", ^uint64(0), time.Nanosecond); err != nil {
+		t.Fatal(err)
+	}
+	state, _ = m.Get("proxy", time.Now().UTC())
+	if state.ThroughputBytesPerSec < 1_250 {
+		t.Fatal("throughput overflowed", state.ThroughputBytesPerSec)
 	}
 }

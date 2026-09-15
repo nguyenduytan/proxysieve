@@ -30,10 +30,15 @@ type ProxyHealth struct {
 	Failures            uint32               `json:"failures"`
 	Timeouts            uint32               `json:"timeouts"`
 	AuthFailures        uint32               `json:"auth_failures"`
+	DNSFailures         uint32               `json:"dns_failures"`
+	TLSFailures         uint32               `json:"tls_failures"`
 	Status403           uint32               `json:"status_403"`
 	Status407           uint32               `json:"status_407"`
 	Status429           uint32               `json:"status_429"`
 	Status5xx           uint32               `json:"status_5xx"`
+	ConnectLatency      time.Duration        `json:"connect_latency_ns"`
+	TTFB                time.Duration        `json:"ttfb_ns"`
+	Throughput          uint64               `json:"throughput_bytes_per_sec"`
 	ConsecutiveFailures uint32               `json:"consecutive_failures"`
 	LastSuccess         *time.Time           `json:"last_success,omitempty"`
 	LastFailure         *time.Time           `json:"last_failure,omitempty"`

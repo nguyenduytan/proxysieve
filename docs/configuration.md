@@ -57,9 +57,12 @@ and 5xx treatment is independently configurable because a target response does
 not always mean the proxy is unhealthy.
 
 The health API exposes the most recent 100 accepted observations per proxy:
-success/failure totals plus timeout, proxy-auth, 403, 407, 429, and 5xx counts.
-HTTP 407 always counts as a proxy failure. These rolling counters are process-local;
-they reset on restart and are not provider billing or availability-SLA records.
+success/failure totals plus DNS, TLS, timeout, proxy-auth, 403, 407, 429, and
+5xx counts. It also reports rolling end-to-end, connection and time-to-first-byte
+latency plus application-stream throughput. Reused HTTP connections may not
+produce a new DNS, TLS or connection timing sample. HTTP 407 always counts as a
+proxy failure. These rolling signals are process-local; they reset on restart and
+are not provider billing or availability-SLA records.
 
 Active checks are off by default to avoid paid background traffic. When
 `health.active_checks` is enabled, ProxySieve checks each enabled active proxy at

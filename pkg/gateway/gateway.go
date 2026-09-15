@@ -4,13 +4,14 @@ package gateway
 import (
 	"context"
 	"errors"
+	"net"
+	"net/http"
+
 	"github.com/nguyenduytan/proxysieve/pkg/budget"
+	"github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/traffic"
-	"net"
-	"net/http"
-	"time"
 )
 
 var ErrDenied = errors.New("request denied by gateway policy")
@@ -35,7 +36,7 @@ type Route struct {
 	Dial         func(context.Context, string) (net.Conn, error)
 	Acquire      func() bool
 	Retry        func(context.Context) (Route, error)
-	Observe      func(bool, int, time.Duration, error)
+	Observe      func(health.Observation)
 	Complete     func(context.Context, traffic.Bytes, traffic.Bytes)
 	Rate         *traffic.Rate
 	Reserve      budget.ReserveFunc

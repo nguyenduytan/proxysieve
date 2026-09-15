@@ -152,10 +152,15 @@ export interface ProxyHealth {
   failures: number;
   timeouts: number;
   auth_failures: number;
+  dns_failures: number;
+  tls_failures: number;
   status_403: number;
   status_407: number;
   status_429: number;
   status_5xx: number;
+  connect_latency_ns: number;
+  ttfb_ns: number;
+  throughput_bytes_per_sec: number;
   consecutive_failures: number;
   last_success?: string;
   last_failure?: string;

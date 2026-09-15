@@ -5,6 +5,8 @@ import {
   formatFailureSignals,
   formatLastResult,
   formatSuccessRate,
+  formatThroughput,
+  formatTimingSignals,
   HealthInventory,
 } from "./HealthInventory";
 
@@ -44,10 +46,15 @@ describe("health workspace", () => {
         failures: 1,
         timeouts: 0,
         auth_failures: 0,
+        dns_failures: 0,
+        tls_failures: 0,
         status_403: 0,
         status_407: 0,
         status_429: 0,
         status_5xx: 0,
+        connect_latency_ns: 0,
+        ttfb_ns: 0,
+        throughput_bytes_per_sec: 0,
         consecutive_failures: 0,
         last_failure: "2026-09-15T10:00:00Z",
         last_success: "2026-09-15T11:00:00Z",
@@ -66,10 +73,15 @@ describe("health workspace", () => {
         failures: 1,
         timeouts: 1,
         auth_failures: 0,
+        dns_failures: 0,
+        tls_failures: 0,
         status_403: 0,
         status_407: 0,
         status_429: 0,
         status_5xx: 0,
+        connect_latency_ns: 0,
+        ttfb_ns: 0,
+        throughput_bytes_per_sec: 0,
         consecutive_failures: 1,
         last_failure: "2026-09-15T12:00:00Z",
         last_success: "invalid",
@@ -90,15 +102,22 @@ describe("health workspace", () => {
       failures: 3,
       timeouts: 1,
       auth_failures: 1,
+      dns_failures: 1,
+      tls_failures: 1,
       status_403: 0,
       status_407: 1,
       status_429: 1,
       status_5xx: 0,
+      connect_latency_ns: 2_000_000,
+      ttfb_ns: 3_000_000,
+      throughput_bytes_per_sec: 2048,
       consecutive_failures: 1,
     };
     expect(formatSuccessRate(proxy)).toBe("70% (7/10)");
     expect(formatFailureSignals(proxy)).toBe(
-      "3/10 recent · timeout 1 · auth 1 · 407 1 · 429 1",
+      "3/10 recent · timeout 1 · auth 1 · DNS 1 · TLS 1 · 407 1 · 429 1",
     );
+    expect(formatTimingSignals(proxy)).toBe("Connect 2.0 ms · TTFB 3.0 ms");
+    expect(formatThroughput(proxy)).toBe("2.0 KiB/s");
   });
 });

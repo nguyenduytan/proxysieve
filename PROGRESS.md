@@ -11,7 +11,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-15.
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local/password SOCKS5 CONNECT and runtime multi-listener support implemented; UDP, metrics and transport-framing accounting pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
 - [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes and audited session API/Admin/CLI observability locally implemented; broader failover validation pending)
-- [ ] M7 — Health, circuit breaker, safe retries (passive/active checks, rolling outcome/status metrics, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard and per-attempt HTTP/CONNECT/SOCKS5 retry attribution locally implemented; DNS/TLS/TTFB/throughput signals pending)
+- [ ] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard and per-attempt HTTP/CONNECT/SOCKS5 retry attribution locally implemented; configurable retry policy and alternative-chain failover pending)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe hard byte-budget enforcement locally implemented; transport framing, billing windows, projections, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
@@ -217,6 +217,13 @@ source document.
 - Added configurable global and per-pool probe pacing shared by active, manual
   proxy and manual pool checks. The per-proxy network timeout now lives in their
   common execution path instead of inheriting the longer Admin request timeout.
+- Completed the M7 rolling signal set with preserved DNS/TLS causes, connection
+  latency, HTTP time to first byte and application-stream throughput. HTTP traces
+  use the standard library; CONNECT and SOCKS5 reuse their measured dial attempt.
+- Route completion now updates throughput for the selected proxy or every chain
+  hop and records session usage even when the optional traffic recorder is absent.
+  The Admin Health table keeps its existing columns and shows timing/throughput as
+  compact secondary values.
 
 Vite child-process execution and golangci-lint's user cache required approved
 out-of-sandbox runs; no safety checks were disabled to work around those restrictions.

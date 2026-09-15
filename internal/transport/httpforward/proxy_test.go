@@ -3,21 +3,23 @@ package httpforward
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
-	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
-	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
-	"github.com/nguyenduytan/proxysieve/pkg/gateway"
-	"github.com/nguyenduytan/proxysieve/pkg/model"
-	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
+	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
+	"github.com/nguyenduytan/proxysieve/pkg/gateway"
+	"github.com/nguyenduytan/proxysieve/pkg/model"
+	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
@@ -100,6 +102,44 @@ func TestRecordsActualHTTPStreamBytes(t *testing.T) {
 	event := events[0]
 	if event.ClientUpload != 5 || event.UpstreamUpload != 0 || event.ClientDownload != 11 || event.UpstreamDownload != 0 || event.Direct != 16 {
 		t.Fatal(event)
+	}
+}
+
+func TestCompletesHTTPRouteWithoutTrafficRecorder(t *testing.T) {
+	completed := make(chan [2]trafficpkg.Bytes, 1)
+	handler, err := New(Options{
+		Evaluator: Decider(direct),
+		Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{Action: "proxy", Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				_, _ = io.ReadAll(request.Body)
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("ok"))}, nil
+			}), Complete: func(_ context.Context, upload, download trafficpkg.Bytes) {
+				completed <- [2]trafficpkg.Bytes{upload, download}
+			}}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://example.invalid/", strings.NewReader("payload")))
+	if got := <-completed; got != [2]trafficpkg.Bytes{7, 2} {
+		t.Fatal(got)
+	}
+}
+
+func TestAttemptTraceCapturesHealthSignals(t *testing.T) {
+	trace := newAttemptTrace(time.Now().Add(-time.Second))
+	callbacks := trace.clientTrace()
+	callbacks.DNSDone(httptrace.DNSDoneInfo{Err: errors.New("DNS failed")})
+	callbacks.ConnectStart("tcp", "proxy:443")
+	trace.connectStarted["tcp\x00proxy:443"] = time.Now().Add(-time.Millisecond)
+	callbacks.ConnectDone("tcp", "proxy:443", nil)
+	callbacks.TLSHandshakeDone(tls.ConnectionState{}, errors.New("TLS failed"))
+	callbacks.GotFirstResponseByte()
+	observation := trace.observation(false, 0, time.Second, errors.New("request failed"))
+	if !observation.DNSFailure || !observation.TLSFailure || observation.ConnectLatency <= 0 || observation.TTFB <= 0 {
+		t.Fatal(observation)
 	}
 }
 

@@ -61,9 +61,9 @@
 - Added synchronized/staged runtime indicators, exact active/staged item state,
   rollback confirmation and disabled no-op activation. Fixed default policy ID
   authoring and desktop/mobile policy action layout.
-- Added rolling health outcome/status signals, proxy-auth and timeout
-  classification, globally/per-pool paced active and manual checks, and a
-  responsive Health workspace with guarded operator actions.
+- Added rolling health outcome/status, DNS/TLS, connection latency, TTFB and
+  application-stream throughput signals, globally/per-pool paced active and
+  manual checks, and a responsive Health workspace with guarded operator actions.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe

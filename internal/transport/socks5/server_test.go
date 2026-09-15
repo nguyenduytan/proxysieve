@@ -4,14 +4,15 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"github.com/nguyenduytan/proxysieve/pkg/gateway"
-	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"io"
 	"net"
 	"testing"
 	"time"
 
+	"github.com/nguyenduytan/proxysieve/pkg/gateway"
+	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
+	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
@@ -45,7 +46,7 @@ func TestConnect(t *testing.T) {
 		done <- r
 		return policy.Result{Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
-		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int, _ time.Duration, _ error) { observed <- success }}, nil
+		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(observation publichealth.Observation) { observed <- observation.Success }}, nil
 	}), Recorder: recorded})
 	if err != nil {
 		t.Fatal(err)
@@ -104,9 +105,9 @@ func TestConnectRetriesBeforeReply(t *testing.T) {
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
 		return gateway.Route{
 			Action: "proxy", PoolID: "pool", ProxyID: "first", Dial: func(context.Context, string) (net.Conn, error) { return nil, errors.New("first proxy failed") },
-			Observe: func(success bool, _ int, _ time.Duration, _ error) { observed <- success },
+			Observe: func(observation publichealth.Observation) { observed <- observation.Success },
 			Retry: func(context.Context) (gateway.Route, error) {
-				return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "second", Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int, _ time.Duration, _ error) { observed <- success }}, nil
+				return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "second", Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(observation publichealth.Observation) { observed <- observation.Success }}, nil
 			},
 		}, nil
 	}), Recorder: recorded})

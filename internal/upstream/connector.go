@@ -24,6 +24,7 @@ var (
 	ErrCredentials = errors.New("upstream proxy credentials are unavailable")
 	ErrConnect     = errors.New("upstream proxy connection failed")
 	ErrProtocol    = errors.New("upstream proxy protocol failed")
+	ErrTLS         = errors.New("upstream proxy TLS handshake failed")
 )
 
 const maxResponseHeaderBytes = 32 << 10
@@ -171,7 +172,7 @@ func (c Connector) credentials(ctx context.Context, ref secret.Ref) (Credentials
 func (c Connector) connectHTTP(ctx context.Context, endpoint proxy.Endpoint, target string) (net.Conn, error) {
 	conn, err := c.dial(ctx, endpoint.Address())
 	if err != nil {
-		return nil, ErrConnect
+		return nil, errors.Join(ErrConnect, err)
 	}
 	clearDeadline := applyContextDeadline(ctx, conn)
 	defer clearDeadline()
@@ -191,7 +192,7 @@ func (c Connector) connectHTTP(ctx context.Context, endpoint proxy.Endpoint, tar
 		}
 		tlsConn := tls.Client(conn, cfg)
 		if err = tlsConn.HandshakeContext(ctx); err != nil {
-			return nil, ErrConnect
+			return nil, errors.Join(ErrConnect, ErrTLS, err)
 		}
 		conn = tlsConn
 	}

@@ -51,35 +51,45 @@ func Defaults() Config {
 }
 
 type Observation struct {
-	At          time.Time
-	Success     bool
-	HTTPStatus  int
-	AuthFailure bool
-	Timeout     bool
-	Latency     time.Duration
-	HealthCheck bool
+	At             time.Time
+	Success        bool
+	HTTPStatus     int
+	AuthFailure    bool
+	Timeout        bool
+	DNSFailure     bool
+	TLSFailure     bool
+	Latency        time.Duration
+	ConnectLatency time.Duration
+	TTFB           time.Duration
+	HealthCheck    bool
+	Cause          error
 }
 type Snapshot struct {
-	EndpointID           model.ID
-	State                State
-	Circuit              Circuit
-	Score                uint8
-	Latency              time.Duration
-	Observations         uint32
-	Successes            uint32
-	Failures             uint32
-	Timeouts             uint32
-	AuthFailures         uint32
-	Status403            uint32
-	Status407            uint32
-	Status429            uint32
-	Status5xx            uint32
-	ConsecutiveFailures  uint32
-	ConsecutiveSuccesses uint32
-	LastSuccess          time.Time
-	LastFailure          time.Time
-	OpenUntil            time.Time
-	ActiveConnections    uint64
+	EndpointID            model.ID
+	State                 State
+	Circuit               Circuit
+	Score                 uint8
+	Latency               time.Duration
+	Observations          uint32
+	Successes             uint32
+	Failures              uint32
+	Timeouts              uint32
+	AuthFailures          uint32
+	Status403             uint32
+	Status407             uint32
+	Status429             uint32
+	Status5xx             uint32
+	DNSFailures           uint32
+	TLSFailures           uint32
+	ConnectLatency        time.Duration
+	TTFB                  time.Duration
+	ThroughputBytesPerSec uint64
+	ConsecutiveFailures   uint32
+	ConsecutiveSuccesses  uint32
+	LastSuccess           time.Time
+	LastFailure           time.Time
+	OpenUntil             time.Time
+	ActiveConnections     uint64
 }
 
 func (s Snapshot) Eligible(now time.Time) bool {

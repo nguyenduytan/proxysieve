@@ -27,7 +27,7 @@ type Manager struct {
 }
 
 type sample struct {
-	failed, timeout, auth, status403, status407, status429, status5xx bool
+	failed, timeout, auth, dns, tls, status403, status407, status429, status5xx bool
 }
 
 const metricWindowSize = 100
@@ -69,11 +69,13 @@ func (m *Manager) Observe(id model.ID, observation public.Observation) (public.S
 		state.ConsecutiveSuccesses = 0
 	}
 	if observation.Latency > 0 {
-		if state.Latency == 0 {
-			state.Latency = observation.Latency
-		} else {
-			state.Latency += (observation.Latency - state.Latency) / 4
-		}
+		state.Latency = rollingDuration(state.Latency, observation.Latency)
+	}
+	if observation.ConnectLatency > 0 {
+		state.ConnectLatency = rollingDuration(state.ConnectLatency, observation.ConnectLatency)
+	}
+	if observation.TTFB > 0 {
+		state.TTFB = rollingDuration(state.TTFB, observation.TTFB)
 	}
 	failed := failure(m.config, observation)
 	state = m.track(id, state, observation, failed)
@@ -109,7 +111,8 @@ func (m *Manager) Observe(id model.ID, observation public.Observation) (public.S
 func (m *Manager) track(id model.ID, state public.Snapshot, observation public.Observation, failed bool) public.Snapshot {
 	entry := sample{
 		failed: failed, timeout: observation.Timeout,
-		auth:      observation.AuthFailure || observation.HTTPStatus == 407,
+		auth: observation.AuthFailure || observation.HTTPStatus == 407,
+		dns:  observation.DNSFailure, tls: observation.TLSFailure,
 		status403: observation.HTTPStatus == 403, status407: observation.HTTPStatus == 407,
 		status429: observation.HTTPStatus == 429,
 		status5xx: observation.HTTPStatus >= 500 && observation.HTTPStatus <= 599,
@@ -123,7 +126,7 @@ func (m *Manager) track(id model.ID, state public.Snapshot, observation public.O
 	}
 	m.recent[id] = recent
 	state.Observations, state.Successes, state.Failures = uint32(len(recent)), 0, 0
-	state.Timeouts, state.AuthFailures = 0, 0
+	state.Timeouts, state.AuthFailures, state.DNSFailures, state.TLSFailures = 0, 0, 0, 0
 	state.Status403, state.Status407, state.Status429, state.Status5xx = 0, 0, 0, 0
 	for _, item := range recent {
 		if item.failed {
@@ -136,6 +139,12 @@ func (m *Manager) track(id model.ID, state public.Snapshot, observation public.O
 		}
 		if item.auth {
 			state.AuthFailures++
+		}
+		if item.dns {
+			state.DNSFailures++
+		}
+		if item.tls {
+			state.TLSFailures++
 		}
 		if item.status403 {
 			state.Status403++
@@ -151,6 +160,37 @@ func (m *Manager) track(id model.ID, state public.Snapshot, observation public.O
 		}
 	}
 	return state
+}
+
+func (m *Manager) RecordThroughput(id model.ID, bytes uint64, elapsed time.Duration) error {
+	if !id.Valid() || bytes == 0 || elapsed <= 0 {
+		return public.ErrInvalid
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, ok := m.states[id]
+	if !ok {
+		return ErrNotFound
+	}
+	rateValue := float64(bytes) / elapsed.Seconds()
+	rate := ^uint64(0)
+	if rateValue < float64(rate) {
+		rate = uint64(rateValue)
+	}
+	if state.ThroughputBytesPerSec == 0 {
+		state.ThroughputBytesPerSec = rate
+	} else {
+		state.ThroughputBytesPerSec = uint64((float64(state.ThroughputBytesPerSec)*3 + float64(rate)) / 4)
+	}
+	m.states[id] = state
+	return nil
+}
+
+func rollingDuration(current, next time.Duration) time.Duration {
+	if current == 0 {
+		return next
+	}
+	return current + (next-current)/4
 }
 func (m *Manager) Get(id model.ID, now time.Time) (public.Snapshot, error) {
 	m.mu.Lock()
