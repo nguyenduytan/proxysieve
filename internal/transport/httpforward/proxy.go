@@ -168,6 +168,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if route.Acquire != nil && !route.Acquire() {
+		recordHTTP(h.recorder, r, ctx, route, host, 0, 0, 0, http.StatusBadGateway, 0)
+		http.Error(w, "ROUTE_UNAVAILABLE", http.StatusBadGateway)
+		return
+	}
 	body := r.Body
 	if body == nil {
 		body = http.NoBody
@@ -270,6 +275,11 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		route.Action = "budget_reject"
 		recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusTooManyRequests, 0, 0, 0, 0)
 		http.Error(w, "BUDGET_EXCEEDED", http.StatusTooManyRequests)
+		return
+	}
+	if route.Acquire != nil && !route.Acquire() {
+		recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusBadGateway, 0, 0, 0, 0)
+		http.Error(w, "ROUTE_UNAVAILABLE", http.StatusBadGateway)
 		return
 	}
 	upstream, err := route.Dial(r.Context(), net.JoinHostPort(host, portRaw))

@@ -64,6 +64,9 @@ func TestStatusWeightingAndDisable(t *testing.T) {
 		s, _ = m.SetDisabled("other", true)
 		t.Fatal(s)
 	}
+	if m.Eligible("other", time.Now().UTC()) || m.Acquire("other", time.Now().UTC()) {
+		t.Fatal("disabled endpoint became eligible")
+	}
 	s, _ = m.SetDisabled("other", false)
 	if s.State != public.Unknown {
 		t.Fatal(s)
@@ -85,5 +88,12 @@ func TestEligibility(t *testing.T) {
 	clock.Add(time.Minute)
 	if !m.Eligible("proxy", clock.Now()) {
 		t.Fatal("half-open probe unavailable")
+	}
+	if !m.Acquire("proxy", clock.Now()) || m.Eligible("proxy", clock.Now()) || m.Acquire("proxy", clock.Now()) {
+		t.Fatal("more than one half-open probe was admitted")
+	}
+	_, _ = m.Observe("proxy", public.Observation{Success: true})
+	if !m.Acquire("proxy", clock.Now()) {
+		t.Fatal("completed half-open probe was not released")
 	}
 }

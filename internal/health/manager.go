@@ -3,10 +3,11 @@ package health
 
 import (
 	"errors"
-	public "github.com/nguyenduytan/proxysieve/pkg/health"
-	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"sync"
 	"time"
+
+	public "github.com/nguyenduytan/proxysieve/pkg/health"
+	"github.com/nguyenduytan/proxysieve/pkg/model"
 )
 
 var ErrNotFound = errors.New("health state not found")
@@ -21,6 +22,7 @@ type Manager struct {
 	config public.Config
 	clock  Clock
 	states map[model.ID]public.Snapshot
+	probes map[model.ID]bool
 }
 
 func New(config public.Config, source Clock) (*Manager, error) {
@@ -30,7 +32,7 @@ func New(config public.Config, source Clock) (*Manager, error) {
 	if source == nil {
 		source = clock{}
 	}
-	return &Manager{config: config, clock: source, states: map[model.ID]public.Snapshot{}}, nil
+	return &Manager{config: config, clock: source, states: map[model.ID]public.Snapshot{}, probes: map[model.ID]bool{}}, nil
 }
 func (m *Manager) Observe(id model.ID, observation public.Observation) (public.Snapshot, error) {
 	if !id.Valid() {
@@ -41,6 +43,7 @@ func (m *Manager) Observe(id model.ID, observation public.Observation) (public.S
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	delete(m.probes, id)
 	state, ok := m.states[id]
 	if !ok {
 		state = public.Snapshot{EndpointID: id, State: public.Unknown, Circuit: public.CircuitClosed, Score: m.config.InitialScore}
@@ -94,11 +97,8 @@ func (m *Manager) Get(id model.ID, now time.Time) (public.Snapshot, error) {
 	if !ok {
 		return public.Snapshot{}, ErrNotFound
 	}
-	if state.Circuit == public.CircuitOpen && !now.Before(state.OpenUntil) {
-		state.Circuit = public.CircuitHalfOpen
-		state.State = public.HalfOpen
-		m.states[id] = state
-	}
+	state = afterCooldown(state, now)
+	m.states[id] = state
 	return state, nil
 }
 
@@ -106,11 +106,46 @@ func (m *Manager) Get(id model.ID, now time.Time) (public.Snapshot, error) {
 // actual observations say otherwise. Open circuits transition to half-open after
 // their cooldown and allow the next controlled attempt.
 func (m *Manager) Eligible(id model.ID, now time.Time) bool {
-	state, err := m.Get(id, now)
-	if errors.Is(err, ErrNotFound) {
+	if !id.Valid() {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, ok := m.states[id]
+	if !ok {
 		return true
 	}
-	return err == nil && state.State != public.Disabled && state.Circuit != public.CircuitOpen
+	state = afterCooldown(state, now)
+	m.states[id] = state
+	return state.Eligible(now) && !m.probes[id]
+}
+
+// Acquire allows one in-flight attempt while an endpoint is half-open.
+func (m *Manager) Acquire(id model.ID, now time.Time) bool {
+	if !id.Valid() {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, ok := m.states[id]
+	if !ok {
+		return true
+	}
+	state = afterCooldown(state, now)
+	m.states[id] = state
+	if !state.Eligible(now) || m.probes[id] {
+		return false
+	}
+	if state.Circuit == public.CircuitHalfOpen {
+		m.probes[id] = true
+	}
+	return true
+}
+
+func (m *Manager) Release(id model.ID) {
+	m.mu.Lock()
+	delete(m.probes, id)
+	m.mu.Unlock()
 }
 func (m *Manager) SetDisabled(id model.ID, disabled bool) (public.Snapshot, error) {
 	if !id.Valid() {
@@ -118,6 +153,7 @@ func (m *Manager) SetDisabled(id model.ID, disabled bool) (public.Snapshot, erro
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	delete(m.probes, id)
 	state, ok := m.states[id]
 	if !ok {
 		state = public.Snapshot{EndpointID: id, State: public.Unknown, Circuit: public.CircuitClosed, Score: m.config.InitialScore}
@@ -132,6 +168,15 @@ func (m *Manager) SetDisabled(id model.ID, disabled bool) (public.Snapshot, erro
 	}
 	m.states[id] = state
 	return state, nil
+}
+
+func afterCooldown(state public.Snapshot, now time.Time) public.Snapshot {
+	if state.State != public.Disabled && state.Circuit == public.CircuitOpen && !now.Before(state.OpenUntil) {
+		state.Circuit = public.CircuitHalfOpen
+		state.State = public.HalfOpen
+		state.ConsecutiveSuccesses = 0
+	}
+	return state
 }
 func failure(config public.Config, observation public.Observation) bool {
 	if !observation.Success || observation.AuthFailure || observation.Timeout {

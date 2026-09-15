@@ -213,18 +213,35 @@ func (r *router) chain(ctx context.Context, request policy.RequestContext, chain
 	return gateway.Route{
 		Action: "chain", ChainID: chainID, ChainPools: pools, ChainProxies: proxies,
 		PoolID: pools[0], ProxyID: proxies[len(proxies)-1], Transport: transport, Dial: dial, Reserve: reserve,
-		Observe: func(success bool, status int) {
-			if success {
-				for _, endpointID := range proxies {
-					_, _ = r.health.Observe(endpointID, publichealth.Observation{Success: true, HTTPStatus: status})
+		Acquire: func() bool {
+			acquired := make([]model.ID, 0, len(proxies))
+			for _, endpointID := range proxies {
+				if !r.health.Acquire(endpointID, time.Now().UTC()) {
+					for _, claimed := range acquired {
+						r.health.Release(claimed)
+					}
+					return false
 				}
-				return
+				acquired = append(acquired, endpointID)
 			}
+			return true
+		},
+		Observe: func(success bool, status int) {
 			failureMu.Lock()
 			endpointID := failedEndpoint
 			failureMu.Unlock()
-			if endpointID != "" {
-				_, _ = r.health.Observe(endpointID, publichealth.Observation{Success: false})
+			if success {
+				for _, proxyID := range proxies {
+					_, _ = r.health.Observe(proxyID, publichealth.Observation{Success: true, HTTPStatus: status})
+				}
+				return
+			}
+			for _, proxyID := range proxies {
+				if proxyID == endpointID {
+					_, _ = r.health.Observe(proxyID, publichealth.Observation{Success: false})
+				} else {
+					r.health.Release(proxyID)
+				}
 			}
 		},
 	}, nil
@@ -235,6 +252,11 @@ func (r *router) testChain(ctx context.Context, chainID model.ID, host string, p
 	result := api.ChainTestResult{Status: "unhealthy"}
 	route, err := r.chain(ctx, policy.RequestContext{Host: host, Port: port, Timestamp: started.UTC()}, chainID, r.runtime.currentSnapshot())
 	if err != nil {
+		result.FailureReason = "route_unavailable"
+		result.Latency = time.Since(started).Nanoseconds()
+		return result
+	}
+	if route.Acquire != nil && !route.Acquire() {
 		result.FailureReason = "route_unavailable"
 		result.Latency = time.Since(started).Nanoseconds()
 		return result
@@ -375,7 +397,9 @@ func (r *router) proxy(ctx context.Context, request policy.RequestContext, poolI
 			}
 		}
 	}
-	route := gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, SessionID: sessionID, SessionHash: sessionHash, Rate: rate, Reserve: reserve, Transport: transport, Dial: func(ctx context.Context, target string) (net.Conn, error) {
+	route := gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, SessionID: sessionID, SessionHash: sessionHash, Rate: rate, Reserve: reserve, Transport: transport, Acquire: func() bool {
+		return r.health.Acquire(endpoint.ID, time.Now().UTC())
+	}, Dial: func(ctx context.Context, target string) (net.Conn, error) {
 		return connector.Connect(ctx, endpoint, target)
 	}, Observe: func(success bool, status int) {
 		_, _ = r.health.Observe(endpoint.ID, publichealth.Observation{Success: success, HTTPStatus: status})

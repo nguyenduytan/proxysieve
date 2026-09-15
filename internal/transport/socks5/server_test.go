@@ -39,12 +39,13 @@ func TestConnect(t *testing.T) {
 	targetClient, targetServer := net.Pipe()
 	defer func() { _ = targetClient.Close() }()
 	done := make(chan policy.RequestContext, 1)
+	observed := make(chan bool, 1)
 	recorded := make(eventRecorder, 1)
 	s, err := New(Options{Evaluator: eval(func(_ context.Context, r policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
 		done <- r
 		return policy.Result{Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
-		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }}, nil
+		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(success bool, _ int) { observed <- success }}, nil
 	}), Recorder: recorded})
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +68,9 @@ func TestConnect(t *testing.T) {
 	request := <-done
 	if request.Host != "test" || request.Port != 443 {
 		t.Fatal(request)
+	}
+	if success := <-observed; !success {
+		t.Fatal("successful SOCKS5 dial was reported as failed")
 	}
 	go func() { _, _ = client.Write([]byte("ping")) }()
 	upload := make([]byte, 4)

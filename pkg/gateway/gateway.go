@@ -32,6 +32,7 @@ type Route struct {
 	SessionHash  string
 	Transport    http.RoundTripper
 	Dial         func(context.Context, string) (net.Conn, error)
+	Acquire      func() bool
 	Observe      func(bool, int)
 	Complete     func(context.Context, traffic.Bytes, traffic.Bytes)
 	Rate         *traffic.Rate

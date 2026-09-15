@@ -99,11 +99,22 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 		writeReply(conn, 2)
 		return
 	}
-	upstream, err := route.Dial(ctx, net.JoinHostPort(host, strconv.Itoa(int(port))))
-	if err != nil {
+	if route.Acquire != nil && !route.Acquire() {
 		recordTunnel(s.recorder, ctx, request, route, 5, 0, 0, 0, 0)
 		writeReply(conn, 5)
 		return
+	}
+	upstream, err := route.Dial(ctx, net.JoinHostPort(host, strconv.Itoa(int(port))))
+	if err != nil {
+		if route.Observe != nil {
+			route.Observe(false, 0)
+		}
+		recordTunnel(s.recorder, ctx, request, route, 5, 0, 0, 0, 0)
+		writeReply(conn, 5)
+		return
+	}
+	if route.Observe != nil {
+		route.Observe(true, 0)
 	}
 	defer func() { _ = upstream.Close() }()
 	if !writeReply(conn, 0) {
