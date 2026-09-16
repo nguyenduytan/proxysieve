@@ -78,6 +78,8 @@
   restart recovery, corrupt/expired entry cleanup and shared Admin/CLI operations.
 - Added an authenticated bounded traffic SSE endpoint and live Admin updates with
   polling fallback; slow subscribers cannot block gateway traffic accounting.
+- Added reproducible hot-path Go benchmarks and an artifact-producing manual/PR
+  workflow for policy, selection, traffic-recorder and response-cache regressions.
 - Added a tag-gated draft release workflow for six cross-platform archives,
   checksums, SPDX SBOM generation and GitHub build-provenance attestations.
 - Added CA roots to the non-root scratch container and refreshed stale bootstrap

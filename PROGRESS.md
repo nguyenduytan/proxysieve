@@ -43,6 +43,9 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - Added an authenticated bounded traffic SSE stream. Slow viewers are disconnected
   instead of blocking recorder hot paths; the Admin merges streamed events with
   the existing five-second polling fallback without duplicate rows.
+- Added reproducible policy, selector, full-recorder and response-cache hit
+  benchmarks plus a path-gated workflow that retains five-run results. Thresholds
+  remain unset until an accepted release-candidate baseline exists.
 
 ### Latest local continuation — inventory lifecycle (2026-09-13)
 

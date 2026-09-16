@@ -18,6 +18,7 @@ gofmt -w cmd internal pkg
 go vet ./...
 go test -count=1 ./...
 go test -race ./...
+go test -run '^$' -bench 'Benchmark(PolicyEvaluation|Selector|TrafficRecordFullBuffer|ResponseCacheHit)$' -benchmem ./pkg/policy ./pkg/routing ./internal/traffic ./internal/cache
 go build -trimpath -o bin/ ./cmd/proxysieve
 go run ./cmd/proxysieve version --json
 go run ./cmd/proxysieve config validate --file config.example.yaml
@@ -34,6 +35,11 @@ Go race testing requires a supported C toolchain/platform; run on Linux CI if th
 Windows workstation lacks one. Do not report an unexecuted race test as passing.
 Use golangci-lint 2.13.2 for `golangci-lint run`; CI pins that version. The Makefile
 wraps these raw commands and does not install global tooling silently.
+
+`make benchmark` measures policy evaluation at 100/1,000/10,000 rules, selection at
+100/1,000 endpoints, a full traffic recorder and the response-cache hit path. The
+benchmark workflow retains five-run results as an artifact. Results are evidence,
+not a release threshold, until the first accepted release-candidate baseline exists.
 
 ## Frontend workflow
 

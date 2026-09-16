@@ -1,7 +1,7 @@
 GO ?= go
 PNPM ?= pnpm
 
-.PHONY: bootstrap fmt lint test race build web run docker
+.PHONY: bootstrap fmt lint test race benchmark build web run docker
 bootstrap:
 	$(GO) version
 	node --version
@@ -23,6 +23,9 @@ test:
 
 race:
 	$(GO) test -race ./...
+
+benchmark:
+	$(GO) test -run '^$$' -bench 'Benchmark(PolicyEvaluation|Selector|TrafficRecordFullBuffer|ResponseCacheHit)$$' -benchmem ./pkg/policy ./pkg/routing ./internal/traffic ./internal/cache
 
 build:
 	$(GO) build -trimpath -o bin/ ./cmd/proxysieve

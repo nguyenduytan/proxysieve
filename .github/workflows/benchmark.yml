@@ -1,0 +1,39 @@
+name: Benchmark
+on:
+  pull_request:
+    paths:
+      - 'pkg/policy/**'
+      - 'pkg/routing/**'
+      - 'internal/traffic/**'
+      - 'internal/cache/**'
+      - '.github/workflows/benchmark.yml'
+      - 'Makefile'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.1'
+          cache: true
+      - name: Run hot-path benchmarks
+        run: go test -run '^$' -bench 'Benchmark(PolicyEvaluation|Selector|TrafficRecordFullBuffer|ResponseCacheHit)$' -benchmem -count=5 ./pkg/policy ./pkg/routing ./internal/traffic ./internal/cache | tee benchmark.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: benchmark-${{ github.sha }}
+          path: benchmark.txt
+          if-no-files-found: error
+          retention-days: 30
