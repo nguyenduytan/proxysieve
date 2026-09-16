@@ -9,6 +9,8 @@ import (
 
 var ErrParse = errors.New("invalid proxy endpoint format")
 
+const maxEndpointBytes = 8 << 10
+
 type ParseWarning string
 
 const WarningLegacyFormat ParseWarning = "legacy_colon_format"
@@ -22,7 +24,7 @@ type ParseResult struct {
 // stores credentials; callers must put them in SecretStore and retain only a ref.
 func Parse(raw string) (ParseResult, error) {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || strings.ContainsAny(raw, "\r\n") {
+	if raw == "" || len(raw) > maxEndpointBytes || strings.ContainsAny(raw, "\r\n") {
 		return ParseResult{}, ErrParse
 	}
 	if !strings.Contains(raw, "://") && strings.Contains(raw, "@") {

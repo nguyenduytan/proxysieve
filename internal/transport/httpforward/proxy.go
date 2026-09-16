@@ -279,17 +279,12 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		http.Error(w, "INVALID_SESSION_KEY", http.StatusBadRequest)
 		return
 	}
-	host, portRaw, err := net.SplitHostPort(r.Host)
-	if err != nil || !proxy.ValidHost(host) {
+	host, port, ok := parseConnectTarget(r.Host)
+	if !ok {
 		http.Error(w, "INVALID_CONNECT_TARGET", http.StatusBadRequest)
 		return
 	}
-	port64, err := strconv.ParseUint(portRaw, 10, 16)
-	if err != nil || port64 == 0 {
-		http.Error(w, "INVALID_CONNECT_TARGET", http.StatusBadRequest)
-		return
-	}
-	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "connect", Host: host, SessionKey: r.Header.Get(sessionHeader), Port: uint16(port64), Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
+	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "connect", Host: host, SessionKey: r.Header.Get(sessionHeader), Port: port, Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true})
 	if err != nil {
 		recordTunnel(h.recorder, r.Context(), ctx, gateway.Route{Action: "reject", PolicyID: result.PolicyID, RuleID: result.TerminalRuleID}, host, "connect", http.StatusForbidden, 0, 0, 0, 0)
@@ -334,7 +329,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 	}
 	for {
 		started := time.Now()
-		upstream, err = route.Dial(r.Context(), net.JoinHostPort(host, portRaw))
+		upstream, err = route.Dial(r.Context(), net.JoinHostPort(host, strconv.Itoa(int(port))))
 		latency := time.Since(started)
 		if err == nil {
 			if route.Observe != nil {
@@ -400,6 +395,18 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 	}()
 	copies.Wait()
 	recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusOK, clientUpload.Bytes(), clientDownload.Bytes(), upstreamUpload.Bytes(), upstreamDownload.Bytes())
+}
+
+func parseConnectTarget(raw string) (string, uint16, bool) {
+	if len(raw) > 512 {
+		return "", 0, false
+	}
+	host, portRaw, err := net.SplitHostPort(raw)
+	if err != nil || !proxy.ValidHost(host) {
+		return "", 0, false
+	}
+	port, err := strconv.ParseUint(portRaw, 10, 16)
+	return host, uint16(port), err == nil && port > 0
 }
 func defaultPort(scheme string) int {
 	if scheme == "https" {

@@ -49,6 +49,9 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - Completed the required nine-route HTTP/CONNECT/SOCKS5 protocol matrix by adding
   HTTP-through-SOCKS and proxied-tunnel coverage. A path-gated workflow runs the
   local-only fixtures natively on Linux, Windows and macOS.
+- Added scheduled/path-gated fuzz smoke coverage at six trust boundaries. Proxy URI
+  and CONNECT target lengths are now rejected before parser allocation; archive and
+  future extension protocol fuzzing remain pending with those features.
 
 ### Latest local continuation — inventory lifecycle (2026-09-13)
 

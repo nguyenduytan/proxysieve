@@ -1,0 +1,37 @@
+name: Fuzz smoke
+on:
+  pull_request:
+    paths:
+      - 'pkg/proxy/**'
+      - 'pkg/policy/**'
+      - 'internal/configload/**'
+      - 'internal/security/**'
+      - 'internal/transport/httpforward/**'
+      - 'internal/transport/socks5/**'
+      - '.github/workflows/fuzz.yml'
+      - 'Makefile'
+  workflow_dispatch:
+  schedule:
+    - cron: '29 4 * * 2'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.1'
+          cache: true
+      - run: go test -run '^$' -fuzz '^FuzzParse$' -fuzztime=10s -parallel=4 ./pkg/proxy
+      - run: go test -run '^$' -fuzz '^FuzzPolicyJSON$' -fuzztime=10s -parallel=4 ./pkg/policy
+      - run: go test -run '^$' -fuzz '^FuzzLoad$' -fuzztime=10s -parallel=4 ./internal/configload
+      - run: go test -run '^$' -fuzz '^FuzzRedactURL$' -fuzztime=10s -parallel=4 ./internal/security
+      - run: go test -run '^$' -fuzz '^FuzzConnectTarget$' -fuzztime=10s -parallel=4 ./internal/transport/httpforward
+      - run: go test -run '^$' -fuzz '^FuzzSOCKSRequest$' -fuzztime=10s -parallel=4 ./internal/transport/socks5

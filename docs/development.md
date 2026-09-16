@@ -18,6 +18,7 @@ gofmt -w cmd internal pkg
 go vet ./...
 go test -count=1 ./...
 go test -race ./...
+make fuzz
 go test -count=1 ./internal/app ./internal/upstream ./internal/transport/httpforward ./internal/transport/socks5
 go test -run '^$' -bench 'Benchmark(PolicyEvaluation|Selector|TrafficRecordFullBuffer|ResponseCacheHit)$' -benchmem ./pkg/policy ./pkg/routing ./internal/traffic ./internal/cache
 go build -trimpath -o bin/ ./cmd/proxysieve
@@ -40,6 +41,10 @@ wraps these raw commands and does not install global tooling silently.
 `make integration` runs the local HTTP, CONNECT, SOCKS5 and upstream connector
 matrix. Its path-gated workflow repeats the same network-only fixtures natively on
 Linux, Windows and macOS; no public host or paid proxy is contacted.
+
+`make fuzz` gives each trust-boundary target ten seconds. The same bounded smoke
+run executes on relevant pull requests and weekly; longer local campaigns can pass
+the raw `go test -fuzz` commands a larger `-fuzztime`.
 
 `make benchmark` measures policy evaluation at 100/1,000/10,000 rules, selection at
 100/1,000 endpoints, a full traffic recorder and the response-cache hit path. The

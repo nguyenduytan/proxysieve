@@ -18,6 +18,7 @@ import (
 	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	retrypkg "github.com/nguyenduytan/proxysieve/pkg/retry"
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
@@ -302,6 +303,9 @@ func readRequest(reader *bufio.Reader) (string, uint16, bool) {
 		}
 		host = string(b)
 	default:
+		return "", 0, false
+	}
+	if !proxy.ValidHost(host) {
 		return "", 0, false
 	}
 	portBytes := make([]byte, 2)

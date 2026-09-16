@@ -1,7 +1,7 @@
 GO ?= go
 PNPM ?= pnpm
 
-.PHONY: bootstrap fmt lint test race integration benchmark build web run docker
+.PHONY: bootstrap fmt lint test race fuzz integration benchmark build web run docker
 bootstrap:
 	$(GO) version
 	node --version
@@ -23,6 +23,14 @@ test:
 
 race:
 	$(GO) test -race ./...
+
+fuzz:
+	$(GO) test -run '^$$' -fuzz '^FuzzParse$$' -fuzztime=10s -parallel=4 ./pkg/proxy
+	$(GO) test -run '^$$' -fuzz '^FuzzPolicyJSON$$' -fuzztime=10s -parallel=4 ./pkg/policy
+	$(GO) test -run '^$$' -fuzz '^FuzzLoad$$' -fuzztime=10s -parallel=4 ./internal/configload
+	$(GO) test -run '^$$' -fuzz '^FuzzRedactURL$$' -fuzztime=10s -parallel=4 ./internal/security
+	$(GO) test -run '^$$' -fuzz '^FuzzConnectTarget$$' -fuzztime=10s -parallel=4 ./internal/transport/httpforward
+	$(GO) test -run '^$$' -fuzz '^FuzzSOCKSRequest$$' -fuzztime=10s -parallel=4 ./internal/transport/socks5
 
 integration:
 	$(GO) test -count=1 ./internal/app ./internal/upstream ./internal/transport/httpforward ./internal/transport/socks5

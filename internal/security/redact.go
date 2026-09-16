@@ -27,6 +27,9 @@ func RedactHeaders(h http.Header) http.Header {
 // RedactURL strips all userinfo and query/fragment values (including unknown token
 // parameter names). Paths may also contain secrets: avoid logging raw URLs by default.
 func RedactURL(raw string) string {
+	if len(raw) > 8<<10 {
+		return secret.Redacted
+	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || u.Scheme == "" {
 		return secret.Redacted

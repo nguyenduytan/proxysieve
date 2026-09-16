@@ -82,6 +82,8 @@
   workflow for policy, selection, traffic-recorder and response-cache regressions.
 - Completed the required HTTP/CONNECT/SOCKS5 direct, HTTP-upstream and
   SOCKS-upstream protocol matrix with native Linux, Windows and macOS CI execution.
+- Added bounded fuzz smoke coverage for proxy and policy input, configuration,
+  URL redaction, HTTP CONNECT targets and SOCKS5 request addresses.
 - Added a tag-gated draft release workflow for six cross-platform archives,
   checksums, SPDX SBOM generation and GitHub build-provenance attestations.
 - Added CA roots to the non-root scratch container and refreshed stale bootstrap

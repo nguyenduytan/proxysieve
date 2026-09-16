@@ -1,6 +1,9 @@
 package proxy
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseFormats(t *testing.T) {
 	for _, tc := range []struct {
@@ -28,7 +31,7 @@ func TestParseFormats(t *testing.T) {
 	}
 }
 func TestParseRejectsSecretsInEndpoint(t *testing.T) {
-	for _, raw := range []string{"", "example.invalid", "example.invalid:0", "example.invalid:65536", "http://example.invalid:8080/path", "http://user:fake-password@example.invalid:8080/path", "http://user:@example.invalid:8080", "http://user:fake-password@example.invalid:8080?token=fake-secret", "http://user:fake-password@bad host:8080", "host:8080:user", "host:8080::pass", "host:8080:user:pass:extra"} {
+	for _, raw := range []string{"", strings.Repeat("x", maxEndpointBytes+1), "example.invalid", "example.invalid:0", "example.invalid:65536", "http://example.invalid:8080/path", "http://user:fake-password@example.invalid:8080/path", "http://user:@example.invalid:8080", "http://user:fake-password@example.invalid:8080?token=fake-secret", "http://user:fake-password@bad host:8080", "host:8080:user", "host:8080::pass", "host:8080:user:pass:extra"} {
 		if _, err := Parse(raw); err == nil {
 			t.Fatal("accepted", raw)
 		}
