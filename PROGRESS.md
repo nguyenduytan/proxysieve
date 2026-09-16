@@ -12,11 +12,11 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
 - [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
-- [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement locally implemented; transport framing, rolling windows, projections, soft thresholds and cost budgets pending)
+- [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement with API/Admin observability locally implemented; transport framing, rolling windows, projections, soft thresholds, cost budgets and budget CRUD pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key lifecycle endpoints and embedded OpenAPI contract locally implemented; SSE pending)
-- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, Overview/Traffic/Proxies/Sources/Pools/Policies/Clients/Audit/System, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
+- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including budget usage, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect
 - [ ] M15 — Backup, restore, import/export, operations (doctor command checks effective config, data directory, SQLite schema and listener availability; safe local SQLite backup/restore and versioned secret-free config import/export are implemented)
@@ -358,6 +358,16 @@ public push or release was performed. Preserved the existing API/frontend edits.
   names. Local calendar boundaries follow DST while persisted timestamps stay UTC.
 - Tests cover a 23-hour DST day, weekly/monthly boundaries, local-midnight rollover,
   restart persistence and schema-18 migration.
+
+### Budget observability continuation — 2026-09-16
+
+- Added viewer-readable active budget status with normalized scope/window, current
+  calendar bounds, durable used/reserved bytes, saturating remaining allowance and
+  exhaustion state.
+- Added the responsive read-only Admin Budgets workspace with native usage progress,
+  deterministic scope/window details, empty/error/loading states and manual refresh.
+- Budget CRUD, soft thresholds, actions beyond hard rejection and projections remain
+  explicitly pending; no Alerts surface or placeholder editor was added.
 
 ### Original milestone entry gate
 

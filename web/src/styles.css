@@ -810,6 +810,27 @@ nav {
 .table-scroll {
   overflow-x: auto;
 }
+.budget-table {
+  min-width: 920px;
+}
+.budget-window,
+.budget-usage {
+  display: grid;
+  gap: 5px;
+}
+.budget-window span,
+.budget-usage span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.budget-usage {
+  min-width: 210px;
+}
+.budget-usage progress {
+  width: 100%;
+  height: 7px;
+  accent-color: var(--blue);
+}
 table {
   border-collapse: collapse;
   width: 100%;

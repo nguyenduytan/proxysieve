@@ -12,6 +12,7 @@ import { PolicyInventory } from "./PolicyInventory";
 import { SourceInventory } from "./SourceInventory";
 import { SessionInventory } from "./SessionInventory";
 import { HealthInventory } from "./HealthInventory";
+import { BudgetInventory } from "./BudgetInventory";
 import { TrafficView } from "./TrafficView";
 import { navigationForRole } from "./navigation";
 import type { Page } from "./navigation";
@@ -218,6 +219,7 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
             onToggle={() => setPaused((value) => !value)}
           />
         )}
+        {page === "Budgets" && <BudgetInventory onExpired={onExpired} />}
         {page === "Proxies" && (
           <ProxyInventory role={user.role} onExpired={onExpired} />
         )}

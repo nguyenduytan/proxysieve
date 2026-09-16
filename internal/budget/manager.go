@@ -37,6 +37,16 @@ type usageKey struct {
 	windowStart int64
 }
 
+type Status struct {
+	budget.Config
+	Used        traffic.Bytes `json:"used_bytes"`
+	Reserved    traffic.Bytes `json:"reserved_bytes"`
+	Remaining   traffic.Bytes `json:"remaining_bytes"`
+	Exhausted   bool          `json:"exhausted"`
+	WindowStart *time.Time    `json:"window_start,omitempty"`
+	WindowEnd   *time.Time    `json:"window_end,omitempty"`
+}
+
 func New(configs []budget.Config, maxReservation traffic.Bytes) (*Manager, error) {
 	return NewPersistent(configs, maxReservation, nil)
 }
@@ -205,6 +215,52 @@ func (m *Manager) UsageContext(ctx context.Context, id model.ID) (budget.Usage, 
 		return budget.Usage{}, ErrNotFound
 	}
 	at := m.now().UTC()
+	return m.usageLocked(ctx, config, at)
+}
+
+func (m *Manager) Statuses(ctx context.Context) ([]Status, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	at := m.now().UTC()
+	ids := make([]model.ID, 0, len(m.configs))
+	for id := range m.configs {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	statuses := make([]Status, 0, len(ids))
+	for _, id := range ids {
+		config := m.configs[id]
+		usage, err := m.usageLocked(ctx, config, at)
+		if err != nil {
+			return nil, err
+		}
+		start, end, err := config.WindowBounds(at)
+		if err != nil {
+			return nil, err
+		}
+		if config.Scope == "" {
+			config.Scope = budget.ScopeSystem
+		}
+		if config.Window == "" {
+			config.Window = budget.WindowLifetime
+		}
+		remaining := traffic.Bytes(0)
+		if usage.Used < config.Limit && usage.Reserved < config.Limit-usage.Used {
+			remaining = config.Limit - usage.Used - usage.Reserved
+		}
+		status := Status{Config: config, Used: usage.Used, Reserved: usage.Reserved, Remaining: remaining, Exhausted: remaining == 0}
+		if !start.IsZero() {
+			status.WindowStart, status.WindowEnd = &start, &end
+		}
+		statuses = append(statuses, status)
+	}
+	return statuses, nil
+}
+
+func (m *Manager) usageLocked(ctx context.Context, config budget.Config, at time.Time) (budget.Usage, error) {
 	if m.store != nil {
 		return m.store.BudgetUsage(ctx, config, at)
 	}

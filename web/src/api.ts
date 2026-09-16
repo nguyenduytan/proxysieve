@@ -184,6 +184,26 @@ export interface ProxyHealthPage {
 export interface PoolHealthPage {
   items: PoolHealth[];
 }
+export interface BudgetStatus {
+  id: string;
+  name: string;
+  scope: "system" | "client" | "pool" | "proxy";
+  scope_id?: string;
+  limit_bytes: number;
+  hard: boolean;
+  action: "alert" | "reject" | "throttle";
+  window: "lifetime" | "daily" | "weekly" | "monthly";
+  timezone?: string;
+  used_bytes: number;
+  reserved_bytes: number;
+  remaining_bytes: number;
+  exhausted: boolean;
+  window_start?: string;
+  window_end?: string;
+}
+export interface BudgetStatusPage {
+  items: BudgetStatus[];
+}
 export interface ChainHop {
   pool_id: string;
   timeout_ns: number;

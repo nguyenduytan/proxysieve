@@ -43,6 +43,11 @@ Schema 19 stores usage by budget and window start. Existing lifetime usage upgra
 under window start zero without resetting the guard. Crash-left reservations remain
 charged to their original window during startup recovery.
 
+Authenticated viewers can inspect the active configuration and current
+used/reserved/remaining bytes through `GET /api/v1/budgets` or the Admin Budgets
+workspace. Calendar rows expose their current half-open UTC bounds; lifetime rows
+have no reset timestamp. This surface is read-only.
+
 Rolling windows, soft threshold notifications, cost-denominated limits, API/UI
-management, throttle, pool switching and fallback-policy actions remain required
-before M8 is complete.
+CRUD management, throttle, pool switching and fallback-policy actions remain
+required before M8 is complete.

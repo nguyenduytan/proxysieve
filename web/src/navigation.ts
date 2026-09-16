@@ -12,12 +12,14 @@ import {
   ScrollText,
   Settings,
   HeartPulse,
+  Gauge,
 } from "lucide-react";
 import type { Role } from "./api";
 
 export type Page =
   | "Overview"
   | "Traffic"
+  | "Budgets"
   | "Proxies"
   | "Sources"
   | "Pools"
@@ -51,6 +53,12 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Traffic",
     description: "Live and retained gateway events",
     icon: Activity,
+  },
+  {
+    page: "Budgets",
+    label: "Budgets",
+    description: "Active limits and usage",
+    icon: Gauge,
   },
   {
     page: "Proxies",

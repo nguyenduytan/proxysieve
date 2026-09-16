@@ -735,6 +735,7 @@ func Build(c config.Config) (Runtime, error) {
 		server.SetTrafficStatus(durableRecorder)
 		server.SetSessions(sessionManager)
 		server.SetHealth(healthService)
+		server.SetBudgets(budgetManager)
 		server.SetSourceRefresher(sourceRefresher)
 		server.SetRuntimeControl(&runtimeControl{runtime: routeRuntime, store: controlStore, now: func() time.Time { return time.Now().UTC() }})
 		chainTester := &router{runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry}

@@ -192,6 +192,36 @@ func TestConcurrentReservationsCannotOverspend(t *testing.T) {
 		t.Fatal(granted, usage)
 	}
 }
+
+func TestStatusesExposeCurrentWindowAndRemainingAllowance(t *testing.T) {
+	configs := []budget.Config{
+		{ID: "system", Name: "System", Limit: 100, Hard: true, Action: budget.ActionReject},
+		{ID: "daily", Name: "Daily", Scope: budget.ScopeClient, ScopeID: "client", Limit: 10, Hard: true, Action: budget.ActionReject, Window: budget.WindowDaily, Timezone: "America/New_York"},
+	}
+	m, err := New(configs, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.now = func() time.Time { return time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC) }
+	lease, err := m.Reserve(t.Context(), []model.ID{"daily"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lease.Consume(t.Context(), 7); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := m.Statuses(t.Context())
+	if err != nil || len(statuses) != 2 {
+		t.Fatal(statuses, err)
+	}
+	daily, system := statuses[0], statuses[1]
+	if daily.ID != "daily" || daily.Used != 7 || daily.Reserved != 3 || daily.Remaining != 0 || !daily.Exhausted || daily.WindowStart == nil || daily.WindowEnd == nil || daily.WindowEnd.Sub(*daily.WindowStart) != 23*time.Hour {
+		t.Fatal(daily)
+	}
+	if system.ID != "system" || system.Scope != budget.ScopeSystem || system.Window != budget.WindowLifetime || system.Remaining != 100 || system.Exhausted || system.WindowStart != nil || system.WindowEnd != nil {
+		t.Fatal(system)
+	}
+}
 func TestLeaseNeverGrantsPastReservation(t *testing.T) {
 	m, _ := New([]budget.Config{{ID: "system", Name: "System", Limit: 20, Hard: true, Action: budget.ActionReject}}, 20)
 	lease, _ := m.Reserve(context.Background(), []model.ID{"system"}, 10)

@@ -1034,6 +1034,9 @@ textarea:focus-visible {
     display: block;
     padding-top: 12px;
   }
+  .budget-table .budget-usage {
+    min-width: 0;
+  }
   .pool-inventory-table .row-actions {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
