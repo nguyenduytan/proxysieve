@@ -2,13 +2,38 @@ package proxy
 
 import (
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 )
+
+type ImportFormat string
+
+const (
+	ImportText ImportFormat = "text"
+	ImportCSV  ImportFormat = "csv"
+	ImportJSON ImportFormat = "json"
+)
+
+type ImportMapping struct {
+	ItemsField    string `json:"items_field,omitempty"`
+	EndpointField string `json:"endpoint_field,omitempty"`
+	ProtocolField string `json:"protocol_field,omitempty"`
+	HostField     string `json:"host_field,omitempty"`
+	PortField     string `json:"port_field,omitempty"`
+}
+
+type ImportOptions struct {
+	Format  ImportFormat  `json:"format,omitempty"`
+	Mapping ImportMapping `json:"mapping,omitempty"`
+}
 
 type DuplicateMode string
 
@@ -34,29 +59,26 @@ type ImportPreview struct {
 // Preview parses a bounded text import without persisting anything. Lines are
 // intentionally capped to prevent a single request consuming unbounded memory.
 func Preview(input string, maxLines int) (ImportPreview, error) {
-	if maxLines < 1 || maxLines > 100_000 || len(input) > 8<<20 {
+	return PreviewWithOptions(input, maxLines, ImportOptions{})
+}
+
+func PreviewWithOptions(input string, maxRecords int, options ImportOptions) (ImportPreview, error) {
+	if maxRecords < 1 || maxRecords > 100_000 || len(input) > 8<<20 {
 		return ImportPreview{}, ErrParse
+	}
+	items, err := importItems(input, maxRecords, options)
+	if err != nil {
+		return ImportPreview{}, err
 	}
 	out := ImportPreview{Protocols: map[Protocol]int{}}
 	seen := map[string]bool{}
-	for line, raw := range strings.Split(input, "\n") {
-		if line >= maxLines {
-			return ImportPreview{}, ErrParse
-		}
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			continue
-		}
-		item := PreviewItem{Line: line + 1}
-		r, err := Parse(raw)
-		if err != nil {
-			item.Error = ErrParse.Error()
+	for _, item := range items {
+		if item.Error != "" {
 			out.Invalid++
 		} else {
-			item.Result = r
 			out.Valid++
-			out.Protocols[r.Endpoint.Protocol]++
-			key := Identity(r.Endpoint)
+			out.Protocols[item.Result.Endpoint.Protocol]++
+			key := Identity(item.Result.Endpoint)
 			if seen[key] {
 				out.Duplicates++
 			} else {
@@ -66,6 +88,153 @@ func Preview(input string, maxLines int) (ImportPreview, error) {
 		out.Items = append(out.Items, item)
 	}
 	return out, nil
+}
+
+func importItems(input string, maxRecords int, options ImportOptions) ([]PreviewItem, error) {
+	for _, field := range []string{options.Mapping.ItemsField, options.Mapping.EndpointField, options.Mapping.ProtocolField, options.Mapping.HostField, options.Mapping.PortField} {
+		if len(field) > 256 || strings.ContainsRune(field, 0) {
+			return nil, ErrParse
+		}
+	}
+	format := options.Format
+	if format == "" {
+		format = ImportText
+	}
+	switch format {
+	case ImportText:
+		return textItems(input, maxRecords)
+	case ImportCSV:
+		return csvItems(input, maxRecords, options.Mapping)
+	case ImportJSON:
+		return jsonItems(input, maxRecords, options.Mapping)
+	default:
+		return nil, ErrParse
+	}
+}
+
+func textItems(input string, maxRecords int) ([]PreviewItem, error) {
+	items := make([]PreviewItem, 0)
+	for line, raw := range strings.Split(input, "\n") {
+		if line >= maxRecords {
+			return nil, ErrParse
+		}
+		if raw = strings.TrimSpace(raw); raw != "" {
+			items = append(items, previewItem(line+1, raw))
+		}
+	}
+	return items, nil
+}
+
+func csvItems(input string, maxRecords int, mapping ImportMapping) ([]PreviewItem, error) {
+	reader := csv.NewReader(strings.NewReader(input))
+	reader.FieldsPerRecord = -1
+	header, err := reader.Read()
+	if err != nil || len(header) == 0 {
+		return nil, ErrParse
+	}
+	fields := make(map[string]int, len(header))
+	for i, raw := range header {
+		name := strings.TrimSpace(strings.TrimPrefix(raw, "\ufeff"))
+		if _, exists := fields[name]; name == "" || exists {
+			return nil, ErrParse
+		}
+		fields[name] = i
+	}
+	items := make([]PreviewItem, 0)
+	for record := 1; ; record++ {
+		row, readErr := reader.Read()
+		if readErr == io.EOF {
+			return items, nil
+		}
+		if readErr != nil || record > maxRecords {
+			return nil, ErrParse
+		}
+		if len(row) != len(header) {
+			items = append(items, PreviewItem{Line: record, Error: ErrParse.Error()})
+			continue
+		}
+		values := make(map[string]string, len(row))
+		for name, position := range fields {
+			if position < len(row) {
+				values[name] = row[position]
+			}
+		}
+		items = append(items, mappedItem(record, values, mapping))
+	}
+}
+
+func jsonItems(input string, maxRecords int, mapping ImportMapping) ([]PreviewItem, error) {
+	decoder := json.NewDecoder(strings.NewReader(input))
+	decoder.UseNumber()
+	var document any
+	if decoder.Decode(&document) != nil || decoder.Decode(&struct{}{}) != io.EOF {
+		return nil, ErrParse
+	}
+	if object, ok := document.(map[string]any); ok {
+		field := mapping.ItemsField
+		if field == "" {
+			field = "items"
+		}
+		document = object[field]
+	}
+	records, ok := document.([]any)
+	if !ok || len(records) > maxRecords {
+		return nil, ErrParse
+	}
+	items := make([]PreviewItem, 0, len(records))
+	for i, record := range records {
+		switch value := record.(type) {
+		case string:
+			items = append(items, previewItem(i+1, value))
+		case map[string]any:
+			values := make(map[string]string, len(value))
+			for name, raw := range value {
+				switch typed := raw.(type) {
+				case string:
+					values[name] = typed
+				case json.Number:
+					values[name] = typed.String()
+				}
+			}
+			items = append(items, mappedItem(i+1, values, mapping))
+		default:
+			items = append(items, PreviewItem{Line: i + 1, Error: ErrParse.Error()})
+		}
+	}
+	return items, nil
+}
+
+func mappedItem(record int, values map[string]string, mapping ImportMapping) PreviewItem {
+	endpointField, protocolField, hostField, portField := mapping.EndpointField, mapping.ProtocolField, mapping.HostField, mapping.PortField
+	if endpointField == "" {
+		endpointField = "endpoint"
+	}
+	if protocolField == "" {
+		protocolField = "protocol"
+	}
+	if hostField == "" {
+		hostField = "host"
+	}
+	if portField == "" {
+		portField = "port"
+	}
+	if raw := strings.TrimSpace(values[endpointField]); raw != "" {
+		return previewItem(record, raw)
+	}
+	protocol := strings.TrimSpace(values[protocolField])
+	if protocol == "" {
+		protocol = string(HTTP)
+	}
+	host, port := strings.TrimSpace(values[hostField]), strings.TrimSpace(values[portField])
+	return previewItem(record, protocol+"://"+net.JoinHostPort(host, port))
+}
+
+func previewItem(line int, raw string) PreviewItem {
+	result, err := Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return PreviewItem{Line: line, Error: ErrParse.Error()}
+	}
+	return PreviewItem{Line: line, Result: result}
 }
 
 // Identity excludes credentials because Parse deliberately does not retain them.
@@ -78,6 +247,7 @@ type ImportRequest struct {
 	Input    string
 	Mode     DuplicateMode
 	Existing map[string]Endpoint
+	Options  ImportOptions
 }
 type ImportResult struct {
 	Endpoints []Endpoint
@@ -90,7 +260,7 @@ func Import(req ImportRequest) (ImportResult, error) {
 	if req.Mode != SkipDuplicates && req.Mode != UpdateDuplicates && req.Mode != CreateDuplicates {
 		return ImportResult{}, ErrParse
 	}
-	p, err := Preview(req.Input, 100_000)
+	p, err := PreviewWithOptions(req.Input, 100_000, req.Options)
 	if err != nil {
 		return ImportResult{}, err
 	}

@@ -4,6 +4,10 @@
 
 ### Added
 
+- Added bounded text, CSV and JSON proxy imports with flat field mapping across
+  preview, atomic inventory commits and source refreshes. Added scheduled local
+  file sources confined to `<data_dir>/imports` and matching responsive Admin
+  controls.
 - Added restart-safe rolling hard byte budgets with bounded elapsed durations,
   transactional minute-bucket enforcement, API/OpenAPI support and Admin controls.
 - Added validated policy `CACHE`, `THROTTLE`, `MOCK`, `REDIRECT` and same-origin

@@ -6,7 +6,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 
 - [ ] M0 — Repository bootstrap (local checks passed; hosted acceptance pending)
 - [ ] M1 — Domain, config, storage, secret foundations (implemented locally; acceptance review pending)
-- [ ] M2 — Proxy normalization, sources, endpoint management (parser/import, safe HTTP source fetch/preview, revisioned source CRUD, responsive source UI and atomic manual/automatic refresh locally implemented; broader formats pending)
+- [x] M2 — Proxy normalization, sources, endpoint management (bounded text/CSV/JSON mapping, safe HTTP and import-root file sources, revisioned CRUD, atomic scheduled refresh, provider capabilities and responsive Admin workflows complete locally)
 - [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local/password SOCKS5 CONNECT and runtime multi-listener support implemented; UDP, metrics and transport-framing accounting pending)
 - [x] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation, durable atomic runtime activation/rollback and fail-closed execution of every accepted action complete locally)
@@ -24,6 +24,11 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 
 ### Release engineering continuation — 2026-09-16
 
+- Completed M2 structured imports and sources: shared bounded text/CSV/JSON field
+  mapping now powers preview, atomic import, HTTP refresh and import-root-confined
+  file refresh. File sources reject traversal/outside symlinks, join the scheduler,
+  preserve inventory on failure and are fully configurable in the Admin Panel.
+  The existing optional provider capability contracts cover later adapters.
 - Closed the remaining M5 silent-no-op gap: policy schema v1 now rejects `allow`,
   `set_tag` and `set_session_policy` because no runtime contract exists for them.
   Every accepted action is now either executed or explicitly fails closed when the

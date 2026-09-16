@@ -74,7 +74,7 @@ func (j *SourceJob) Run(ctx context.Context) error {
 				continue
 			}
 			refreshCtx, cancel := context.WithTimeout(ctx, perSourceTimeout)
-			result, refreshErr := j.Refresher.RefreshHTTP(refreshCtx, internalsource.RefreshRequest{
+			result, refreshErr := j.Refresher.Refresh(refreshCtx, internalsource.RefreshRequest{
 				ID: record.Source.ID, Revision: record.Revision, Store: j.Store,
 				Resolver: j.Resolver, Policy: j.Policy, Now: now,
 			})
@@ -123,7 +123,7 @@ func (j *SourceJob) bounds() (int, int, int, time.Duration) {
 }
 
 func sourceDue(source proxy.Source, now time.Time) bool {
-	return source.Enabled && source.Type == proxy.APISource && source.RefreshInterval > 0 &&
+	return source.Enabled && (source.Type == proxy.APISource || source.Type == proxy.FileSource) && source.RefreshInterval > 0 &&
 		(source.LastRefreshAt.IsZero() || !source.LastRefreshAt.Add(source.RefreshInterval).After(now))
 }
 

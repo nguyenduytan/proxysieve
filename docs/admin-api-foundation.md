@@ -135,19 +135,21 @@ the complete endpoint document with its current revision to `PATCH`, or the curr
 revision alone to `DELETE`; stale revisions return `409 PROXY_CONFLICT`. These
 mutations remain inventory-only and require an operator session plus CSRF token.
 
-`POST /api/v1/proxies/import` commits a parser-approved text import in one storage
-transaction. Its optional `mode` is `skip` (default), `update`, or `create`; malformed
-lines are ignored after validation and the response reports created, updated and
-skipped counts. The import never persists credentials embedded in source text.
+`POST /api/v1/proxies/import` commits a parser-approved text, CSV or JSON import
+in one storage transaction. Its optional `mode` is `skip` (default), `update`, or
+`create`; malformed records are ignored after validation and the response reports
+created, updated and skipped counts. Flat field mapping is shared with source
+refreshes. The import never persists credentials embedded in source data.
 
 Proxy source records use the same optimistic revision discipline. Viewer sessions
 may list and inspect sources; operators may create, replace or delete source
 metadata with a valid CSRF token. `last_refresh_at` and `last_refresh_status` are
 server-managed fields, so PATCH requests cannot forge refresh results. Source
 `config` is bounded non-secret metadata; credentials belong in `credential_ref`.
-`POST /api/v1/sources/{id}/refresh` fetches an enabled HTTP(S) API source through
-the default-deny destination policy, parses its bounded response, and atomically
-reconciles matching endpoint inventory with refresh status. A bounded scheduler
+`POST /api/v1/sources/{id}/refresh` reads an enabled HTTP(S) API or local file
+source, parses its bounded response, and atomically reconciles matching endpoint
+inventory with refresh status. HTTP uses the default-deny destination policy;
+file paths stay below `<data_dir>/imports`. A bounded scheduler
 uses the same refresh coordinator for due sources. The Admin Sources workspace
 exposes this lifecycle to viewers and operators without implying that saved
 endpoints are automatically activated in runtime pools or policies.

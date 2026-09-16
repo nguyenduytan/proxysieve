@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { api, ApiError, errorMessage } from "./api";
 import type {
+  ImportFormat,
   ProxySource,
   Role,
   SourcePage,
@@ -176,7 +177,7 @@ export function SourceInventory({
       <header className="page-heading overview-heading">
         <div>
           <h1>Proxy sources</h1>
-          <p>Manage bounded HTTP feeds and their automatic refresh schedule.</p>
+          <p>Manage bounded HTTP feeds and local import files.</p>
         </div>
         <div className="table-actions">
           <button
@@ -262,7 +263,7 @@ export function SourceInventory({
             <h3>No proxy sources yet</h3>
             <p>
               {mutable
-                ? "Add an HTTP or HTTPS text feed, then refresh it to populate endpoint inventory."
+                ? "Add an HTTP feed or local import file, then refresh it to populate endpoint inventory."
                 : "An operator can configure and schedule proxy feeds here."}
             </p>
           </div>
@@ -286,7 +287,8 @@ export function SourceInventory({
                   const busy = mutating.startsWith(`${source.id}:`);
                   const refreshing = mutating === `${source.id}:refresh`;
                   const deleting = mutating === `${source.id}:delete`;
-                  const unsupported = source.type !== "api";
+                  const unsupported =
+                    source.type !== "api" && source.type !== "file";
                   return (
                     <tr key={source.id}>
                       <td className="source-name-cell" data-label="Source">
@@ -349,7 +351,7 @@ export function SourceInventory({
                                   {refreshing ? "Refreshing…" : "Refresh"}
                                 </span>
                               </button>
-                              {source.type === "api" ? (
+                              {!unsupported ? (
                                 <button
                                   className="icon-button source-action-button"
                                   title="Edit source"
@@ -436,7 +438,32 @@ function SourceForm({
   onConflict: (message: string) => void;
 }) {
   const [name, setName] = useState(initial?.source.name ?? "");
-  const [url, setURL] = useState(initial?.source.config?.url ?? "");
+  const [sourceType, setSourceType] = useState<"api" | "file">(
+    initial?.source.type === "file" ? "file" : "api",
+  );
+  const [location, setLocation] = useState(
+    initial?.source.type === "file"
+      ? (initial.source.config?.path ?? "")
+      : (initial?.source.config?.url ?? ""),
+  );
+  const [format, setFormat] = useState<ImportFormat>(
+    parseFormat(initial?.source.config?.format),
+  );
+  const [itemsField, setItemsField] = useState(
+    initial?.source.config?.items_field ?? "",
+  );
+  const [endpointField, setEndpointField] = useState(
+    initial?.source.config?.endpoint_field ?? "",
+  );
+  const [protocolField, setProtocolField] = useState(
+    initial?.source.config?.protocol_field ?? "",
+  );
+  const [hostField, setHostField] = useState(
+    initial?.source.config?.host_field ?? "",
+  );
+  const [portField, setPortField] = useState(
+    initial?.source.config?.port_field ?? "",
+  );
   const [minutes, setMinutes] = useState(
     String(
       (initial?.source.refresh_interval_ns ?? 3_600_000_000_000) /
@@ -450,9 +477,14 @@ function SourceForm({
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (!validSourceURL(url)) {
+    if (
+      (sourceType === "api" && !validSourceURL(location)) ||
+      (sourceType === "file" && !validSourcePath(location))
+    ) {
       setError(
-        "Use an absolute HTTP or HTTPS URL without embedded credentials.",
+        sourceType === "api"
+          ? "Use an absolute HTTP or HTTPS URL without embedded credentials."
+          : "Use a relative file path inside the ProxySieve imports directory.",
       );
       return;
     }
@@ -462,20 +494,32 @@ function SourceForm({
       return;
     }
     setBusy(true);
+    const config: Record<string, string> = {
+      [sourceType === "api" ? "url" : "path"]: location.trim(),
+      format,
+    };
+    if (format !== "text") {
+      if (endpointField.trim()) config.endpoint_field = endpointField.trim();
+      if (protocolField.trim()) config.protocol_field = protocolField.trim();
+      if (hostField.trim()) config.host_field = hostField.trim();
+      if (portField.trim()) config.port_field = portField.trim();
+      if (format === "json" && itemsField.trim())
+        config.items_field = itemsField.trim();
+    }
     const source: ProxySource = initial
       ? {
           ...initial.source,
           name,
-          type: "api",
-          config: { ...initial.source.config, url },
+          type: sourceType,
+          config,
           refresh_interval_ns: interval * 60_000_000_000,
           enabled,
         }
       : {
           id: "",
           name,
-          type: "api",
-          config: { url },
+          type: sourceType,
+          config,
           refresh_interval_ns: interval * 60_000_000_000,
           enabled,
         };
@@ -505,7 +549,7 @@ function SourceForm({
 
   return (
     <form className="resource-form" onSubmit={save}>
-      <h2>{initial ? "Edit HTTP source" : "Add HTTP source"}</h2>
+      <h2>{initial ? "Edit proxy source" : "Add proxy source"}</h2>
       <div className="form-grid">
         <label>
           Name
@@ -529,16 +573,100 @@ function SourceForm({
             onChange={(event) => setMinutes(event.target.value)}
           />
         </label>
+        <label>
+          Source type
+          <select
+            value={sourceType}
+            onChange={(event) => {
+              setSourceType(event.target.value as "api" | "file");
+              setLocation("");
+            }}
+          >
+            <option value="api">HTTP API</option>
+            <option value="file">Local file</option>
+          </select>
+        </label>
+        <label>
+          Input format
+          <select
+            value={format}
+            onChange={(event) => setFormat(event.target.value as ImportFormat)}
+          >
+            <option value="text">Text lines</option>
+            <option value="csv">CSV records</option>
+            <option value="json">JSON records</option>
+          </select>
+        </label>
         <label className="form-span">
-          HTTP or HTTPS feed URL
+          {sourceType === "api"
+            ? "HTTP or HTTPS feed URL"
+            : "Path inside the imports directory"}
           <input
             required
-            type="url"
-            placeholder="https://feeds.example.invalid/proxies.txt"
-            value={url}
-            onChange={(event) => setURL(event.target.value)}
+            type={sourceType === "api" ? "url" : "text"}
+            placeholder={
+              sourceType === "api"
+                ? "https://feeds.example.invalid/proxies.json"
+                : `provider/proxies.${format === "text" ? "txt" : format}`
+            }
+            value={location}
+            onChange={(event) => setLocation(event.target.value)}
           />
         </label>
+        {format !== "text" ? (
+          <details className="form-span">
+            <summary>Field mapping</summary>
+            <div className="form-grid">
+              {format === "json" ? (
+                <label>
+                  JSON array field
+                  <input
+                    maxLength={256}
+                    placeholder="items"
+                    value={itemsField}
+                    onChange={(event) => setItemsField(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              <label>
+                Endpoint field
+                <input
+                  maxLength={256}
+                  placeholder="endpoint"
+                  value={endpointField}
+                  onChange={(event) => setEndpointField(event.target.value)}
+                />
+              </label>
+              <label>
+                Protocol field
+                <input
+                  maxLength={256}
+                  placeholder="protocol"
+                  value={protocolField}
+                  onChange={(event) => setProtocolField(event.target.value)}
+                />
+              </label>
+              <label>
+                Host field
+                <input
+                  maxLength={256}
+                  placeholder="host"
+                  value={hostField}
+                  onChange={(event) => setHostField(event.target.value)}
+                />
+              </label>
+              <label>
+                Port field
+                <input
+                  maxLength={256}
+                  placeholder="port"
+                  value={portField}
+                  onChange={(event) => setPortField(event.target.value)}
+                />
+              </label>
+            </div>
+          </details>
+        ) : null}
         <label className="checkbox-field">
           <input
             type="checkbox"
@@ -549,9 +677,9 @@ function SourceForm({
         </label>
       </div>
       <p className="field-help">
-        Use 0 minutes for manual-only refresh. Private and loopback
-        destinations, redirects, and URLs with embedded credentials are rejected
-        by the control plane.
+        Use 0 minutes for manual-only refresh. HTTP sources reject private
+        destinations, redirects, and embedded credentials. File sources stay
+        inside the data directory's imports folder.
       </p>
       {error ? (
         <p role="alert" className="auth-error">
@@ -590,12 +718,27 @@ function validSourceURL(raw: string): boolean {
 }
 
 function sourceHost(source: ProxySource): string {
-  if (source.type !== "api") return "Managed outside HTTP feeds";
+  if (source.type === "file") return source.config?.path || "Invalid file path";
+  if (source.type !== "api") return "Managed externally";
   try {
     return new URL(source.config?.url ?? "").host || "Invalid URL";
   } catch {
     return "Invalid URL";
   }
+}
+
+function validSourcePath(raw: string): boolean {
+  const value = raw.trim().replaceAll("\\", "/");
+  return (
+    value !== "" &&
+    !value.startsWith("/") &&
+    !/^[a-z]:\//i.test(value) &&
+    !value.split("/").includes("..")
+  );
+}
+
+function parseFormat(value: string | undefined): ImportFormat {
+  return value === "csv" || value === "json" ? value : "text";
 }
 
 function scheduleLabel(nanoseconds: number): string {

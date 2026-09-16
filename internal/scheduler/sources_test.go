@@ -18,6 +18,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/storage/contract"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	publicstore "github.com/nguyenduytan/proxysieve/pkg/store"
 )
 
@@ -58,7 +59,7 @@ func TestSourceJobRefreshesDueSourcesAcrossBoundedRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	job := &SourceJob{
-		Store: repository, Refresher: internalsource.NewRefresher(), Resolver: schedulerLoopbackResolver(),
+		Store: repository, Refresher: internalsource.NewRefresher(""), Resolver: schedulerLoopbackResolver(),
 		Policy: security.DestinationPolicy{AllowTrusted: true}, Audit: audits, Now: func() time.Time { return now },
 		PageSize: 2, MaxPages: 2, MaxRefreshes: 1, PerSourceTimeout: 5 * time.Second,
 	}
@@ -112,7 +113,7 @@ func TestSourceJobContinuesAfterRecordedFailure(t *testing.T) {
 	}
 	now := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
 	job := &SourceJob{
-		Store: repository, Refresher: internalsource.NewRefresher(), Resolver: schedulerLoopbackResolver(),
+		Store: repository, Refresher: internalsource.NewRefresher(""), Resolver: schedulerLoopbackResolver(),
 		Policy: security.DestinationPolicy{AllowTrusted: true}, Audit: audits, Now: func() time.Time { return now },
 		PageSize: 10, MaxPages: 1, MaxRefreshes: 2, PerSourceTimeout: 5 * time.Second,
 	}
@@ -131,6 +132,15 @@ func TestSourceJobContinuesAfterRecordedFailure(t *testing.T) {
 	events, err := audits.ListAudit(t.Context(), audit.Page{Limit: 20})
 	if err != nil || len(events) != 2 || !hasAuditActions(events, "source.refresh_failed", "source.refreshed") {
 		t.Fatal(events, err)
+	}
+}
+
+func TestSourceDueIncludesFileSources(t *testing.T) {
+	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
+	source := contract.Source("file")
+	source.Type = proxy.FileSource
+	if !sourceDue(source, now) {
+		t.Fatal("file source was not scheduled")
 	}
 }
 

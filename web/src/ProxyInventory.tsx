@@ -4,6 +4,8 @@ import { Globe2, Plus, Power, RefreshCw } from "lucide-react";
 import { api, ApiError, errorMessage } from "./api";
 import type {
   EndpointRecord,
+  ImportFormat,
+  ImportMapping,
   ProxyImportResult,
   ProxyPage,
   Role,
@@ -395,7 +397,24 @@ function ImportPreview({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [result, setResult] = useState<Preview | null>(null),
+    [format, setFormat] = useState<ImportFormat>("text"),
+    [itemsField, setItemsField] = useState(""),
+    [endpointField, setEndpointField] = useState(""),
+    [protocolField, setProtocolField] = useState(""),
+    [hostField, setHostField] = useState(""),
+    [portField, setPortField] = useState(""),
     [mode, setMode] = useState<ProxyImportResult["mode"]>("skip");
+  function mapping(): ImportMapping {
+    return {
+      ...(format === "json" && itemsField.trim()
+        ? { items_field: itemsField.trim() }
+        : {}),
+      ...(endpointField.trim() ? { endpoint_field: endpointField.trim() } : {}),
+      ...(protocolField.trim() ? { protocol_field: protocolField.trim() } : {}),
+      ...(hostField.trim() ? { host_field: hostField.trim() } : {}),
+      ...(portField.trim() ? { port_field: portField.trim() } : {}),
+    };
+  }
   async function preview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -405,7 +424,7 @@ function ImportPreview({
       setResult(
         await api<Preview>("/api/v1/proxies/import/preview", {
           method: "POST",
-          body: { input },
+          body: { input, format, mapping: mapping() },
         }),
       );
     } catch (error) {
@@ -422,7 +441,7 @@ function ImportPreview({
       onImported(
         await api<ProxyImportResult>("/api/v1/proxies/import", {
           method: "POST",
-          body: { input, mode },
+          body: { input, mode, format, mapping: mapping() },
         }),
       );
     } catch (error) {
@@ -440,12 +459,32 @@ function ImportPreview({
         never saved.
       </p>
       <label>
-        Proxy list
+        Input format
+        <select
+          value={format}
+          onChange={(event) => {
+            setFormat(event.target.value as ImportFormat);
+            setResult(null);
+          }}
+        >
+          <option value="text">Text lines</option>
+          <option value="csv">CSV records</option>
+          <option value="json">JSON records</option>
+        </select>
+      </label>
+      <label>
+        Proxy data
         <textarea
           required
           rows={5}
-          maxLength={48_000}
-          placeholder="http://proxy.example.invalid:8080"
+          maxLength={8_388_608}
+          placeholder={
+            format === "text"
+              ? "http://proxy.example.invalid:8080"
+              : format === "csv"
+                ? "protocol,host,port"
+                : '[{"protocol":"http","host":"proxy.example.invalid","port":8080}]'
+          }
           value={input}
           onChange={(event) => {
             setInput(event.target.value);
@@ -453,6 +492,75 @@ function ImportPreview({
           }}
         />
       </label>
+      {format !== "text" ? (
+        <details>
+          <summary>Field mapping</summary>
+          <div className="form-grid">
+            {format === "json" ? (
+              <label>
+                JSON array field
+                <input
+                  maxLength={256}
+                  placeholder="items"
+                  value={itemsField}
+                  onChange={(event) => {
+                    setItemsField(event.target.value);
+                    setResult(null);
+                  }}
+                />
+              </label>
+            ) : null}
+            <label>
+              Endpoint field
+              <input
+                maxLength={256}
+                placeholder="endpoint"
+                value={endpointField}
+                onChange={(event) => {
+                  setEndpointField(event.target.value);
+                  setResult(null);
+                }}
+              />
+            </label>
+            <label>
+              Protocol field
+              <input
+                maxLength={256}
+                placeholder="protocol"
+                value={protocolField}
+                onChange={(event) => {
+                  setProtocolField(event.target.value);
+                  setResult(null);
+                }}
+              />
+            </label>
+            <label>
+              Host field
+              <input
+                maxLength={256}
+                placeholder="host"
+                value={hostField}
+                onChange={(event) => {
+                  setHostField(event.target.value);
+                  setResult(null);
+                }}
+              />
+            </label>
+            <label>
+              Port field
+              <input
+                maxLength={256}
+                placeholder="port"
+                value={portField}
+                onChange={(event) => {
+                  setPortField(event.target.value);
+                  setResult(null);
+                }}
+              />
+            </label>
+          </div>
+        </details>
+      ) : null}
       {error && (
         <p role="alert" className="auth-error">
           {error}
@@ -478,7 +586,7 @@ function ImportPreview({
           </h3>
           {result.items.slice(0, 20).map((item) => (
             <p key={item.line}>
-              Line {item.line}:{" "}
+              Record {item.line}:{" "}
               {item.error
                 ? item.error
                 : `${item.result.endpoint.protocol}://${item.result.endpoint.host}:${item.result.endpoint.port}`}

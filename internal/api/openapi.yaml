@@ -319,7 +319,15 @@ paths:
       security: [sessionCookie: [], csrfToken: []]
       requestBody:
         required: true
-        content: {application/json: {schema: {type: object, required: [input], properties: {input: {type: string}}}}}
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input: {type: string, maxLength: 8388608}
+                format: {$ref: '#/components/schemas/ImportFormat'}
+                mapping: {$ref: '#/components/schemas/ImportMapping'}
       responses:
         '200': {description: Parsed proxy import preview}
         '400': {$ref: '#/components/responses/BadRequest'}
@@ -337,6 +345,8 @@ paths:
               properties:
                 input: {type: string, maxLength: 8388608}
                 mode: {type: string, enum: [skip, update, create], default: skip}
+                format: {$ref: '#/components/schemas/ImportFormat'}
+                mapping: {$ref: '#/components/schemas/ImportMapping'}
       responses:
         '201': {description: Proxy inventory import committed atomically}
         '400': {$ref: '#/components/responses/BadRequest'}
@@ -1312,9 +1322,26 @@ components:
         name: {type: string, minLength: 1, maxLength: 256}
         type: {type: string, enum: [manual, file, api, provider, rotating]}
         provider_id: {type: string}
-        config: {type: object, maxProperties: 32, additionalProperties: {type: string, maxLength: 4096}}
+        config:
+          type: object
+          maxProperties: 32
+          additionalProperties: {type: string, maxLength: 4096}
+          description: API sources use url; file sources use a relative path under the data directory imports folder. Optional format and flat mapping keys select text, CSV or JSON records.
         refresh_interval_ns: {type: integer, minimum: 0, maximum: 2592000000000000}
         last_refresh_at: {type: string, format: date-time, readOnly: true}
         last_refresh_status: {type: string, maxLength: 256, readOnly: true}
         credential_ref: {type: string}
         enabled: {type: boolean}
+    ImportFormat:
+      type: string
+      enum: [text, csv, json]
+      default: text
+    ImportMapping:
+      type: object
+      additionalProperties: false
+      properties:
+        items_field: {type: string, maxLength: 256, description: Top-level JSON array field; defaults to items}
+        endpoint_field: {type: string, maxLength: 256, description: Complete proxy URI field; defaults to endpoint}
+        protocol_field: {type: string, maxLength: 256, description: Protocol field; defaults to protocol and then http}
+        host_field: {type: string, maxLength: 256, description: Host field; defaults to host}
+        port_field: {type: string, maxLength: 256, description: Port field; defaults to port}

@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"os"
 	"path"
+	"path/filepath"
 	goruntime "runtime"
 	"strconv"
 	"strings"
@@ -766,7 +767,12 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
-		sourceRefresher := internalsource.NewRefresher()
+		importRoot := filepath.Join(c.Server.DataDir, "imports")
+		if err = os.MkdirAll(importRoot, 0700); err != nil {
+			_ = controlStore.Close()
+			return Runtime{}, err
+		}
+		sourceRefresher := internalsource.NewRefresher(importRoot)
 		server, err := api.New(service, trafficRecorder, controlStore, controlStore, controlStore)
 		if err != nil {
 			_ = controlStore.Close()

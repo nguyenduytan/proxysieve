@@ -33,10 +33,72 @@ func TestImportBounds(t *testing.T) {
 	if _, err := Preview(strings.Repeat("http://a.example.invalid:80\n", 100_001), 100_000); err == nil {
 		t.Fatal("line bound ignored")
 	}
+	if _, err := Preview(strings.Repeat("x", (8<<20)+1), 1); err == nil {
+		t.Fatal("byte bound ignored")
+	}
 	if _, err := Import(ImportRequest{Input: "x", Mode: "invalid"}); err == nil {
 		t.Fatal("mode accepted")
 	}
 	if CredentialFingerprint("fake-password") == "" {
 		t.Fatal("empty fingerprint")
+	}
+}
+
+func TestStructuredImportMapping(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		options ImportOptions
+	}{
+		{
+			name:  "csv",
+			input: "kind,address,listen\nsocks5,proxy.example.invalid,1080\nhttp,second.example.invalid,8080",
+			options: ImportOptions{Format: ImportCSV, Mapping: ImportMapping{
+				ProtocolField: "kind", HostField: "address", PortField: "listen",
+			}},
+		},
+		{
+			name:  "json object",
+			input: `{"proxies":[{"url":"http://user:secret@proxy.example.invalid:8080"},{"url":"socks5://second.example.invalid:1080"}]}`,
+			options: ImportOptions{Format: ImportJSON, Mapping: ImportMapping{
+				ItemsField: "proxies", EndpointField: "url",
+			}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			preview, err := PreviewWithOptions(test.input, 10, test.options)
+			if err != nil || preview.Valid != 2 || preview.Invalid != 0 {
+				t.Fatal(preview, err)
+			}
+			result, err := Import(ImportRequest{Input: test.input, Mode: SkipDuplicates, Options: test.options})
+			if err != nil || len(result.Endpoints) != 2 {
+				t.Fatal(result, err)
+			}
+			for _, endpoint := range result.Endpoints {
+				if endpoint.CredentialRef != "" || strings.Contains(endpoint.String(), "secret") {
+					t.Fatal("credential escaped import boundary", endpoint)
+				}
+			}
+		})
+	}
+}
+
+func TestStructuredImportRejectsMalformedAndBounds(t *testing.T) {
+	invalid := []struct {
+		input   string
+		options ImportOptions
+		max     int
+	}{
+		{"a,a\n1,2", ImportOptions{Format: ImportCSV}, 10},
+		{"host,port\nexample.invalid,80\nsecond.invalid,81", ImportOptions{Format: ImportCSV}, 1},
+		{`{"items":{}}`, ImportOptions{Format: ImportJSON}, 10},
+		{`[{"host":"example.invalid","port":80}] trailing`, ImportOptions{Format: ImportJSON}, 10},
+		{"anything", ImportOptions{Format: "xml"}, 10},
+	}
+	for i, test := range invalid {
+		if _, err := PreviewWithOptions(test.input, test.max, test.options); err == nil {
+			t.Fatalf("case %d accepted", i)
+		}
 	}
 }

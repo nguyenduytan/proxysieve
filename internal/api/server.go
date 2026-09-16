@@ -41,6 +41,7 @@ import (
 const sessionCookie = "proxysieve_session"
 const csrfCookie = "proxysieve_csrf"
 const maxBodyBytes = 64 << 10
+const maxImportBodyBytes = 9 << 20
 
 //go:embed openapi.yaml
 var openAPISpec []byte
@@ -147,7 +148,7 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 		now:            func() time.Time { return time.Now().UTC() },
 		sourceResolver: sourceResolver{},
 		sourcePolicy:   security.DestinationPolicy{DenyPrivate: true},
-		sourceRefresh:  internalsource.NewRefresher(),
+		sourceRefresh:  internalsource.NewRefresher(""),
 	}, nil
 }
 
@@ -1052,10 +1053,12 @@ func (s *Server) importProxies(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var input struct {
-			Input string              `json:"input"`
-			Mode  proxy.DuplicateMode `json:"mode"`
+			Input   string              `json:"input"`
+			Mode    proxy.DuplicateMode `json:"mode"`
+			Format  proxy.ImportFormat  `json:"format"`
+			Mapping proxy.ImportMapping `json:"mapping"`
 		}
-		if !decode(w, r, &input) {
+		if !decodeBounded(w, r, &input, maxImportBodyBytes) {
 			return
 		}
 		if input.Mode == "" {
@@ -1073,7 +1076,10 @@ func (s *Server) importProxies(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
-			result, err = proxy.Import(proxy.ImportRequest{Input: input.Input, Mode: input.Mode, Existing: existingByIdentity(existing)})
+			result, err = proxy.Import(proxy.ImportRequest{
+				Input: input.Input, Mode: input.Mode, Existing: existingByIdentity(existing),
+				Options: proxy.ImportOptions{Format: input.Format, Mapping: input.Mapping},
+			})
 			if err != nil {
 				return err
 			}
@@ -1144,12 +1150,14 @@ func existingByIdentity(records map[string]store.EndpointRecord) map[string]prox
 func (s *Server) previewImport(w http.ResponseWriter, r *http.Request) {
 	s.requireMutation(w, r, auth.RoleOperator, func(_ auth.User) {
 		var input struct {
-			Input string `json:"input"`
+			Input   string              `json:"input"`
+			Format  proxy.ImportFormat  `json:"format"`
+			Mapping proxy.ImportMapping `json:"mapping"`
 		}
-		if !decode(w, r, &input) {
+		if !decodeBounded(w, r, &input, maxImportBodyBytes) {
 			return
 		}
-		preview, err := proxy.Preview(input.Input, 100_000)
+		preview, err := proxy.PreviewWithOptions(input.Input, 100_000, proxy.ImportOptions{Format: input.Format, Mapping: input.Mapping})
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_IMPORT", "Proxy import text was not accepted.")
 			return
@@ -1208,12 +1216,16 @@ func (s *Server) record(ctx context.Context, user auth.User, action, targetType,
 	_ = s.audit.Record(context.WithoutCancel(ctx), audit.Event{ID: model.NewID(), At: s.now(), ActorID: user.ID, Action: action, TargetType: targetType, TargetID: targetID})
 }
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
+	return decodeBounded(w, r, target, maxBodyBytes)
+}
+
+func decodeBounded(w http.ResponseWriter, r *http.Request, target any, limit int64) bool {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		writeError(w, 415, "JSON_REQUIRED", "Use application/json for this request.")
 		return false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(target) != nil || !errors.Is(decoder.Decode(new(any)), io.EOF) {

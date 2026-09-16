@@ -68,7 +68,7 @@ func (s *Server) createSource(w http.ResponseWriter, r *http.Request, user auth.
 	if input.Source.ID == "" {
 		input.Source.ID = model.NewID()
 	}
-	if !input.Source.LastRefreshAt.IsZero() || input.Source.LastRefreshStatus != "" || input.Source.Validate() != nil {
+	if !input.Source.LastRefreshAt.IsZero() || input.Source.LastRefreshStatus != "" || input.Source.Validate() != nil || s.sourceRefresh.Validate(input.Source) != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_SOURCE", "Source metadata was not accepted.")
 		return
 	}
@@ -128,7 +128,7 @@ func (s *Server) refreshSource(w http.ResponseWriter, r *http.Request, id model.
 		writeError(w, http.StatusBadRequest, "INVALID_REVISION", "Source revision was not accepted.")
 		return
 	}
-	result, err := s.sourceRefresh.RefreshHTTP(r.Context(), internalsource.RefreshRequest{
+	result, err := s.sourceRefresh.Refresh(r.Context(), internalsource.RefreshRequest{
 		ID: id, Revision: input.Revision, Store: inventory,
 		Resolver: s.sourceResolver, Policy: s.sourcePolicy, Now: s.now(),
 	})
@@ -154,11 +154,13 @@ func (s *Server) refreshSource(w http.ResponseWriter, r *http.Request, id model.
 	case errors.Is(err, internalsource.ErrUnsupported):
 		writeError(w, http.StatusUnprocessableEntity, "SOURCE_REFRESH_UNSUPPORTED", "This source type does not support refresh yet.")
 	case errors.Is(err, internalsource.ErrConfig):
-		writeError(w, http.StatusUnprocessableEntity, "SOURCE_CONFIG_INVALID", "The source URL configuration was not accepted.")
+		writeError(w, http.StatusUnprocessableEntity, "SOURCE_CONFIG_INVALID", "The source configuration was not accepted.")
 	case errors.Is(err, internalsource.ErrNoEndpoints):
 		writeError(w, http.StatusUnprocessableEntity, "SOURCE_PARSE_FAILED", "The source did not contain valid proxy endpoints.")
 	case errors.Is(err, internalsource.ErrFetch):
 		writeError(w, http.StatusBadGateway, "SOURCE_FETCH_FAILED", "The source could not be fetched safely.")
+	case errors.Is(err, internalsource.ErrRead):
+		writeError(w, http.StatusUnprocessableEntity, "SOURCE_READ_FAILED", "The source file could not be read safely.")
 	default:
 		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Source refresh could not be committed.")
 	}
@@ -192,7 +194,7 @@ func (s *Server) updateSource(w http.ResponseWriter, r *http.Request, id model.I
 	if !decode(w, r, &input) {
 		return
 	}
-	if input.Source.ID != id || input.Revision < 1 || input.Source.Validate() != nil {
+	if input.Source.ID != id || input.Revision < 1 || input.Source.Validate() != nil || s.sourceRefresh.Validate(input.Source) != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_SOURCE", "Source metadata or revision was not accepted.")
 		return
 	}

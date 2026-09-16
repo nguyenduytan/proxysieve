@@ -474,6 +474,37 @@ func TestProxyImportPreviewRequiresOperatorCSRF(t *testing.T) {
 	}
 }
 
+func TestProxyImportPreviewAcceptsMappedJSON(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	server, _ := New(service, nil, nil, nil)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	response := mutationRequest(handler, http.MethodPost, "/api/v1/proxies/import/preview", map[string]any{
+		"input":   `{"rows":[{"address":"proxy.example.invalid","listen":8080}]}`,
+		"format":  "json",
+		"mapping": map[string]string{"items_field": "rows", "host_field": "address", "port_field": "listen"},
+	}, cookiesFor(setup))
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"valid":1`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+}
+
+func TestProxyImportPreviewAllowsBoundedPayloadAboveDefaultAPILimit(t *testing.T) {
+	users := &memoryUsers{users: map[string]userRecord{}}
+	service, _ := admin.New(users, security.DefaultPasswordParams())
+	server, _ := New(service, nil, nil, nil)
+	handler := server.Handler()
+	token, _ := service.SetupToken(t.Context())
+	setup := request(handler, http.MethodPost, "/api/v1/auth/setup", map[string]string{"token": token, "username": "tony", "password": "a sufficient fake admin password"}, "")
+	input := strings.Repeat("http://large.example.invalid:8080\n", 2_000)
+	response := mutationRequest(handler, http.MethodPost, "/api/v1/proxies/import/preview", map[string]any{"input": input}, cookiesFor(setup))
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"valid":2000`)) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+}
+
 func TestProxyImportCommitsAtomicallyWithDuplicateModes(t *testing.T) {
 	users := &memoryUsers{users: map[string]userRecord{}}
 	service, _ := admin.New(users, security.DefaultPasswordParams())

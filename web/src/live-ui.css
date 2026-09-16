@@ -104,6 +104,16 @@
   line-height: 1.7;
   margin-bottom: 15px;
 }
+.resource-form details > summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+.resource-form details > .form-grid {
+  margin-top: 14px;
+}
 .field-help {
   font-size: 12px;
   color: var(--muted, #64748b);

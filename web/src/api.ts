@@ -33,6 +33,14 @@ export interface ProxyPage {
   next_after: string;
 }
 export type SourceType = "manual" | "file" | "api" | "provider" | "rotating";
+export type ImportFormat = "text" | "csv" | "json";
+export interface ImportMapping {
+  items_field?: string;
+  endpoint_field?: string;
+  protocol_field?: string;
+  host_field?: string;
+  port_field?: string;
+}
 export interface ProxySource {
   id: string;
   name: string;
