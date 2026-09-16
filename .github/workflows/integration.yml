@@ -1,0 +1,39 @@
+name: Protocol integration
+on:
+  pull_request:
+    paths:
+      - 'internal/app/**'
+      - 'internal/transport/**'
+      - 'internal/upstream/**'
+      - 'pkg/config/**'
+      - 'pkg/policy/**'
+      - 'pkg/proxy/**'
+      - 'pkg/routing/**'
+      - '.github/workflows/integration.yml'
+      - 'Makefile'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  protocol:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.1'
+          cache: true
+      - run: go test -count=1 ./internal/app ./internal/upstream ./internal/transport/httpforward ./internal/transport/socks5

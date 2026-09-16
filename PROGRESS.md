@@ -46,6 +46,9 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - Added reproducible policy, selector, full-recorder and response-cache hit
   benchmarks plus a path-gated workflow that retains five-run results. Thresholds
   remain unset until an accepted release-candidate baseline exists.
+- Completed the required nine-route HTTP/CONNECT/SOCKS5 protocol matrix by adding
+  HTTP-through-SOCKS and proxied-tunnel coverage. A path-gated workflow runs the
+  local-only fixtures natively on Linux, Windows and macOS.
 
 ### Latest local continuation — inventory lifecycle (2026-09-13)
 

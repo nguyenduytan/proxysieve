@@ -1,7 +1,7 @@
 GO ?= go
 PNPM ?= pnpm
 
-.PHONY: bootstrap fmt lint test race benchmark build web run docker
+.PHONY: bootstrap fmt lint test race integration benchmark build web run docker
 bootstrap:
 	$(GO) version
 	node --version
@@ -23,6 +23,9 @@ test:
 
 race:
 	$(GO) test -race ./...
+
+integration:
+	$(GO) test -count=1 ./internal/app ./internal/upstream ./internal/transport/httpforward ./internal/transport/socks5
 
 benchmark:
 	$(GO) test -run '^$$' -bench 'Benchmark(PolicyEvaluation|Selector|TrafficRecordFullBuffer|ResponseCacheHit)$$' -benchmem ./pkg/policy ./pkg/routing ./internal/traffic ./internal/cache
