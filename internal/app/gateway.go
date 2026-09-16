@@ -666,6 +666,13 @@ func Build(c config.Config) (Runtime, error) {
 			return Runtime{}, err
 		}
 	}
+	var runtimeResolver security.Resolver = resolver{}
+	if c.Cache.DNS.Enabled {
+		runtimeResolver, err = internalcache.NewDNS(runtimeResolver, c.Cache.DNS.MaxEntries, c.Cache.DNS.MaxBytes, time.Duration(c.Cache.DNS.TTL))
+		if err != nil {
+			return Runtime{}, err
+		}
+	}
 	healthManager, err := internalhealth.New(c.Health.RuntimeConfig(), nil)
 	if err != nil {
 		return Runtime{}, err
@@ -731,7 +738,7 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
-		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: resolver{}, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}}, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout), globalPace: checkPace(c.Health.GlobalCheckRate), poolPace: checkPace(c.Health.PoolCheckRate)}
+		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: runtimeResolver, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}}, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout), globalPace: checkPace(c.Health.GlobalCheckRate), poolPace: checkPace(c.Health.PoolCheckRate)}
 		server.SetTrafficStatus(durableRecorder)
 		server.SetSessions(sessionManager)
 		server.SetHealth(healthService)
@@ -739,7 +746,7 @@ func Build(c config.Config) (Runtime, error) {
 		server.SetCache(responseCache)
 		server.SetSourceRefresher(sourceRefresher)
 		server.SetRuntimeControl(&runtimeControl{runtime: routeRuntime, store: controlStore, now: func() time.Time { return time.Now().UTC() }})
-		chainTester := &router{runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry}
+		chainTester := &router{runtime: routeRuntime, resolver: runtimeResolver, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry}
 		server.SetChainTester(chainTester.testChain)
 		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}
 		runtime.AdminBind = c.Admin.Bind
@@ -761,6 +768,7 @@ func Build(c config.Config) (Runtime, error) {
 				return scheduler.TierRetentionResult{RawEvents: result.RawEvents, Minutes: result.Minutes, Hours: result.Hours, Days: result.Days}, err
 			},
 		}
+		// Source refresh resolves uncached so every fetch checks the current addresses at its SSRF boundary.
 		sourceJob := &scheduler.SourceJob{
 			Store: controlStore, Refresher: sourceRefresher, Resolver: resolver{},
 			Policy: security.DestinationPolicy{DenyPrivate: true}, Audit: controlStore,
@@ -791,7 +799,7 @@ func Build(c config.Config) (Runtime, error) {
 		}
 	}
 	if healthService == nil {
-		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: resolver{}, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: trafficRecorder, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout), globalPace: checkPace(c.Health.GlobalCheckRate), poolPace: checkPace(c.Health.PoolCheckRate)}
+		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: runtimeResolver, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: trafficRecorder, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout), globalPace: checkPace(c.Health.GlobalCheckRate), poolPace: checkPace(c.Health.PoolCheckRate)}
 	}
 	if c.Health.ActiveChecks {
 		runtime.HealthJob = scheduler.New(time.Duration(c.Health.CheckInterval), 0, healthService.Run)
@@ -800,7 +808,7 @@ func Build(c config.Config) (Runtime, error) {
 		if listener.Auth != "local" && listener.Auth != "api_key" && listener.Auth != "password" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
-		r := &router{policyID: model.ID(listener.Policy), runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry}
+		r := &router{policyID: model.ID(listener.Policy), runtime: routeRuntime, resolver: runtimeResolver, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry}
 		var authenticatePassword func(context.Context, string, string) (model.ID, error)
 		if listener.Auth == "password" {
 			authenticatePassword = passwordAuthenticator(listener.CredentialRef, listener.Name)

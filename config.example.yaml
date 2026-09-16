@@ -54,6 +54,11 @@ inspect:
 cache:
   response:
     enabled: false
+  dns:
+    enabled: true
+    max_entries: 4096
+    max_bytes: 4194304
+    ttl: 1m
 security:
   deny_private_networks_for_untrusted_clients: true
   allow_direct: false

@@ -137,12 +137,18 @@ type Inspect struct {
 }
 type Cache struct {
 	Response CacheLimit `json:"response" yaml:"response"`
-	DNS      CacheLimit `json:"dns" yaml:"dns"`
+	DNS      DNSCache   `json:"dns" yaml:"dns"`
 }
 type CacheLimit struct {
 	Enabled    bool  `json:"enabled" yaml:"enabled"`
 	MaxEntries int   `json:"max_entries" yaml:"max_entries"`
 	MaxBytes   int64 `json:"max_bytes" yaml:"max_bytes"`
+}
+type DNSCache struct {
+	Enabled    bool     `json:"enabled" yaml:"enabled"`
+	MaxEntries int      `json:"max_entries" yaml:"max_entries"`
+	MaxBytes   int64    `json:"max_bytes" yaml:"max_bytes"`
+	TTL        Duration `json:"ttl" yaml:"ttl"`
 }
 type Security struct {
 	DenyPrivate     bool     `json:"deny_private_networks_for_untrusted_clients" yaml:"deny_private_networks_for_untrusted_clients"`
@@ -170,7 +176,7 @@ func Defaults(home string) Config {
 		Traffic:  Traffic{RetentionDays: 30, MinuteRetentionDays: 90, HourRetentionDays: 365, DayRetentionDays: 3650, AggregationInterval: Duration(time.Minute)},
 		Health:   Health{FailureThreshold: 3, SuccessThreshold: 2, OpenDuration: Duration(time.Minute), InitialScore: 50, SuccessGain: 5, FailurePenalty: 15, Treat429AsFailure: true, Treat5xxAsFailure: true, CheckHost: "example.com", CheckPort: 443, CheckInterval: Duration(5 * time.Minute), CheckTimeout: Duration(15 * time.Second), GlobalCheckRate: 60, PoolCheckRate: 30},
 		Retry:    retrypkg.DefaultPolicy(),
-		Cache:    Cache{DNS: CacheLimit{Enabled: true, MaxEntries: 4096, MaxBytes: 4 << 20}, Response: CacheLimit{MaxEntries: 1024, MaxBytes: 64 << 20}},
+		Cache:    Cache{DNS: DNSCache{Enabled: true, MaxEntries: 4096, MaxBytes: 4 << 20, TTL: Duration(time.Minute)}, Response: CacheLimit{MaxEntries: 1024, MaxBytes: 64 << 20}},
 		Security: Security{DenyPrivate: true},
 		Logging:  Logging{Level: "info", Format: "json"},
 		Policies: []pspolicy.Policy{{Version: 1, ID: "default", Name: "Fail closed", Rules: []pspolicy.Rule{{ID: "deny", Name: "Deny requests until configured", Priority: 100, Enabled: true, StopProcessing: true, Actions: []pspolicy.Action{{Type: "reject"}}}}}},
@@ -242,10 +248,13 @@ func (c Config) Validate() error {
 	if c.Retry.Validate() != nil || c.Retry.MaxAttempts == 0 {
 		return ErrInvalid
 	}
-	for _, v := range []CacheLimit{c.Cache.DNS, c.Cache.Response} {
+	for _, v := range []CacheLimit{{Enabled: c.Cache.DNS.Enabled, MaxEntries: c.Cache.DNS.MaxEntries, MaxBytes: c.Cache.DNS.MaxBytes}, c.Cache.Response} {
 		if v.MaxEntries < 1 || v.MaxEntries > 1_000_000 || v.MaxBytes < 1 || v.MaxBytes > 1<<40 {
 			return ErrInvalid
 		}
+	}
+	if c.Cache.DNS.TTL < Duration(time.Second) || c.Cache.DNS.TTL > Duration(24*time.Hour) {
+		return ErrInvalid
 	}
 	if c.Inspect.Enabled && len(c.Inspect.Include) == 0 {
 		return ErrInvalid

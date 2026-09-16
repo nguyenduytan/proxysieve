@@ -393,7 +393,11 @@ public push or release was performed. Preserved the existing API/frontend edits.
 - Added exact-hostname purge without subdomain matching through the
   operator/CSRF-protected API, `cache purge-domain` CLI command and responsive
   Cache workspace. The mutation has a dedicated `cache.domain_purged` audit event.
-- Disk/DNS cache, full CACHE policy semantics and
+- Added a shared bounded positive-result DNS cache for gateway routing, chain tests
+  and health checks. Its configurable TTL is an upper bound because Go's resolver
+  interface does not expose authoritative record TTLs; source refresh keeps its
+  uncached resolver at the separate SSRF boundary.
+- Disk cache, full CACHE policy semantics and
   THROTTLE/MOCK/REDIRECT/REWRITE completion remain pending, so M9 stays open.
 
 ### Original milestone entry gate

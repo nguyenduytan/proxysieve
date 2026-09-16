@@ -54,6 +54,20 @@ func TestRetryConfigurationValidation(t *testing.T) {
 	}
 }
 
+func TestDNSCacheConfigurationValidation(t *testing.T) {
+	configured := Defaults(t.TempDir())
+	if !configured.Cache.DNS.Enabled || configured.Cache.DNS.TTL != Duration(time.Minute) {
+		t.Fatal("unexpected DNS cache defaults", configured.Cache.DNS)
+	}
+	for _, ttl := range []Duration{0, Duration(time.Second - 1), Duration(24*time.Hour + time.Second)} {
+		invalid := configured
+		invalid.Cache.DNS.TTL = ttl
+		if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Fatal(ttl, err)
+		}
+	}
+}
+
 func TestChainConfigurationReferencesAndIsolation(t *testing.T) {
 	configured := Defaults(t.TempDir())
 	configured.Proxies = []proxy.Endpoint{

@@ -62,6 +62,18 @@ func TestMissingRetrySectionUsesDefaults(t *testing.T) {
 		t.Fatal(effective.Config.Retry, err)
 	}
 }
+
+func TestDNSCacheDefaultsAndTTLOverride(t *testing.T) {
+	home := t.TempDir()
+	effective, err := Load(Options{Home: home, File: strings.NewReader("version: 1\n")})
+	if err != nil || effective.Config.Cache.DNS != config.Defaults(home).Cache.DNS || effective.Sources["cache.dns.ttl"] != "default" {
+		t.Fatal(effective.Config.Cache.DNS, err)
+	}
+	effective, err = Load(Options{Home: home, File: strings.NewReader("version: 1\ncache:\n  dns:\n    ttl: 2m\n")})
+	if err != nil || effective.Config.Cache.DNS.TTL != config.Duration(2*time.Minute) || effective.Sources["cache.dns.ttl"] != "file" {
+		t.Fatal(effective.Config.Cache.DNS, err)
+	}
+}
 func TestInvalidDocuments(t *testing.T) {
 	for _, doc := range []string{
 		"", "logging: {}", "version: 2", "version: 1\nunknown: true", "version: 1\nversion: 1",

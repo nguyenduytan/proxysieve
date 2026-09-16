@@ -72,6 +72,8 @@
   workspace, plus matching `cache stats|purge` CLI commands.
 - Added exact-hostname response-cache purge across the Admin API, CLI and Cache
   workspace, with operator/CSRF enforcement and dedicated audit records.
+- Added a bounded positive-result DNS cache with configurable TTL, deterministic
+  expiry eviction and shared gateway, chain-test and health-check resolution.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe
