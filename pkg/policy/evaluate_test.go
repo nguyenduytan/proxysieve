@@ -65,3 +65,45 @@ func TestValidateRejectsUnsupportedOrMalformedConditions(t *testing.T) {
 		t.Fatal("supported condition rejected")
 	}
 }
+
+func TestValidateAdvancedActionValues(t *testing.T) {
+	valid := []Action{
+		{Type: "cache"},
+		{Type: "throttle", Value: "1048576"},
+		{Type: "mock", Value: "ok"},
+		{Type: "redirect", Value: "https://example.invalid/login"},
+		{Type: "redirect", Value: "/login"},
+		{Type: "rewrite", Value: "/v2/items?limit=10"},
+	}
+	for _, action := range valid {
+		if !action.Valid() {
+			t.Fatalf("valid action rejected: %+v", action)
+		}
+	}
+	invalid := []Action{
+		{Type: "cache", Value: "pool"},
+		{Type: "throttle", Value: "0"},
+		{Type: "throttle", Value: "fast"},
+		{Type: "redirect", Value: "javascript:alert(1)"},
+		{Type: "redirect", Value: "//evil.invalid"},
+		{Type: "rewrite", Value: "https://evil.invalid/"},
+		{Type: "rewrite", Value: "relative"},
+	}
+	for _, action := range invalid {
+		if action.Valid() {
+			t.Fatalf("invalid action accepted: %+v", action)
+		}
+	}
+}
+
+func TestAdvancedModifiersRequireTerminalRoute(t *testing.T) {
+	document := Policy{Version: 1, ID: "p", Name: "p", Rules: []Rule{{ID: "r", Name: "r", Enabled: true, Actions: []Action{{Type: "cache"}, {Type: "rewrite", Value: "/small"}, {Type: "throttle", Value: "1024"}, {Type: "direct"}}}}}
+	result, err := Evaluate(document, RequestContext{}, Visibility{}, false)
+	if err != nil || result.TerminalRuleID != "r" || len(result.Actions) != 4 {
+		t.Fatal(result, err)
+	}
+	document.Rules[0].Actions = document.Rules[0].Actions[:3]
+	if _, err = Evaluate(document, RequestContext{}, Visibility{}, false); !errors.Is(err, ErrNoRoute) {
+		t.Fatal(err)
+	}
+}

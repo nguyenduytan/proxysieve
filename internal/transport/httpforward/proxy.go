@@ -132,7 +132,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	route, err := h.router.Route(r.Context(), ctx, result)
-	route.PolicyID, route.RuleID = result.PolicyID, result.TerminalRuleID
+	route.PolicyID, route.RuleID, route.RuntimeRevision = result.PolicyID, result.TerminalRuleID, result.RuntimeRevision
 	if err != nil || route.Action == "block" || route.Action == "reject" || route.Action == "" {
 		if errors.Is(err, gateway.ErrUnsupported) {
 			recordHTTP(h.recorder, r, ctx, route, host, 0, 0, 0, http.StatusNotImplemented, 0)
@@ -150,10 +150,41 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POLICY_BLOCKED", http.StatusForbidden)
 		return
 	}
+	if route.Action == "mock" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		delivered := &internaltraffic.Writer{Destination: w}
+		_, writeErr := io.WriteString(delivered, route.ActionValue)
+		recordHTTP(h.recorder, r, ctx, route, host, 0, 0, delivered.Bytes(), http.StatusOK, 0)
+		if writeErr != nil {
+			panic(http.ErrAbortHandler)
+		}
+		return
+	}
+	if route.Action == "redirect" {
+		w.Header().Set("Location", route.ActionValue)
+		w.WriteHeader(http.StatusFound)
+		recordHTTP(h.recorder, r, ctx, route, host, 0, 0, 0, http.StatusFound, 0)
+		return
+	}
+	if route.Cache && h.responseCache == nil {
+		recordHTTP(h.recorder, r, ctx, route, host, 0, 0, 0, http.StatusNotImplemented, 0)
+		http.Error(w, "CACHE_UNAVAILABLE", http.StatusNotImplemented)
+		return
+	}
 	if route.Transport == nil {
 		recordHTTP(h.recorder, r, ctx, route, host, 0, 0, 0, http.StatusBadGateway, 0)
 		http.Error(w, "ROUTE_UNAVAILABLE", http.StatusBadGateway)
 		return
+	}
+	if route.RewritePath != "" {
+		rewritten, parseErr := r.URL.Parse(route.RewritePath)
+		if parseErr != nil || rewritten.Host != r.URL.Host || rewritten.Scheme != r.URL.Scheme {
+			recordHTTP(h.recorder, r, ctx, route, host, 0, 0, 0, http.StatusBadRequest, 0)
+			http.Error(w, "INVALID_REWRITE", http.StatusBadRequest)
+			return
+		}
+		r.URL = rewritten
 	}
 	if err = internalbudget.Available(r.Context(), route.Reserve); err != nil {
 		route.Action = "budget_reject"
@@ -163,15 +194,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	cacheKey := cacheKeyFor(route, ctx, r)
 	cacheEligible := cachepkg.CheckRequest(r).Eligible
-	if h.responseCache != nil && !cacheEligible {
+	if route.Cache && !cacheEligible {
 		h.responseCache.RecordBypass()
 	}
-	if h.responseCache != nil && cacheEligible {
+	if route.Cache && cacheEligible {
 		if cached, ok := h.responseCache.Get(cacheKey, time.Now().UTC()); ok {
 			copyHeader(w.Header(), http.Header(cached.Header))
 			w.WriteHeader(cached.Status)
 			delivered := &internaltraffic.Writer{Destination: w}
-			_, copyErr := delivered.Write(cached.Body)
+			cachedBody := io.Reader(bytes.NewReader(cached.Body))
+			if route.ThrottleBPS > 0 {
+				cachedBody = &internaltraffic.ThrottledReader{Context: r.Context(), Source: cachedBody, BytesPerSecond: route.ThrottleBPS}
+			}
+			_, copyErr := io.Copy(delivered, cachedBody)
 			completeRoute(r.Context(), route, 0, 0)
 			if h.recorder != nil {
 				_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PolicyID: route.PolicyID, RuleID: route.RuleID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID, Host: host, Protocol: "http", Action: "cache", StatusCode: cached.Status, ClientDownload: delivered.Bytes(), CacheServed: delivered.Bytes()})
@@ -193,7 +228,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	upload := &internaltraffic.Reader{Source: body}
 	out := r.Clone(r.Context())
-	out.Body = &countedBody{Reader: &internalbudget.Reader{Context: r.Context(), Source: upload, Reserve: route.Reserve}, Closer: body}
+	requestBody := io.Reader(&internalbudget.Reader{Context: r.Context(), Source: upload, Reserve: route.Reserve})
+	if route.ThrottleBPS > 0 {
+		requestBody = &internaltraffic.ThrottledReader{Context: r.Context(), Source: requestBody, BytesPerSecond: route.ThrottleBPS}
+	}
+	out.Body = &countedBody{Reader: requestBody, Closer: body}
 	if body == http.NoBody {
 		out.Body = http.NoBody
 	}
@@ -233,7 +272,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if retryErr != nil || next.Transport == nil || internalbudget.Available(r.Context(), next.Reserve) != nil || next.Acquire != nil && !next.Acquire() {
 			break
 		}
-		next.PolicyID, next.RuleID = result.PolicyID, result.TerminalRuleID
+		next.PolicyID, next.RuleID, next.RuntimeRevision = result.PolicyID, result.TerminalRuleID, result.RuntimeRevision
+		next.Cache, next.ThrottleBPS, next.RewritePath = route.Cache, route.ThrottleBPS, route.RewritePath
 		route = next
 		attempt++
 	}
@@ -243,12 +283,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = response.Body.Close() }()
 	cacheKey = cacheKeyFor(route, ctx, r)
-	download := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: r.Context(), Source: response.Body, Reserve: route.Reserve}}
+	responseBodySource := io.Reader(&internalbudget.Reader{Context: r.Context(), Source: response.Body, Reserve: route.Reserve})
+	if route.ThrottleBPS > 0 {
+		responseBodySource = &internaltraffic.ThrottledReader{Context: r.Context(), Source: responseBodySource, BytesPerSecond: route.ThrottleBPS}
+	}
+	download := &internaltraffic.Reader{Source: responseBodySource}
 	responseBody := io.Reader(download)
 	responseHeaders := response.Header.Clone()
 	stripHopByHop(responseHeaders)
 	cacheEligibility := cachepkg.CheckResponse(response.StatusCode, response.Header, response.ContentLength, h.maxCacheBody, time.Now().UTC())
-	if h.responseCache != nil && cachepkg.CheckRequest(r).Eligible && cacheEligibility.Eligible {
+	if route.Cache && cachepkg.CheckRequest(r).Eligible && cacheEligibility.Eligible {
 		body, readErr := io.ReadAll(io.LimitReader(download, h.maxCacheBody+1))
 		if readErr == nil && int64(len(body)) <= h.maxCacheBody {
 			_ = h.responseCache.Put(cacheKey, internalcache.Entry{Status: response.StatusCode, Header: responseHeaders, Body: body, ExpiresAt: cacheEligibility.ExpiresAt})
@@ -292,7 +336,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		return
 	}
 	route, err := h.router.Route(r.Context(), ctx, result)
-	route.PolicyID, route.RuleID = result.PolicyID, result.TerminalRuleID
+	route.PolicyID, route.RuleID, route.RuntimeRevision = result.PolicyID, result.TerminalRuleID, result.RuntimeRevision
 	if err != nil || route.Dial == nil {
 		if errors.Is(err, gateway.ErrUnsupported) {
 			recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusNotImplemented, 0, 0, 0, 0)
@@ -348,7 +392,8 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		if retryErr != nil || next.Dial == nil || internalbudget.Available(r.Context(), next.Reserve) != nil || next.Acquire != nil && !next.Acquire() {
 			break
 		}
-		next.PolicyID, next.RuleID = result.PolicyID, result.TerminalRuleID
+		next.PolicyID, next.RuleID, next.RuntimeRevision = result.PolicyID, result.TerminalRuleID, result.RuntimeRevision
+		next.ThrottleBPS = route.ThrottleBPS
 		route = next
 		attempt++
 	}
@@ -378,17 +423,22 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 	upstreamUpload := &internaltraffic.Writer{Destination: &internalbudget.Writer{Context: r.Context(), Destination: upstream, Reserve: route.Reserve}}
 	upstreamDownload := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: r.Context(), Source: upstream, Reserve: route.Reserve}}
 	clientDownload := &internaltraffic.Writer{Destination: client}
+	uploadSource, downloadSource := io.Reader(clientUpload), io.Reader(upstreamDownload)
+	if route.ThrottleBPS > 0 {
+		uploadSource = &internaltraffic.ThrottledReader{Context: r.Context(), Source: uploadSource, BytesPerSecond: route.ThrottleBPS}
+		downloadSource = &internaltraffic.ThrottledReader{Context: r.Context(), Source: downloadSource, BytesPerSecond: route.ThrottleBPS}
+	}
 	copies.Add(2)
 	go func() {
 		defer copies.Done()
-		_, _ = io.Copy(upstreamUpload, clientUpload)
+		_, _ = io.Copy(upstreamUpload, uploadSource)
 		if closeWriter, ok := upstream.(interface{ CloseWrite() error }); ok {
 			_ = closeWriter.CloseWrite()
 		}
 	}()
 	go func() {
 		defer copies.Done()
-		_, _ = io.Copy(clientDownload, upstreamDownload)
+		_, _ = io.Copy(clientDownload, downloadSource)
 		if closeWriter, ok := client.(interface{ CloseWrite() error }); ok {
 			_ = closeWriter.CloseWrite()
 		}
@@ -453,7 +503,10 @@ type countedBody struct {
 }
 
 func cacheKeyFor(route gateway.Route, requestContext policy.RequestContext, request *http.Request) cachepkg.Key {
-	routeID := route.PoolID
+	routeID := route.ChainID
+	if routeID == "" {
+		routeID = route.PoolID
+	}
 	if routeID == "" {
 		routeID = "direct"
 	}
@@ -461,7 +514,7 @@ func cacheKeyFor(route gateway.Route, requestContext policy.RequestContext, requ
 	if sessionHash == "" {
 		sessionHash = "none"
 	}
-	return cachepkg.Key{ClientID: requestContext.ClientID, SessionHash: sessionHash, RouteID: routeID, Method: request.Method, URL: request.URL.String(), Vary: map[string]string{}}
+	return cachepkg.Key{ClientID: requestContext.ClientID, SessionHash: sessionHash, RouteID: routeID, ProxyID: route.ProxyID, PolicyID: route.PolicyID, RuleID: route.RuleID, RuntimeRevision: route.RuntimeRevision, Method: request.Method, URL: request.URL.String(), Vary: map[string]string{}}
 }
 func recordHTTP(recorder trafficpkg.Recorder, request *http.Request, ctx policy.RequestContext, route gateway.Route, host string, upload, download, delivered trafficpkg.Bytes, status int, cacheServed trafficpkg.Bytes) {
 	completeRoute(request.Context(), route, upload, download)

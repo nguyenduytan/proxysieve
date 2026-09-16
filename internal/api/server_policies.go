@@ -470,7 +470,7 @@ func representPolicySimulation(record store.PolicyRecord, result policy.Result) 
 terminalAction:
 	for _, action := range result.Actions {
 		switch action.Type {
-		case "block", "reject", "proxy", "chain", "direct", "cache", "mock", "redirect", "rewrite":
+		case "block", "reject", "proxy", "chain", "direct", "mock", "redirect":
 			response.Outcome = action.Type
 			break terminalAction
 		}

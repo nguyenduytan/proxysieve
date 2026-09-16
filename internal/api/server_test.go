@@ -856,6 +856,8 @@ func TestPolicySimulationReportsFirstTerminalAction(t *testing.T) {
 	record := store.PolicyRecord{Policy: policy.Policy{ID: "default"}, Revision: 4}
 	result := policy.Result{Actions: []policy.Action{
 		{Type: "set_tag", Value: "first"},
+		{Type: "cache"},
+		{Type: "rewrite", Value: "/small"},
 		{Type: "proxy", PoolID: "pool"},
 		{Type: "reject"},
 	}}

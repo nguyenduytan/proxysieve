@@ -5,9 +5,11 @@ import (
 	"errors"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"net/netip"
+	"net/url"
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -184,8 +186,21 @@ func supportedConditionOperator(operator string) bool {
 }
 func (a Action) Valid() bool {
 	switch a.Type {
-	case "allow", "block", "reject", "direct", "cache", "throttle", "mock", "redirect", "rewrite", "set_tag", "set_session_policy":
-		return a.PoolID == "" && a.ChainID == "" && len(a.FallbackChainIDs) == 0 && len(a.Value) <= 4096
+	case "allow", "block", "reject", "direct":
+		return a.emptyRouteFields() && a.Value == ""
+	case "cache":
+		return a.emptyRouteFields() && a.Value == ""
+	case "throttle":
+		rate, err := strconv.ParseInt(a.Value, 10, 64)
+		return a.emptyRouteFields() && err == nil && rate > 0 && rate <= 1<<40
+	case "mock":
+		return a.emptyRouteFields() && len(a.Value) <= 4096
+	case "redirect":
+		return a.emptyRouteFields() && validRedirect(a.Value)
+	case "rewrite":
+		return a.emptyRouteFields() && validRewrite(a.Value)
+	case "set_tag", "set_session_policy":
+		return a.emptyRouteFields() && a.Value != "" && len(a.Value) <= 4096
 	case "proxy":
 		return a.PoolID.Valid() && a.ChainID == "" && len(a.FallbackChainIDs) == 0 && a.Value == ""
 	case "chain":
@@ -202,6 +217,32 @@ func (a Action) Valid() bool {
 		return true
 	}
 	return false
+}
+
+func (a Action) emptyRouteFields() bool {
+	return a.PoolID == "" && a.ChainID == "" && len(a.FallbackChainIDs) == 0
+}
+
+func validRedirect(raw string) bool {
+	if raw == "" || len(raw) > 4096 {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.User != nil || u.Fragment != "" {
+		return false
+	}
+	if u.IsAbs() {
+		return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+	}
+	return strings.HasPrefix(u.Path, "/") && u.Host == ""
+}
+
+func validRewrite(raw string) bool {
+	if raw == "" || len(raw) > 4096 {
+		return false
+	}
+	u, err := url.ParseRequestURI(raw)
+	return err == nil && u.Scheme == "" && u.Host == "" && u.Fragment == "" && strings.HasPrefix(u.Path, "/") && !strings.HasPrefix(u.Path, "//")
 }
 
 // RequestContext records only observed values. Known false differs from empty data.

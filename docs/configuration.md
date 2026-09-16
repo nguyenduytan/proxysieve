@@ -99,7 +99,8 @@ limits count response bodies. A missing response-cache path derives to
 `server.data_dir/response-cache`. A configured disk path must stay below
 `server.data_dir`, and ProxySieve creates cache directories/files with private
 permissions. Disk persistence does not weaken the request/response eligibility,
-freshness, client/session partitioning, or size checks.
+freshness, client/session partitioning, or size checks. This setting enables the
+backend only; a visible HTTP policy must also include `CACHE` with a terminal route.
 
 `budgets` accepts durable paid-route byte guards. Supported scopes are `system`,
 `client`, `pool`, and `proxy`; every non-system scope requires `scope_id`. Pool and

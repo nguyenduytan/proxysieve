@@ -70,9 +70,13 @@ func TestSessionHeaderStaysInternal(t *testing.T) {
 
 func TestCacheKeyPartitionsClientAndSession(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "http://example.invalid/", nil)
-	left := cacheKeyFor(gateway.Route{PoolID: "pool", SessionHash: "session-a"}, policy.RequestContext{ClientID: "client-a"}, request)
-	right := cacheKeyFor(gateway.Route{PoolID: "pool", SessionHash: "session-b"}, policy.RequestContext{ClientID: "client-b"}, request)
+	left := cacheKeyFor(gateway.Route{PoolID: "pool", ProxyID: "proxy-a", PolicyID: "policy", RuleID: "rule", RuntimeRevision: 1, SessionHash: "session-a"}, policy.RequestContext{ClientID: "client-a"}, request)
+	right := cacheKeyFor(gateway.Route{PoolID: "pool", ProxyID: "proxy-b", PolicyID: "policy", RuleID: "rule", RuntimeRevision: 2, SessionHash: "session-b"}, policy.RequestContext{ClientID: "client-b"}, request)
 	if reflect.DeepEqual(left, right) {
-		t.Fatal("cache key is not isolated by client and session")
+		t.Fatal("cache key is not isolated by client, session, route and runtime")
+	}
+	chain := cacheKeyFor(gateway.Route{PoolID: "pool", ChainID: "chain", PolicyID: "policy", RuleID: "rule", RuntimeRevision: 1}, policy.RequestContext{ClientID: "client-a"}, request)
+	if chain.RouteID != "chain" || left.String() == chain.String() {
+		t.Fatal("chain cache key is not isolated", chain)
 	}
 }

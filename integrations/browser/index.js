@@ -4,10 +4,8 @@ const terminalActions = new Set([
   "direct",
   "proxy",
   "chain",
-  "cache",
   "mock",
   "redirect",
-  "rewrite",
 ]);
 
 const presetNames = new Set([

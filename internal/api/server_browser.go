@@ -171,7 +171,7 @@ func browserBlockRule(rule policy.Rule) bool {
 		switch action.Type {
 		case "block":
 			return true
-		case "reject", "direct", "proxy", "chain", "cache", "mock", "redirect", "rewrite":
+		case "reject", "direct", "proxy", "chain", "mock", "redirect":
 			return false
 		}
 	}

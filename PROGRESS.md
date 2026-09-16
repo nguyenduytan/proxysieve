@@ -13,7 +13,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement with durable revisioned API/Admin CRUD locally implemented; transport framing, rolling windows, soft thresholds and cost budgets pending)
-- [ ] M9 — Cache and advanced visible-HTTP actions (safe bounded memory/disk response cache, explicit HTTP freshness, deterministic TTL eviction, bounded DNS cache, complete process-lifetime cache statistics, audited full/exact-host purge API/CLI and role-aware Admin workspace locally implemented; CACHE action completion and remaining visible-HTTP actions pending)
+- [x] M9 — Cache and advanced visible-HTTP actions (policy-opt-in safe bounded memory/disk response cache, explicit HTTP freshness, deterministic TTL eviction, bounded DNS cache, complete process-lifetime cache statistics, audited full/exact-host purge API/CLI, role-aware Admin workspace and validated CACHE/THROTTLE/MOCK/REDIRECT/REWRITE execution complete locally)
 - [x] M10 — Browser integrations (client-scoped snapshot/control contract, safe presets, Playwright/Puppeteer adapters, bounded estimated block reporting, Selenium foundation and controlled Chrome E2E complete locally)
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key/cache lifecycle endpoints, bounded authenticated traffic SSE and embedded OpenAPI contract locally implemented; broader API/event completion pending)
 - [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including revisioned budget management and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
@@ -24,6 +24,10 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 
 ### Release engineering continuation — 2026-09-16
 
+- Completed M9 visible-HTTP actions. CACHE now explicitly opts a routed request
+  into the configured safe cache backend; THROTTLE paces upload/download bytes;
+  REWRITE is same-origin path/query only; MOCK and REDIRECT synthesize bounded
+  responses. CONNECT/SOCKS fail closed and traffic attribution remains explicit.
 - Added a SemVer-tag-gated, least-privilege release workflow using pinned actions
   and tool versions. GoReleaser produces draft Linux/Windows/macOS amd64/arm64
   archives and checksums; Syft adds an SPDX JSON SBOM and GitHub attests both the

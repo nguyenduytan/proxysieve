@@ -47,6 +47,12 @@ func routeDirect(_ context.Context, _ policy.RequestContext, _ policy.Result) (g
 		return (&net.Dialer{}).DialContext(ctx, "tcp", address)
 	}}, nil
 }
+
+func routeCachedDirect(ctx context.Context, request policy.RequestContext, result policy.Result) (gateway.Route, error) {
+	route, err := routeDirect(ctx, request, result)
+	route.Cache = true
+	return route, err
+}
 func TestDirectForwardAndCredentialStripping(t *testing.T) {
 	var sawProxyAuth string
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +250,7 @@ func TestSafeResponseCache(t *testing.T) {
 	}))
 	defer target.Close()
 	cache, _ := internalcache.NewMemory(10, 1024)
-	handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect), ResponseCache: cache, MaxCacheBody: 1024})
+	handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeCachedDirect), ResponseCache: cache, MaxCacheBody: 1024})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,6 +277,31 @@ func TestSafeResponseCache(t *testing.T) {
 		t.Fatalf("unexpected cache stats: %+v", stats)
 	}
 }
+
+func TestResponseCacheRequiresPolicyAction(t *testing.T) {
+	var hits int
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Cache-Control", "max-age=60")
+		_, _ = io.WriteString(w, "cacheable")
+	}))
+	defer target.Close()
+	cache, _ := internalcache.NewMemory(10, 1024)
+	handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect), ResponseCache: cache, MaxCacheBody: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target.URL, nil))
+		if response.Code != http.StatusOK || response.Body.String() != "cacheable" {
+			t.Fatal(response.Code, response.Body.String())
+		}
+	}
+	if stats := cache.Stats(time.Now().UTC()); hits != 2 || stats.Entries != 0 || stats.Hits != 0 || stats.Misses != 0 {
+		t.Fatal(hits, stats)
+	}
+}
 func TestDiskResponseCacheSurvivesHandlerRestart(t *testing.T) {
 	var upstreamHits int
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -285,7 +316,7 @@ func TestDiskResponseCacheSurvivesHandlerRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect), ResponseCache: responseCache, MaxCacheBody: 1024})
+		handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeCachedDirect), ResponseCache: responseCache, MaxCacheBody: 1024})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -308,7 +339,7 @@ func TestCacheRejectsCookieResponses(t *testing.T) {
 	}))
 	defer target.Close()
 	cache, _ := internalcache.NewMemory(10, 1024)
-	handler, _ := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect), ResponseCache: cache, MaxCacheBody: 1024})
+	handler, _ := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeCachedDirect), ResponseCache: cache, MaxCacheBody: 1024})
 	proxy := httptest.NewServer(handler)
 	defer proxy.Close()
 	proxyURL, _ := url.Parse(proxy.URL)
@@ -335,7 +366,7 @@ func TestOversizedCacheCandidateKeepsBudgetEnforcement(t *testing.T) {
 	handler, err := New(Options{
 		Evaluator: Decider(direct),
 		Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
-			return gateway.Route{Action: "proxy", Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return gateway.Route{Action: "proxy", Cache: true, Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: http.StatusOK, ContentLength: -1, Header: http.Header{"Cache-Control": {"max-age=60"}}, Body: io.NopCloser(strings.NewReader("0123456789"))}, nil
 			}), Reserve: func(ctx context.Context, amount trafficpkg.Bytes) (publicbudget.Lease, error) {
 				return manager.Reserve(ctx, []model.ID{"system"}, amount)
@@ -409,6 +440,98 @@ func TestReportsUnavailableActions(t *testing.T) {
 		if event := <-recorded; event.Action != "cache" || event.StatusCode != http.StatusNotImplemented {
 			t.Fatal(event)
 		}
+	}
+}
+
+func TestVisibleHTTPResponseActions(t *testing.T) {
+	for _, tc := range []struct {
+		name, action, value, location, body string
+		status                              int
+	}{
+		{name: "mock", action: "mock", value: "synthetic", status: http.StatusOK, body: "synthetic"},
+		{name: "redirect", action: "redirect", value: "/login", status: http.StatusFound, location: "/login"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorded := make(eventRecorder, 1)
+			handler, err := New(Options{Evaluator: Decider(direct), Recorder: recorded, Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+				return gateway.Route{Action: tc.action, ActionValue: tc.value}, nil
+			})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://example.invalid/original", nil))
+			if response.Code != tc.status || response.Body.String() != tc.body || response.Header().Get("Location") != tc.location {
+				t.Fatalf("status=%d body=%q headers=%v", response.Code, response.Body.String(), response.Header())
+			}
+			if event := <-recorded; event.Action != tc.action || event.StatusCode != tc.status || event.ClientDownload != trafficpkg.Bytes(len(tc.body)) {
+				t.Fatal(event)
+			}
+		})
+	}
+}
+
+func TestRewriteStaysOnOriginalDestination(t *testing.T) {
+	var target string
+	handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+		return gateway.Route{Action: "direct", RewritePath: "/v2/items?limit=2", Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			target = request.URL.String()
+			return &http.Response{StatusCode: http.StatusNoContent, Header: http.Header{}, Body: http.NoBody}, nil
+		})}, nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://example.invalid/v1/items", nil))
+	if response.Code != http.StatusNoContent || target != "http://example.invalid/v2/items?limit=2" {
+		t.Fatal(response.Code, target)
+	}
+}
+
+func TestExplicitCacheFailsClosedWhenDisabled(t *testing.T) {
+	called := false
+	handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+		return gateway.Route{Action: "direct", Cache: true, Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			called = true
+			return nil, errors.New("unexpected")
+		})}, nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://example.invalid/", nil))
+	if response.Code != http.StatusNotImplemented || !strings.Contains(response.Body.String(), "CACHE_UNAVAILABLE") || called {
+		t.Fatal(response.Code, response.Body.String(), called)
+	}
+}
+
+func TestThrottleAppliesToCacheHits(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "max-age=60")
+		_, _ = io.WriteString(w, "1234")
+	}))
+	defer target.Close()
+	cache, _ := internalcache.NewMemory(10, 1024)
+	handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(func(ctx context.Context, request policy.RequestContext, result policy.Result) (gateway.Route, error) {
+		route, routeErr := routeCachedDirect(ctx, request, result)
+		route.ThrottleBPS = 80
+		return route, routeErr
+	}), ResponseCache: cache, MaxCacheBody: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := range 2 {
+		started := time.Now()
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target.URL, nil))
+		if response.Code != http.StatusOK || response.Body.String() != "1234" || time.Since(started) < 40*time.Millisecond {
+			t.Fatal(attempt, response.Code, response.Body.String(), time.Since(started))
+		}
+	}
+	if stats := cache.Stats(time.Now().UTC()); stats.Hits != 1 {
+		t.Fatal(stats)
 	}
 }
 func TestDownstreamBearerAuth(t *testing.T) {
@@ -489,7 +612,11 @@ func TestConnectDirectTunnel(t *testing.T) {
 	defer target.Close()
 	targetURL, _ := url.Parse(target.URL)
 	recorded := make(eventRecorder, 1)
-	h, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect), Recorder: recorded})
+	h, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(func(ctx context.Context, request policy.RequestContext, result policy.Result) (gateway.Route, error) {
+		route, routeErr := routeDirect(ctx, request, result)
+		route.ThrottleBPS = 1000
+		return route, routeErr
+	}), Recorder: recorded})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,6 +636,7 @@ func TestConnectDirectTunnel(t *testing.T) {
 		t.Fatal(res, err)
 	}
 	requestBytes := "GET / HTTP/1.1\r\nHost: " + targetURL.Host + "\r\nConnection: close\r\n\r\n"
+	started := time.Now()
 	if _, err = io.WriteString(conn, requestBytes); err != nil {
 		t.Fatal(err)
 	}
@@ -520,6 +648,9 @@ func TestConnectDirectTunnel(t *testing.T) {
 	_ = response.Body.Close()
 	if string(body) != "tunnel ok" {
 		t.Fatal(string(body))
+	}
+	if elapsed := time.Since(started); elapsed < 40*time.Millisecond {
+		t.Fatal("CONNECT throttle completed too quickly", elapsed)
 	}
 	_ = conn.Close()
 	select {

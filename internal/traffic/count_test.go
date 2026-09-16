@@ -2,8 +2,12 @@ package traffic
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
+	"strings"
 	"testing"
+	"time"
 )
 
 type partialReader struct{}
@@ -31,5 +35,16 @@ func TestCountersIncludePartialOperations(t *testing.T) {
 	}
 	if source.Bytes() != 5 {
 		t.Fatal(source.Bytes())
+	}
+}
+
+func TestThrottledReaderLimitsAverageRate(t *testing.T) {
+	started := time.Now()
+	reader := &ThrottledReader{Context: context.Background(), Source: strings.NewReader("1234"), BytesPerSecond: 80}
+	if body, err := io.ReadAll(reader); err != nil || string(body) != "1234" {
+		t.Fatal(string(body), err)
+	}
+	if elapsed := time.Since(started); elapsed < 40*time.Millisecond {
+		t.Fatal("throttle completed too quickly", elapsed)
 	}
 }

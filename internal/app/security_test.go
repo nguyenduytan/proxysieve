@@ -30,6 +30,29 @@ func TestUnavailableActionsAreNotReportedAsDestinationDenials(t *testing.T) {
 		}
 	}
 }
+
+func TestVisibleHTTPResponseActionsReachAdapter(t *testing.T) {
+	r := &router{}
+	for _, action := range []policy.Action{{Type: "mock", Value: "ok"}, {Type: "redirect", Value: "/login"}} {
+		route, err := r.Route(t.Context(), policy.RequestContext{Protocol: "http"}, policy.Result{Actions: []policy.Action{action}})
+		if err != nil || route.Action != action.Type || route.ActionValue != action.Value {
+			t.Fatalf("action=%+v route=%+v err=%v", action, route, err)
+		}
+	}
+}
+
+func TestActionsAfterTerminalDoNotChangeRoute(t *testing.T) {
+	r := &router{}
+	result := policy.Result{Actions: []policy.Action{{Type: "block"}, {Type: "cache"}, {Type: "rewrite", Value: "/ignored"}}}
+	route, err := r.Route(t.Context(), policy.RequestContext{Protocol: "connect"}, result)
+	if err != nil || route.Action != "block" {
+		t.Fatal(route, err)
+	}
+	action, modifiers := routeActions([]policy.Action{{Type: "cache"}, {Type: "throttle", Value: "1024"}, {Type: "direct"}, {Type: "rewrite", Value: "/ignored"}})
+	if action.Type != "direct" || len(modifiers) != 2 {
+		t.Fatal(action, modifiers)
+	}
+}
 func TestFailedBindDoesNotReportReady(t *testing.T) {
 	busy, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -1,9 +1,13 @@
 package traffic
 
 import (
-	public "github.com/nguyenduytan/proxysieve/pkg/traffic"
+	"context"
+	"errors"
 	"io"
 	"sync/atomic"
+	"time"
+
+	public "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
 type Reader struct {
@@ -33,3 +37,30 @@ func (w *Writer) Write(b []byte) (int, error) {
 	return n, err
 }
 func (w *Writer) Bytes() public.Bytes { return public.Bytes(w.count.Load()) }
+
+type ThrottledReader struct {
+	Context        context.Context
+	Source         io.Reader
+	BytesPerSecond int64
+	started        time.Time
+	read           int64
+}
+
+func (r *ThrottledReader) Read(buffer []byte) (int, error) {
+	if r.started.IsZero() {
+		r.started = time.Now()
+	}
+	n, err := r.Source.Read(buffer)
+	r.read += int64(n)
+	want := time.Duration(r.read/r.BytesPerSecond)*time.Second + time.Duration(r.read%r.BytesPerSecond)*time.Second/time.Duration(r.BytesPerSecond)
+	if wait := time.Until(r.started.Add(want)); wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-r.Context.Done():
+			return n, errors.Join(err, r.Context.Err())
+		case <-timer.C:
+		}
+	}
+	return n, err
+}

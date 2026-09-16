@@ -4,6 +4,10 @@
 
 ### Added
 
+- Added validated policy `CACHE`, `THROTTLE`, `MOCK`, `REDIRECT` and same-origin
+  `REWRITE` execution. Cache use is opt-in, throttle paces HTTP/CONNECT/SOCKS
+  streams, synthetic responses are accounted, and incompatible tunnel actions
+  fail closed.
 - Added runtime-dependency-free Playwright and Puppeteer adapters with loopback-only,
   API-key-authenticated policy snapshots, safe presets, bounded estimated local-
   block reporting, idempotent cleanup, Selenium guidance and deterministic Chrome

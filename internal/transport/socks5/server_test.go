@@ -46,7 +46,7 @@ func TestConnect(t *testing.T) {
 		done <- r
 		return policy.Result{PolicyID: "policy", TerminalRuleID: "rule", Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
-		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(observation publichealth.Observation) { observed <- observation.Success }}, nil
+		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", ThrottleBPS: 80, Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(observation publichealth.Observation) { observed <- observation.Success }}, nil
 	}), Recorder: recorded})
 	if err != nil {
 		t.Fatal(err)
@@ -73,10 +73,14 @@ func TestConnect(t *testing.T) {
 	if success := <-observed; !success {
 		t.Fatal("successful SOCKS5 dial was reported as failed")
 	}
+	started := time.Now()
 	go func() { _, _ = client.Write([]byte("ping")) }()
 	upload := make([]byte, 4)
 	if _, err = io.ReadFull(targetClient, upload); err != nil || string(upload) != "ping" {
 		t.Fatal(string(upload), err)
+	}
+	if elapsed := time.Since(started); elapsed < 40*time.Millisecond {
+		t.Fatal("SOCKS throttle completed too quickly", elapsed)
 	}
 	go func() { _, _ = targetClient.Write([]byte("ok")) }()
 	b := make([]byte, 2)

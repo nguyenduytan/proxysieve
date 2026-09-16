@@ -104,7 +104,30 @@ func (r *router) Evaluate(_ context.Context, request policy.RequestContext, visi
 	return result, err
 }
 func (r *router) Route(ctx context.Context, request policy.RequestContext, result policy.Result) (gateway.Route, error) {
-	action := terminal(result.Actions)
+	action, modifiers := routeActions(result.Actions)
+	if request.Protocol != "http" {
+		for _, modifier := range modifiers {
+			if modifier.Type != "throttle" {
+				return gateway.Route{Action: modifier.Type, ActionValue: modifier.Value}, gateway.ErrUnsupported
+			}
+		}
+		if action.Type == "mock" || action.Type == "redirect" {
+			return gateway.Route{Action: action.Type, ActionValue: action.Value}, gateway.ErrUnsupported
+		}
+	}
+	decorate := func(route gateway.Route) gateway.Route {
+		for _, modifier := range modifiers {
+			switch modifier.Type {
+			case "cache":
+				route.Cache = true
+			case "throttle":
+				route.ThrottleBPS, _ = strconv.ParseInt(modifier.Value, 10, 64)
+			case "rewrite":
+				route.RewritePath = modifier.Value
+			}
+		}
+		return route
+	}
 	switch action.Type {
 	case "direct":
 		allowed := false
@@ -119,7 +142,8 @@ func (r *router) Route(ctx context.Context, request policy.RequestContext, resul
 		if !allowed {
 			return gateway.Route{}, gateway.ErrDenied
 		}
-		return r.direct(ctx, request)
+		route, err := r.direct(ctx, request)
+		return decorate(route), err
 	case "proxy":
 		if r.runtime == nil {
 			return gateway.Route{}, gateway.ErrDenied
@@ -128,7 +152,8 @@ func (r *router) Route(ctx context.Context, request policy.RequestContext, resul
 		if !ok {
 			return gateway.Route{}, gateway.ErrDenied
 		}
-		return r.proxy(ctx, request, action.PoolID, snapshot)
+		route, err := r.proxy(ctx, request, action.PoolID, snapshot)
+		return decorate(route), err
 	case "chain":
 		if r.runtime == nil {
 			return gateway.Route{}, gateway.ErrDenied
@@ -137,22 +162,26 @@ func (r *router) Route(ctx context.Context, request policy.RequestContext, resul
 		if !ok {
 			return gateway.Route{}, gateway.ErrDenied
 		}
-		return r.chainWithFallbacks(ctx, request, action.ChainID, action.FallbackChainIDs, snapshot)
+		route, err := r.chainWithFallbacks(ctx, request, action.ChainID, action.FallbackChainIDs, snapshot)
+		return decorate(route), err
 	case "block", "reject":
 		return gateway.Route{Action: action.Type}, nil
-	case "cache", "mock", "redirect", "rewrite":
-		return gateway.Route{Action: action.Type}, gateway.ErrUnsupported
+	case "mock", "redirect":
+		return gateway.Route{Action: action.Type, ActionValue: action.Value}, nil
 	}
 	return gateway.Route{}, gateway.ErrDenied
 }
-func terminal(actions []policy.Action) policy.Action {
+func routeActions(actions []policy.Action) (policy.Action, []policy.Action) {
+	modifiers := make([]policy.Action, 0, 3)
 	for _, action := range actions {
 		switch action.Type {
-		case "block", "reject", "proxy", "chain", "direct", "cache", "mock", "redirect", "rewrite":
-			return action
+		case "block", "reject", "proxy", "chain", "direct", "mock", "redirect":
+			return action, modifiers
+		case "cache", "throttle", "rewrite":
+			modifiers = append(modifiers, action)
 		}
 	}
-	return policy.Action{}
+	return policy.Action{}, modifiers
 }
 
 func (r *router) chain(ctx context.Context, request policy.RequestContext, chainID model.ID, snapshot *routingSnapshot) (gateway.Route, error) {

@@ -88,7 +88,7 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 		return
 	}
 	route, err := s.router.Route(ctx, request, result)
-	route.PolicyID, route.RuleID = result.PolicyID, result.TerminalRuleID
+	route.PolicyID, route.RuleID, route.RuntimeRevision = result.PolicyID, result.TerminalRuleID, result.RuntimeRevision
 	if err != nil || route.Dial == nil {
 		if !errors.Is(err, gateway.ErrUnsupported) && route.Action != "block" && route.Action != "reject" {
 			route.Action = "reject"
@@ -135,7 +135,8 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 		if retryErr != nil || next.Dial == nil || internalbudget.Available(ctx, next.Reserve) != nil || next.Acquire != nil && !next.Acquire() {
 			break
 		}
-		next.PolicyID, next.RuleID = result.PolicyID, result.TerminalRuleID
+		next.PolicyID, next.RuleID, next.RuntimeRevision = result.PolicyID, result.TerminalRuleID, result.RuntimeRevision
+		next.ThrottleBPS = route.ThrottleBPS
 		route = next
 		attempt++
 	}
@@ -153,17 +154,22 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 	upstreamUpload := &internaltraffic.Writer{Destination: &internalbudget.Writer{Context: ctx, Destination: upstream, Reserve: route.Reserve}}
 	upstreamDownload := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: ctx, Source: upstream, Reserve: route.Reserve}}
 	clientDownload := &internaltraffic.Writer{Destination: conn}
+	uploadSource, downloadSource := io.Reader(clientUpload), io.Reader(upstreamDownload)
+	if route.ThrottleBPS > 0 {
+		uploadSource = &internaltraffic.ThrottledReader{Context: ctx, Source: uploadSource, BytesPerSecond: route.ThrottleBPS}
+		downloadSource = &internaltraffic.ThrottledReader{Context: ctx, Source: downloadSource, BytesPerSecond: route.ThrottleBPS}
+	}
 	copies.Add(2)
 	go func() {
 		defer copies.Done()
-		_, _ = io.Copy(upstreamUpload, clientUpload)
+		_, _ = io.Copy(upstreamUpload, uploadSource)
 		if writer, ok := upstream.(interface{ CloseWrite() error }); ok {
 			_ = writer.CloseWrite()
 		}
 	}()
 	go func() {
 		defer copies.Done()
-		_, _ = io.Copy(clientDownload, upstreamDownload)
+		_, _ = io.Copy(clientDownload, downloadSource)
 		if writer, ok := conn.(interface{ CloseWrite() error }); ok {
 			_ = writer.CloseWrite()
 		}

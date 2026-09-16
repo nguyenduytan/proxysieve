@@ -85,6 +85,28 @@ test("policy block is classified and reported with control-plane metadata only",
   assert.equal(calls[1].options.body.includes("token=secret"), false);
 });
 
+test("visible HTTP modifiers do not hide a later browser block", async () => {
+  const document = blockPolicy();
+  document.rules[0].actions = [
+    { type: "cache" },
+    { type: "rewrite", value: "/small.png" },
+    { type: "throttle", value: "1024" },
+    { type: "block" },
+  ];
+  const { fetch } = fixture(policySnapshot([document]));
+  const integration = await createBrowserIntegration({
+    controlUrl: "http://localhost:9090",
+    apiKey: `psk_${"a".repeat(43)}`,
+    fetch,
+  });
+  const decision = await integration.classify({
+    url: "https://example.invalid/image.png",
+    resourceType: "image",
+  });
+  assert.equal(decision.block, true);
+  await integration.close();
+});
+
 test("unsupported policy semantics and ambiguous policy sets fail open", async () => {
   const unsupported = fixture(policySnapshot([blockPolicy("regex")]));
   const first = await createBrowserIntegration({

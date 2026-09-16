@@ -124,6 +124,17 @@ func TestBrowserPoliciesReturnsEmptyArray(t *testing.T) {
 	}
 }
 
+func TestBrowserBlockRuleIgnoresVisibleHTTPModifiers(t *testing.T) {
+	rule := policy.Rule{Enabled: true, Actions: []policy.Action{{Type: "cache"}, {Type: "rewrite", Value: "/small"}, {Type: "throttle", Value: "1024"}, {Type: "block"}}}
+	if !browserBlockRule(rule) {
+		t.Fatal("modifiers hid browser block")
+	}
+	rule.Actions = []policy.Action{{Type: "cache"}, {Type: "direct"}, {Type: "block"}}
+	if browserBlockRule(rule) {
+		t.Fatal("action after terminal route changed browser decision")
+	}
+}
+
 func browserTestPolicy(id, ruleID model.ID) policy.Policy {
 	return policy.Policy{Version: 1, ID: id, Name: string(id), Rules: []policy.Rule{{
 		ID: ruleID, Name: string(ruleID), Priority: 100, Enabled: true, StopProcessing: true,

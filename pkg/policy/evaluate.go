@@ -98,7 +98,7 @@ func Evaluate(document Policy, request RequestContext, visibility Visibility, tr
 func hasTerminal(actions []Action) bool {
 	for _, a := range actions {
 		switch a.Type {
-		case "block", "reject", "proxy", "chain", "direct", "cache", "mock", "redirect", "rewrite":
+		case "block", "reject", "proxy", "chain", "direct", "mock", "redirect":
 			return true
 		}
 	}

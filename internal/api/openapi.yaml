@@ -1234,11 +1234,14 @@ components:
       type: object
       required: [type]
       properties:
-        type: {type: string}
+        type: {type: string, enum: [allow, block, reject, direct, proxy, chain, cache, throttle, mock, redirect, rewrite, set_tag, set_session_policy]}
         pool_id: {type: string}
         chain_id: {type: string}
         fallback_chain_ids: {type: array, maxItems: 15, uniqueItems: true, items: {type: string}}
-        value: {type: string, maxLength: 4096}
+        value:
+          type: string
+          maxLength: 4096
+          description: THROTTLE uses decimal bytes per second; MOCK uses a text body; REDIRECT uses an HTTP(S) or origin-relative URL; REWRITE uses an origin-relative path and optional query. CACHE has no value.
     PolicyRecord:
       type: object
       required: [policy, revision]

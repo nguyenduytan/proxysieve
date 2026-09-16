@@ -106,12 +106,16 @@ func expiration(directives map[string]string, headers http.Header, now time.Time
 }
 
 type Key struct {
-	ClientID    model.ID
-	SessionHash string
-	RouteID     model.ID
-	Method      string
-	URL         string
-	Vary        map[string]string
+	ClientID        model.ID
+	SessionHash     string
+	RouteID         model.ID
+	ProxyID         model.ID
+	PolicyID        model.ID
+	RuleID          model.ID
+	RuntimeRevision int64
+	Method          string
+	URL             string
+	Vary            map[string]string
 }
 
 func (k Key) Validate() error {
@@ -121,7 +125,7 @@ func (k Key) Validate() error {
 	return nil
 }
 func (k Key) String() string {
-	parts := []string{string(k.ClientID), k.SessionHash, string(k.RouteID), k.Method, k.URL}
+	parts := []string{string(k.ClientID), k.SessionHash, string(k.RouteID), string(k.ProxyID), string(k.PolicyID), string(k.RuleID), strconv.FormatInt(k.RuntimeRevision, 10), k.Method, k.URL}
 	names := make([]string, 0, len(k.Vary))
 	for name := range k.Vary {
 		names = append(names, name)

@@ -13,7 +13,9 @@ Evaluate enabled rules by descending priority and stable document order. A condi
 can be match, no-match, or unknown. Unknown never matches a rule; it appears in an
 optional trace. Conditions compose with all/any/not. The evaluator is pure and route
 selection happens afterwards. A terminal route is block, reject, direct, proxy,
-cache, mock, redirect, or rewrite; unavailable actions fail at the adapter/router.
+mock, or redirect. Cache and same-origin path rewrite decorate a visible HTTP
+direct/proxy/chain route; throttle decorates HTTP or tunnel streams. Unavailable
+actions fail at the adapter/router.
 
 `DIRECT` requires an explicit policy action and safe pinned destination resolution.
 `PROXY` references an existing pool. A pool failure rejects the request; it never
@@ -21,9 +23,9 @@ silently changes to direct. HTTP and SOCKS use the same evaluator/router contrac
 
 ## Consequences
 
-Runtime currently supports policy document config but has no admin simulator/API.
-Policy validation rejects unknown pool references and bad fallback cycles. HTTPS
-tunnels expose host/port only. Advanced path/header/resource actions remain pending.
+Policy validation rejects unknown pool references, bad fallback cycles and malformed
+advanced-action values. HTTPS tunnels expose host/port only and visible-HTTP actions
+fail closed there. Header/content rewrite remains outside the current contract.
 
 ## Alternatives considered
 
