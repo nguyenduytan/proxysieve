@@ -19,12 +19,12 @@ import (
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 )
 
-const sessionCLIPasswordEnv = "PSV_ADMIN_PASSWORD"
-const maxSessionCLIResponse = 2 << 20
+const adminCLIPasswordEnv = "PSV_ADMIN_PASSWORD"
+const maxAdminCLIResponse = 2 << 20
 
-var errSessionCLI = errors.New("session command failed")
+var errAdminCLI = errors.New("admin command failed")
 
-type sessionCLIClient struct {
+type adminCLIClient struct {
 	base   *url.URL
 	client *http.Client
 	csrf   string
@@ -53,18 +53,18 @@ func runSession(args []string, stdout, stderr io.Writer, env map[string]string) 
 			return usageError(stderr)
 		}
 	}
-	password := env[sessionCLIPasswordEnv]
+	password := env[adminCLIPasswordEnv]
 	if password == "" || len(password) > 4096 {
 		_, _ = io.WriteString(stderr, "SESSION_AUTH_UNAVAILABLE: set PSV_ADMIN_PASSWORD for this command.\n")
 		return 1
 	}
-	client, err := newSessionCLIClient(*adminURL)
+	client, err := newAdminCLIClient(*adminURL)
 	if err != nil || client.login(context.Background(), *username, password) != nil {
 		_, _ = io.WriteString(stderr, "SESSION_AUTH_FAILED: verify the local Admin URL and credentials.\n")
 		return 1
 	}
 	defer client.logout(context.Background())
-	result, err := client.execute(context.Background(), command, id)
+	result, err := client.executeSession(context.Background(), command, id)
 	if err != nil {
 		_, _ = io.WriteString(stderr, "SESSION_COMMAND_FAILED: the requested session operation was not completed.\n")
 		return 1
@@ -99,49 +99,49 @@ func validateSessionPayload(command string, body []byte) error {
 			Items []publicsession.Session `json:"items"`
 		}
 		if err := json.Unmarshal(body, &page); err != nil {
-			return errSessionCLI
+			return errAdminCLI
 		}
 		for _, entry := range page.Items {
 			if entry.Validate() != nil {
-				return errSessionCLI
+				return errAdminCLI
 			}
 		}
 		return nil
 	}
 	var entry publicsession.Session
 	if json.Unmarshal(body, &entry) != nil || entry.Validate() != nil {
-		return errSessionCLI
+		return errAdminCLI
 	}
 	return nil
 }
 
-func newSessionCLIClient(raw string) (*sessionCLIClient, error) {
+func newAdminCLIClient(raw string) (*adminCLIClient, error) {
 	base, err := url.Parse(raw)
 	if err != nil || base.User != nil || base.RawQuery != "" || base.Fragment != "" || base.Path != "" && base.Path != "/" || base.Hostname() == "" {
-		return nil, errSessionCLI
+		return nil, errAdminCLI
 	}
 	if base.Scheme == "http" {
 		host := strings.TrimSuffix(base.Hostname(), ".")
 		ip := net.ParseIP(host)
 		if ip == nil || !ip.IsLoopback() {
-			return nil, errSessionCLI
+			return nil, errAdminCLI
 		}
 	} else if base.Scheme != "https" {
-		return nil, errSessionCLI
+		return nil, errAdminCLI
 	}
 	base.Path = strings.TrimSuffix(base.Path, "/")
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return nil, errSessionCLI
+		return nil, errAdminCLI
 	}
 	httpClient := &http.Client{Jar: jar, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &sessionCLIClient{base: base, client: httpClient}, nil
+	return &adminCLIClient{base: base, client: httpClient}, nil
 }
 
-func (c *sessionCLIClient) login(ctx context.Context, username, password string) error {
+func (c *adminCLIClient) login(ctx context.Context, username, password string) error {
 	body, err := json.Marshal(map[string]string{"username": username, "password": password})
 	if err != nil {
-		return errSessionCLI
+		return errAdminCLI
 	}
 	response, err := c.request(ctx, http.MethodPost, "/api/v1/auth/login", body, false)
 	for i := range body {
@@ -151,7 +151,7 @@ func (c *sessionCLIClient) login(ctx context.Context, username, password string)
 		if response != nil {
 			_ = response.Body.Close()
 		}
-		return errSessionCLI
+		return errAdminCLI
 	}
 	_, err = readBounded(response)
 	if err != nil {
@@ -163,12 +163,12 @@ func (c *sessionCLIClient) login(ctx context.Context, username, password string)
 		}
 	}
 	if c.csrf == "" {
-		return errSessionCLI
+		return errAdminCLI
 	}
 	return nil
 }
 
-func (c *sessionCLIClient) execute(ctx context.Context, command string, id model.ID) ([]byte, error) {
+func (c *adminCLIClient) executeSession(ctx context.Context, command string, id model.ID) ([]byte, error) {
 	method, path := http.MethodGet, "/api/v1/sessions"
 	switch command {
 	case "show":
@@ -184,35 +184,35 @@ func (c *sessionCLIClient) execute(ctx context.Context, command string, id model
 	}
 	response, err := c.request(ctx, method, path, body, method != http.MethodGet)
 	if err != nil {
-		return nil, errSessionCLI
+		return nil, errAdminCLI
 	}
 	if command == "delete" {
 		defer func() { _ = response.Body.Close() }()
 		if response.StatusCode != http.StatusNoContent {
-			return nil, errSessionCLI
+			return nil, errAdminCLI
 		}
 		return nil, nil
 	}
 	if response.StatusCode != http.StatusOK {
 		_ = response.Body.Close()
-		return nil, errSessionCLI
+		return nil, errAdminCLI
 	}
 	return readBounded(response)
 }
 
-func (c *sessionCLIClient) logout(ctx context.Context) {
+func (c *adminCLIClient) logout(ctx context.Context) {
 	response, err := c.request(ctx, http.MethodPost, "/api/v1/auth/logout", []byte("{}"), true)
 	if err == nil {
 		_ = response.Body.Close()
 	}
 }
 
-func (c *sessionCLIClient) request(ctx context.Context, method, path string, body []byte, mutation bool) (*http.Response, error) {
+func (c *adminCLIClient) request(ctx context.Context, method, path string, body []byte, mutation bool) (*http.Response, error) {
 	target := *c.base
 	target.Path = path
 	request, err := http.NewRequestWithContext(ctx, method, target.String(), bytes.NewReader(body))
 	if err != nil {
-		return nil, errSessionCLI
+		return nil, errAdminCLI
 	}
 	request.Header.Set("Accept", "application/json")
 	if body != nil {
@@ -226,9 +226,9 @@ func (c *sessionCLIClient) request(ctx context.Context, method, path string, bod
 
 func readBounded(response *http.Response) ([]byte, error) {
 	defer func() { _ = response.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxSessionCLIResponse+1))
-	if err != nil || len(body) > maxSessionCLIResponse || !json.Valid(body) {
-		return nil, errSessionCLI
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxAdminCLIResponse+1))
+	if err != nil || len(body) > maxAdminCLIResponse || !json.Valid(body) {
+		return nil, errAdminCLI
 	}
 	return body, nil
 }

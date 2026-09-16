@@ -64,7 +64,7 @@ func TestSessionCLIListRotateAndDelete(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	env := map[string]string{sessionCLIPasswordEnv: "private-password"}
+	env := map[string]string{adminCLIPasswordEnv: "private-password"}
 	for _, tc := range []struct {
 		args []string
 		want string
@@ -90,10 +90,10 @@ func TestSessionCLIRejectsUnsafeURLAndMissingPassword(t *testing.T) {
 		env  map[string]string
 		code int
 	}{
-		{[]string{"list", "--admin", "http://example.com:9090", "--username", "admin"}, map[string]string{sessionCLIPasswordEnv: "password"}, 1},
+		{[]string{"list", "--admin", "http://example.com:9090", "--username", "admin"}, map[string]string{adminCLIPasswordEnv: "password"}, 1},
 		{[]string{"list", "--username", "admin"}, map[string]string{}, 1},
-		{[]string{"show", "--username", "admin", "../invalid"}, map[string]string{sessionCLIPasswordEnv: "password"}, 2},
-		{[]string{"delete", "--username", "admin", "--json", "session"}, map[string]string{sessionCLIPasswordEnv: "password"}, 2},
+		{[]string{"show", "--username", "admin", "../invalid"}, map[string]string{adminCLIPasswordEnv: "password"}, 2},
+		{[]string{"delete", "--username", "admin", "--json", "session"}, map[string]string{adminCLIPasswordEnv: "password"}, 2},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := runSession(tc.args, &stdout, &stderr, tc.env); code != tc.code || stdout.Len() != 0 {
@@ -116,7 +116,7 @@ func TestSessionCLIRejectsRedirectAndDoesNotLeakPassword(t *testing.T) {
 	defer redirect.Close()
 
 	var stdout, stderr bytes.Buffer
-	code := runSession([]string{"list", "--admin", redirect.URL, "--username", "admin"}, &stdout, &stderr, map[string]string{sessionCLIPasswordEnv: password})
+	code := runSession([]string{"list", "--admin", redirect.URL, "--username", "admin"}, &stdout, &stderr, map[string]string{adminCLIPasswordEnv: password})
 	if code != 1 || stdout.Len() != 0 || strings.Contains(stderr.String(), password) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -145,7 +145,7 @@ func TestSessionCLIRejectsInvalidAdminPayload(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	code := runSession([]string{"list", "--admin", server.URL, "--username", "admin", "--json"}, &stdout, &stderr, map[string]string{sessionCLIPasswordEnv: "password"})
+	code := runSession([]string{"list", "--admin", server.URL, "--username", "admin", "--json"}, &stdout, &stderr, map[string]string{adminCLIPasswordEnv: "password"})
 	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "invalid session data") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -186,7 +186,7 @@ func TestSessionCLIAgainstAdminAPI(t *testing.T) {
 	defer httpServer.Close()
 	var stdout, stderr bytes.Buffer
 	args := []string{"rotate", "--admin", httpServer.URL, "--username", "admin", string(created.Session.ID)}
-	if code := runSession(args, &stdout, &stderr, map[string]string{sessionCLIPasswordEnv: password}); code != 0 {
+	if code := runSession(args, &stdout, &stderr, map[string]string{adminCLIPasswordEnv: password}); code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	rotated, err := manager.Get(t.Context(), created.Session.ID)

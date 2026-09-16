@@ -33,6 +33,8 @@ Usage:
   proxysieve session show --username USER [--admin URL] [--json] ID
   proxysieve session rotate --username USER [--admin URL] [--json] ID
   proxysieve session delete --username USER [--admin URL] ID
+  proxysieve cache stats --username USER [--admin URL] [--json]
+  proxysieve cache purge --username USER [--admin URL] [--json]
   proxysieve config validate [--file PATH] [--set dotted.path=value]
   proxysieve config print-effective [--file PATH] [--set dotted.path=value]
 
@@ -84,6 +86,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runExport(append([]string{args[0]}, args[1:]...), stdout, stderr, home, environment())
 	case "session":
 		return runSession(args[1:], stdout, stderr, environment())
+	case "cache":
+		return runCache(args[1:], stdout, stderr, environment())
 	case "help", "--help", "-h":
 		if len(args) != 1 {
 			return usageError(stderr)

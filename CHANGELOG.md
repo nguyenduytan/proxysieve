@@ -69,7 +69,7 @@
   traffic attribution.
 - Added complete in-memory response-cache statistics, viewer status API,
   CSRF-protected audited operator purge and a responsive role-aware Admin Cache
-  workspace.
+  workspace, plus matching `cache stats|purge` CLI commands.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe

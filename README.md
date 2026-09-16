@@ -79,6 +79,8 @@ go build -trimpath -o bin/ ./cmd/proxysieve
 ./bin/proxysieve doctor --file config.example.yaml
 ./bin/proxysieve backup --file config.example.yaml --path ./proxysieve-backup.db
 ./bin/proxysieve restore --file config.example.yaml --path ./proxysieve-backup.db
+PSV_ADMIN_PASSWORD=... ./bin/proxysieve cache stats --username admin
+PSV_ADMIN_PASSWORD=... ./bin/proxysieve cache purge --username admin
 ```
 
 On Windows, run `bin\proxysieve.exe start --file config.example.yaml` from
