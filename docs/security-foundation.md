@@ -29,5 +29,8 @@ The admin control plane stores Argon2id password hashes and identity metadata. I
 setup token is memory-only/console-only, session tokens are hashed before lookup,
 mutations require same-origin CSRF validation, and roles gate operations. API keys
 are displayed once and stored only as hashes; audit records contain sanitized
-metadata. Admin TLS, encrypted persistent upstream-secret storage,
+metadata. Browser adapters send those keys only to a loopback control URL, keep
+session metadata in block reports rather than origin headers, and fail open when a
+safe local policy decision cannot be made. Admin TLS, encrypted persistent
+upstream-secret storage,
 role-managed user CRUD and explicit audit retention remain control-plane work.

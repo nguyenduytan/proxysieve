@@ -49,8 +49,9 @@ Client
 
 Encrypted CONNECT and SOCKS tunnels expose only connection metadata such as target
 host and port. ProxySieve does not claim path, header, MIME, or resource visibility
-inside those tunnels. Browser integrations and optional HTTPS inspection are later,
-explicitly scoped features.
+inside those tunnels. The optional Playwright/Puppeteer adapters can block known
+browser resources before they enter a tunnel; optional HTTPS inspection remains a
+separate, explicitly scoped feature.
 
 ## Current Capabilities
 
@@ -62,6 +63,7 @@ explicitly scoped features.
 | Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited revisioned proxy/source/pool/policy/client/API-key APIs, authenticated bounded traffic SSE, cache stats/full/exact-host purge API and CLI, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore, versioned safe config import/export and published OpenAPI contract | General event feeds and webhooks |
 | Measurement | HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, newest-event live buffer, bounded batched SQLite history, restart-safe minute/hour/day rollups, tier-specific pruning, bounded summary/timeseries/breakdown queries, exact cache savings, evidence-separated avoided-byte estimates, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost estimates, rolling health/timing/throughput and circuit state, restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement | Transport/proxy framing, rolling windows, soft/cost budgets, provider billing reconciliation |
 | Cache | Safe opt-in bounded memory or persistent disk response cache with client/session partitioning, explicit HTTP freshness/size eligibility, bounded TTL-based DNS cache, expired-first deterministic eviction, complete response-cache statistics and audited full/exact-host operator purge | Full CACHE action |
+| Browser | Playwright and Puppeteer adapters, short-lived client-scoped policy snapshots, safe presets, bounded estimated local-block reporting and Selenium proxy-only guidance | Service Worker/CDP/BiDi-specific adapters |
 | Dashboard | Embedded authenticated admin shell with Overview, Traffic, Budgets, Cache, Proxies, Sources, Pools, Chains, Health, Sessions, Policies, Clients, Audit and System; responsive navigation; inventory CRUD/import/simulation/activation/rollback workflows; health checks; cache operations; chain probes; session inspection/rotation; source scheduling; client/API-key lifecycle; sanitized audit history; real 24-hour traffic metrics/chart | Full visual rule builder, broader analytics/cost views, Alerts when its backend exists |
 
 Read [PROGRESS.md](PROGRESS.md) for the precise milestone checklist. A green local
@@ -97,7 +99,8 @@ listener/control plane but does not route user traffic until a policy/pool/endpo
 configuration explicitly permits it. See [configuration](docs/configuration.md)
 and [admin API foundation](docs/admin-api-foundation.md).
 Operational backup and portable configuration workflows are described in
-[operations](docs/operations.md).
+[operations](docs/operations.md). Playwright, Puppeteer and Selenium setup is in
+[browser integrations](docs/browser-integrations.md).
 
 `proxysieve doctor` validates the effective configuration and reports data-directory,
 SQLite schema and listener-bind readiness without starting the gateway. Add `--json`
@@ -124,6 +127,10 @@ pnpm --dir web lint
 pnpm --dir web test
 pnpm --dir web build
 pnpm --dir web dev
+
+pnpm --dir integrations install --frozen-lockfile
+pnpm --dir integrations test
+pnpm --dir integrations test:e2e
 ```
 
 `pnpm --dir web build` produces immutable SPA assets under `internal/api/ui/` for
@@ -157,6 +164,7 @@ paste proxy credentials, cookies, API keys, setup tokens, or user traffic in iss
 - [Proxy chains](docs/chains.md)
 - [Sticky sessions](docs/sessions.md)
 - [Policy inventory and simulation](docs/policies.md)
+- [Browser integrations](docs/browser-integrations.md)
 - [Runtime activation and rollback](docs/runtime-activation.md)
 - [Proxy source security](docs/proxy-sources.md)
 - [Traffic accounting](docs/traffic-accounting.md)

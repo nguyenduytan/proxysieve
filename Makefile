@@ -1,25 +1,29 @@
 GO ?= go
 PNPM ?= pnpm
 
-.PHONY: bootstrap fmt lint test race fuzz integration benchmark build web run docker
+.PHONY: bootstrap fmt lint test race fuzz integration browser benchmark build web run docker
 bootstrap:
 	$(GO) version
 	node --version
 	$(PNPM) --version
 	$(PNPM) --dir web install --frozen-lockfile
+	$(PNPM) --dir integrations install --frozen-lockfile
 
 fmt:
 	gofmt -w cmd internal pkg
 	$(PNPM) --dir web format
+	$(PNPM) --dir web exec prettier --write ../integrations
 
 lint:
 	$(GO) vet ./...
 	golangci-lint run
 	$(PNPM) --dir web lint
+	$(PNPM) --dir web exec prettier --check ../integrations
 
 test:
 	$(GO) test ./...
 	$(PNPM) --dir web test
+	$(PNPM) --dir integrations test
 
 race:
 	$(GO) test -race ./...
@@ -34,6 +38,10 @@ fuzz:
 
 integration:
 	$(GO) test -count=1 ./internal/app ./internal/upstream ./internal/transport/httpforward ./internal/transport/socks5
+
+browser:
+	$(PNPM) --dir integrations test
+	$(PNPM) --dir integrations test:e2e
 
 benchmark:
 	$(GO) test -run '^$$' -bench 'Benchmark(PolicyEvaluation|Selector|TrafficRecordFullBuffer|ResponseCacheHit)$$' -benchmem ./pkg/policy ./pkg/routing ./internal/traffic ./internal/cache

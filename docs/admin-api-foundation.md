@@ -207,6 +207,13 @@ before any origin request. SOCKS5 username/password auth is handled at the liste
 boundary and maps the configured credential to an opaque client identity; API-key
 authentication remains HTTP-only.
 
+The same one-time client key authenticates the local browser control endpoints:
+`GET /api/v1/browser/policy` returns a short-lived, client-scoped active snapshot,
+and `POST /api/v1/browser/blocks` accepts at most 100 validated local-block hints.
+Reports derive client identity from the key and are stored as estimated avoided
+bytes under protocol `browser`; they are not measured upstream traffic or a way to
+bypass gateway policy, destination security or budgets.
+
 ## Audit Events
 
 The SQLite audit trail records actor, action, target, request ID and timestamp for

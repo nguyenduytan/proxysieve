@@ -1,0 +1,17 @@
+{
+  "name": "@proxysieve/browser-integrations",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "test": "node --test --test-isolation=none test/browser.test.js test/adapters.test.js",
+    "test:e2e": "node --test --test-isolation=none test/e2e.test.js"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0",
+    "puppeteer-core": "25.11.0"
+  }
+}

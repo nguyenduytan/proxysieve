@@ -14,6 +14,13 @@ updates:
     groups:
       frontend-dependencies:
         patterns: ['*']
+  - package-ecosystem: npm
+    directory: /integrations
+    schedule:
+      interval: weekly
+    groups:
+      browser-integration-dependencies:
+        patterns: ['*']
   - package-ecosystem: github-actions
     directory: /
     schedule:

@@ -23,6 +23,7 @@ import (
 	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	"github.com/nguyenduytan/proxysieve/internal/buildinfo"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
+	"github.com/nguyenduytan/proxysieve/internal/downstreamauth"
 	"github.com/nguyenduytan/proxysieve/internal/keys"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
@@ -44,34 +45,36 @@ const maxBodyBytes = 64 << 10
 var openAPISpec []byte
 
 type Server struct {
-	admin          *admin.Service
-	traffic        *internaltraffic.Memory
-	endpoints      store.Endpoints
-	sources        store.Sources
-	pools          store.Pools
-	chains         store.Chains
-	policies       store.Policies
-	clients        ClientStore
-	trafficStore   TrafficStore
-	trafficStatus  TrafficStatus
-	runtimeControl RuntimeControl
-	sessions       SessionStore
-	health         HealthControl
-	budgets        *internalbudget.Manager
-	responseCache  internalcache.ResponseStore
-	audit          audit.Writer
-	now            func() time.Time
-	sourceResolver internalsource.Resolver
-	sourcePolicy   security.DestinationPolicy
-	sourceRefresh  *internalsource.Refresher
-	ui             http.Handler
-	limitMu        sync.Mutex
-	routingMu      sync.Mutex
-	chainHealthMu  sync.RWMutex
-	chainHealth    map[model.ID]chainHealthRecord
-	chainTester    ChainTester
-	windowStart    time.Time
-	authAttempts   int
+	admin           *admin.Service
+	traffic         *internaltraffic.Memory
+	endpoints       store.Endpoints
+	sources         store.Sources
+	pools           store.Pools
+	chains          store.Chains
+	policies        store.Policies
+	clients         ClientStore
+	trafficStore    TrafficStore
+	trafficStatus   TrafficStatus
+	runtimeControl  RuntimeControl
+	browserAuth     downstreamauth.Store
+	browserRecorder publictraffic.Recorder
+	sessions        SessionStore
+	health          HealthControl
+	budgets         *internalbudget.Manager
+	responseCache   internalcache.ResponseStore
+	audit           audit.Writer
+	now             func() time.Time
+	sourceResolver  internalsource.Resolver
+	sourcePolicy    security.DestinationPolicy
+	sourceRefresh   *internalsource.Refresher
+	ui              http.Handler
+	limitMu         sync.Mutex
+	routingMu       sync.Mutex
+	chainHealthMu   sync.RWMutex
+	chainHealth     map[model.ID]chainHealthRecord
+	chainTester     ChainTester
+	windowStart     time.Time
+	authAttempts    int
 }
 
 type ClientStore interface {
@@ -112,6 +115,10 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 	if len(clientStores) > 0 {
 		clients = clientStores[0]
 	}
+	var browserAuth downstreamauth.Store
+	if authStore, ok := clients.(downstreamauth.Store); ok {
+		browserAuth = authStore
+	}
 	var durable TrafficStore
 	if source, ok := endpoints.(TrafficStore); ok {
 		durable = source
@@ -134,7 +141,7 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 	}
 	return &Server{
 		admin: service, traffic: traffic, endpoints: endpoints, sources: sources, pools: pools, chains: chains, policies: policies,
-		clients: clients, trafficStore: durable, audit: auditWriter, ui: dashboardHandler(),
+		clients: clients, trafficStore: durable, browserAuth: browserAuth, browserRecorder: traffic, audit: auditWriter, ui: dashboardHandler(),
 		chainHealth:    map[model.ID]chainHealthRecord{},
 		now:            func() time.Time { return time.Now().UTC() },
 		sourceResolver: sourceResolver{},
@@ -151,6 +158,7 @@ func (sourceResolver) LookupNetIP(ctx context.Context, host string) ([]netip.Add
 func (s *Server) Handler() http.Handler                              { return securityHeaders(http.HandlerFunc(s.handle)) }
 func (s *Server) SetTrafficStatus(status TrafficStatus)              { s.trafficStatus = status }
 func (s *Server) SetRuntimeControl(control RuntimeControl)           { s.runtimeControl = control }
+func (s *Server) SetBrowserRecorder(recorder publictraffic.Recorder) { s.browserRecorder = recorder }
 func (s *Server) SetSessions(sessions SessionStore)                  { s.sessions = sessions }
 func (s *Server) SetHealth(health HealthControl)                     { s.health = health }
 func (s *Server) SetBudgets(budgets *internalbudget.Manager)         { s.budgets = budgets }
@@ -236,6 +244,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficTimeseries(w, r) })
 	case "/api/v1/traffic/breakdown":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficBreakdown(w, r) })
+	case "/api/v1/browser/policy":
+		s.browserPolicy(w, r)
+	case "/api/v1/browser/blocks":
+		s.browserBlocks(w, r)
 	case "/api/v1/budgets":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.budgetStatuses(w, r) })
 	case "/api/v1/cache/stats":

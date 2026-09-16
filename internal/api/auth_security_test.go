@@ -85,7 +85,7 @@ func TestOpenAPIContractIsServedWithoutSession(t *testing.T) {
 	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/yaml; charset=utf-8" {
 		t.Fatal(response.Code, response.Header())
 	}
-	if !strings.Contains(response.Body.String(), "openapi: 3.1.0") || !strings.Contains(response.Body.String(), "/api/v1/clients/{clientId}/api-keys/{keyId}") || !strings.Contains(response.Body.String(), "/api/v1/sources/{sourceId}") {
+	if !strings.Contains(response.Body.String(), "openapi: 3.1.0") || !strings.Contains(response.Body.String(), "/api/v1/clients/{clientId}/api-keys/{keyId}") || !strings.Contains(response.Body.String(), "/api/v1/sources/{sourceId}") || !strings.Contains(response.Body.String(), "/api/v1/browser/policy") || !strings.Contains(response.Body.String(), "/api/v1/browser/blocks") {
 		t.Fatal("served OpenAPI contract is incomplete")
 	}
 }

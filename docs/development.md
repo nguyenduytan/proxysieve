@@ -31,6 +31,9 @@ pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
 pnpm --dir web test
 pnpm --dir web build
+pnpm --dir integrations install --frozen-lockfile
+pnpm --dir integrations test
+pnpm --dir integrations test:e2e
 ```
 
 Go race testing requires a supported C toolchain/platform; run on Linux CI if the
@@ -50,6 +53,11 @@ the raw `go test -fuzz` commands a larger `-fuzztime`.
 100/1,000 endpoints, a full traffic recorder and the response-cache hit path. The
 benchmark workflow retains five-run results as an artifact. Results are evidence,
 not a release threshold, until the first accepted release-candidate baseline exists.
+
+Browser integration unit tests use only local fixtures. The E2E suite launches the
+installed stable Chrome through a local recording proxy and proves Playwright and
+Puppeteer block image, media, font and tracker requests before that proxy while the
+document and XHR still succeed. It never contacts a public or paid proxy.
 
 ## Frontend workflow
 

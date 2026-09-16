@@ -747,6 +747,7 @@ func Build(c config.Config) (Runtime, error) {
 		}
 		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: runtimeResolver, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}}, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout), globalPace: checkPace(c.Health.GlobalCheckRate), poolPace: checkPace(c.Health.PoolCheckRate)}
 		server.SetTrafficStatus(durableRecorder)
+		server.SetBrowserRecorder(internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}})
 		server.SetSessions(sessionManager)
 		server.SetHealth(healthService)
 		server.SetBudgets(budgetManager)

@@ -7,7 +7,8 @@ tag does not publish the draft.
 
 The draft contains Linux, Windows and macOS archives for amd64 and arm64, a
 `checksums.txt` file and `proxysieve.spdx.json`. Each archive also includes the
-example configuration and operator documentation. GitHub artifact attestations
+example configuration, operator documentation and runtime-dependency-free browser adapter
+sources. GitHub artifact attestations
 bind the archives and SBOM to the tag workflow. Pre-release tags remain
 pre-releases.
 

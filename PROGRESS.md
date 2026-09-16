@@ -14,7 +14,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement with API/Admin observability locally implemented; transport framing, rolling windows, soft thresholds, cost budgets and budget CRUD pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions (safe bounded memory/disk response cache, explicit HTTP freshness, deterministic TTL eviction, bounded DNS cache, complete process-lifetime cache statistics, audited full/exact-host purge API/CLI and role-aware Admin workspace locally implemented; CACHE action completion and remaining visible-HTTP actions pending)
-- [ ] M10 — Browser integrations
+- [x] M10 — Browser integrations (client-scoped snapshot/control contract, safe presets, Playwright/Puppeteer adapters, bounded estimated block reporting, Selenium foundation and controlled Chrome E2E complete locally)
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key/cache lifecycle endpoints, bounded authenticated traffic SSE and embedded OpenAPI contract locally implemented; broader API/event completion pending)
 - [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including budget usage and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
@@ -55,6 +55,17 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - Replaced fixed durable traffic queue settings with validated schema-v1 capacity,
   batch and flush controls. A concurrent 8,000-event burst proves accepted events
   drain without analytics loss; long-duration and hosted load evidence remains.
+- Completed the browser integration slice with API-key-authenticated, client-scoped
+  active policy snapshots and bounded local-block reports recorded only as estimated
+  avoided bytes. The shared evaluator fails open on expired/offline/unsupported or
+  ambiguous policy state; integration metadata is never attached to origin traffic.
+- Added runtime-dependency-free Playwright and Puppeteer adapters with safe presets,
+  idempotent cleanup, cooperative interception behavior and Selenium proxy-only
+  guidance. Unit tests cover forged attribution, policy scope, snapshot expiry,
+  concurrent sessions and existing handlers. Controlled stable-Chrome E2E proves
+  image/media/font/tracker requests never reach the local upstream proxy fixture
+  while the document and XHR succeed. The hosted browser workflow remains pending
+  until these commits are pushed.
 
 ### Latest local continuation — inventory lifecycle (2026-09-13)
 

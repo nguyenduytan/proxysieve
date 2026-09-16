@@ -23,6 +23,10 @@ archives:
       - CHANGELOG.md
       - config.example.yaml
       - docs/**
+      - integrations/package.json
+      - integrations/browser/**
+      - integrations/playwright/**
+      - integrations/puppeteer/**
 checksum:
   name_template: checksums.txt
 release:

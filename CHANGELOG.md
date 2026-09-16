@@ -4,6 +4,10 @@
 
 ### Added
 
+- Added runtime-dependency-free Playwright and Puppeteer adapters with loopback-only,
+  API-key-authenticated policy snapshots, safe presets, bounded estimated local-
+  block reporting, idempotent cleanup, Selenium guidance and deterministic Chrome
+  E2E proof that blocked resources never reach the upstream proxy fixture.
 - Authenticated responsive Admin Panel with API-backed Overview, Traffic, Proxies,
   Sources, Pools, Chains, Sessions, Policies, Clients, Audit and System
   destinations; duplicate/inert Alerts navigation was removed.

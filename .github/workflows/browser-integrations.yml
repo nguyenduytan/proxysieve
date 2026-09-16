@@ -1,0 +1,36 @@
+name: Browser Integrations
+on:
+  push:
+    branches: [main, 'codex/**']
+    paths: ['integrations/**', 'internal/api/server_browser.go', 'internal/api/server_browser_test.go', '.github/workflows/browser-integrations.yml']
+  pull_request:
+    paths: ['integrations/**', 'internal/api/server_browser.go', 'internal/api/server_browser_test.go', '.github/workflows/browser-integrations.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+        with:
+          version: '11.19.0'
+          run_install: false
+      - run: google-chrome --version
+      - run: pnpm --dir integrations install --frozen-lockfile
+      - run: pnpm --dir integrations test
+      - run: pnpm --dir integrations test:e2e
