@@ -90,7 +90,10 @@ response delivery, or bypasses health and hard-budget checks.
 `client`, `pool`, and `proxy`; every non-system scope requires `scope_id`. Pool and
 proxy IDs must exist in the same configuration. A hard budget currently requires
 `action: reject`. Configured budgets require the SQLite-backed admin/control store;
-startup fails rather than silently running an in-memory hard limit.
+startup fails rather than silently running an in-memory hard limit. Omitted `window`
+means lifetime usage. `daily`, `weekly`, and `monthly` calendar windows require an
+explicit IANA `timezone`; week boundaries are Monday 00:00 local and UTC persistence
+preserves DST behavior.
 
 Listener arrays replace defaults in full. Required listener identity/protocol/auth
 fields must be present. Omitted connection limit/idle timeout receive safe defaults;

@@ -113,6 +113,7 @@ func TestBudgetConfigurationScopes(t *testing.T) {
 	for _, configured := range []publicbudget.Config{
 		{ID: "pool-limit", Name: "Missing pool", Scope: publicbudget.ScopePool, ScopeID: "missing", Limit: 1, Hard: true, Action: publicbudget.ActionReject},
 		{ID: "bad-soft", Name: "Bad hard action", Scope: publicbudget.ScopeSystem, Limit: 1, Hard: true, Action: publicbudget.ActionAlert},
+		{ID: "missing-zone", Name: "Missing zone", Scope: publicbudget.ScopeSystem, Limit: 1, Hard: true, Action: publicbudget.ActionReject, Window: publicbudget.WindowDaily},
 	} {
 		invalid := Defaults(t.TempDir())
 		invalid.Budgets = []publicbudget.Config{configured}

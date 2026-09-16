@@ -12,7 +12,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
 - [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
-- [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe hard byte-budget enforcement locally implemented; transport framing, billing windows, projections, soft thresholds and cost budgets pending)
+- [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement locally implemented; transport framing, rolling windows, projections, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key lifecycle endpoints and embedded OpenAPI contract locally implemented; SSE pending)
@@ -349,6 +349,15 @@ public push or release was performed. Preserved the existing API/frontend edits.
 - Startup conservatively converts crash-left reservations to used bytes, so restart
   cannot reset enforcement. Tests cover concurrency, multiple scopes, restart
   recovery, exact stream cutoff and runtime HTTP rejection.
+
+### Calendar hard-budget continuation — 2026-09-16
+
+- Added schema 19 usage rows keyed by budget and UTC window start. Existing lifetime
+  usage upgrades under the zero window without resetting enforcement.
+- Added daily, Monday-based weekly and monthly windows with mandatory IANA timezone
+  names. Local calendar boundaries follow DST while persisted timestamps stay UTC.
+- Tests cover a 23-hour DST day, weekly/monthly boundaries, local-midnight rollover,
+  restart persistence and schema-18 migration.
 
 ### Original milestone entry gate
 

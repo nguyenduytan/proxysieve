@@ -27,8 +27,22 @@ budgets:
     limit_bytes: 10000000000
     hard: true
     action: reject
+    window: monthly
+    timezone: Asia/Saigon
 ```
 
-Current limits are lifetime byte guards. Billing calendars, rolling windows, soft
-threshold notifications, cost-denominated limits, API/UI management, throttle,
-pool switching and fallback-policy actions remain required before M8 is complete.
+Omit `window` for a lifetime guard. Calendar guards accept `daily`, `weekly`, or
+`monthly` and require an explicit IANA `timezone`; `Local` is rejected so host
+settings cannot silently change enforcement. Daily windows start at local midnight,
+weekly windows start Monday at local midnight, and monthly windows start on day 1.
+Bounds are persisted as UTC instants and follow timezone DST transitions, so a local
+day may contain 23 or 25 elapsed hours. A bounded reservation is charged to the
+window in which it was acquired.
+
+Schema 19 stores usage by budget and window start. Existing lifetime usage upgrades
+under window start zero without resetting the guard. Crash-left reservations remain
+charged to their original window during startup recovery.
+
+Rolling windows, soft threshold notifications, cost-denominated limits, API/UI
+management, throttle, pool switching and fallback-policy actions remain required
+before M8 is complete.

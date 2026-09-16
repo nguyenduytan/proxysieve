@@ -127,7 +127,7 @@ func TestPersistenceAndMigrationChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 18 || status.JournalMode != "wal" || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
+	if err != nil || status.SchemaVersion != 19 || status.JournalMode != "wal" || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
 		t.Fatalf("%+v %v", status, err)
 	}
 	if err = s.Close(); err != nil {
@@ -166,7 +166,7 @@ func TestFutureSchemaRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (19,'future','unknown')"); err != nil {
+	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (20,'future','unknown')"); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.Close()
@@ -185,7 +185,7 @@ func TestSchemaTwelveUpgradePreservesInventoryAndAddsPolicies(t *testing.T) {
 	}
 	old := &Store{db: database, endpoints: endpoints{q: database}}
 	names, err := fs.Glob(migrations, "migrations/*.sql")
-	if err != nil || len(names) != 18 {
+	if err != nil || len(names) != 19 {
 		t.Fatal(names, err)
 	}
 	files := fstest.MapFS{}
@@ -232,10 +232,50 @@ func TestSchemaTwelveUpgradePreservesInventoryAndAddsPolicies(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := repository.Status(t.Context())
-	if err != nil || status.SchemaVersion != 18 || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
+	if err != nil || status.SchemaVersion != 19 || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
 		t.Fatal(status, err)
 	}
 }
+
+func TestSchemaEighteenUpgradePreservesLifetimeBudgetUsage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schema-18.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := &Store{db: database}
+	names, err := fs.Glob(migrations, "migrations/*.sql")
+	if err != nil || len(names) != 19 {
+		t.Fatal(names, err)
+	}
+	files := fstest.MapFS{}
+	for _, name := range names[:18] {
+		data, readErr := migrations.ReadFile(name)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		files[name] = &fstest.MapFile{Data: data}
+	}
+	if err = old.migrate(t.Context(), files); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.Exec("INSERT INTO budget_usage(budget_id,used_bytes,reserved_bytes) VALUES ('system',7,3)"); err != nil {
+		t.Fatal(err)
+	}
+	if err = old.Close(); err != nil {
+		t.Fatal(err)
+	}
+	repository, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repository.Close() })
+	var windowStart, used, reserved int64
+	if err = repository.db.QueryRow("SELECT window_start,used_bytes,reserved_bytes FROM budget_usage WHERE budget_id='system'").Scan(&windowStart, &used, &reserved); err != nil || windowStart != 0 || used != 7 || reserved != 3 {
+		t.Fatal(windowStart, used, reserved, err)
+	}
+}
+
 func TestMigrationAtomicity(t *testing.T) {
 	s, err := Open(t.Context(), filepath.Join(t.TempDir(), "rollback.db"))
 	if err != nil {
@@ -258,7 +298,7 @@ func TestMigrationAtomicity(t *testing.T) {
 		t.Fatalf("table survived rollback: %d %v", n, err)
 	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 18 {
+	if err != nil || status.SchemaVersion != 19 {
 		t.Fatalf("%+v %v", status, err)
 	}
 }

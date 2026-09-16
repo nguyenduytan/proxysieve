@@ -510,10 +510,11 @@ func TestPaidRouteHardBudgetPersistsAndRejectsNextRequest(t *testing.T) {
 	if err != nil || string(body) != "x" {
 		t.Fatal(string(body), err)
 	}
-	if err = runtime.Store.ReserveBudgets(t.Context(), c.Budgets, 1); err != nil {
+	at := time.Now().UTC()
+	if err = runtime.Store.ReserveBudgets(t.Context(), c.Budgets, at, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err = runtime.Store.ConsumeBudgets(t.Context(), []model.ID{"system"}, 1); err != nil {
+	if err = runtime.Store.ConsumeBudgets(t.Context(), c.Budgets, at, 1); err != nil {
 		t.Fatal(err)
 	}
 	response, err = client.Get("http://origin.example.invalid/second")
@@ -524,7 +525,7 @@ func TestPaidRouteHardBudgetPersistsAndRejectsNextRequest(t *testing.T) {
 	if response.StatusCode != http.StatusTooManyRequests {
 		t.Fatal(response.StatusCode)
 	}
-	usage, err := runtime.Store.BudgetUsage(t.Context(), "system")
+	usage, err := runtime.Store.BudgetUsage(t.Context(), c.Budgets[0], at)
 	if err != nil || usage.Used != 2 || usage.Reserved != 0 {
 		t.Fatal(usage, err)
 	}

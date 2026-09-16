@@ -5,14 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"math"
+	"time"
 
 	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
-	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
-func (s *Store) ReserveBudgets(ctx context.Context, configs []publicbudget.Config, amount traffic.Bytes) error {
+func (s *Store) ReserveBudgets(ctx context.Context, configs []publicbudget.Config, at time.Time, amount traffic.Bytes) error {
 	if len(configs) == 0 || amount == 0 || uint64(amount) > math.MaxInt64 {
 		return publicbudget.ErrInvalid
 	}
@@ -25,11 +25,15 @@ func (s *Store) ReserveBudgets(ctx context.Context, configs []publicbudget.Confi
 		if configured.Validate() != nil || uint64(configured.Limit) > math.MaxInt64 {
 			return publicbudget.ErrInvalid
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO budget_usage(budget_id) VALUES (?)", string(configured.ID)); err != nil {
+		windowStart, windowErr := budgetWindowStart(configured, at)
+		if windowErr != nil {
+			return windowErr
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO budget_usage(budget_id,window_start) VALUES (?,?)", string(configured.ID), windowStart); err != nil {
 			return safeError(ctx, err)
 		}
 		var used, reserved int64
-		if err = tx.QueryRowContext(ctx, "SELECT used_bytes,reserved_bytes FROM budget_usage WHERE budget_id=?", string(configured.ID)).Scan(&used, &reserved); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT used_bytes,reserved_bytes FROM budget_usage WHERE budget_id=? AND window_start=?", string(configured.ID), windowStart).Scan(&used, &reserved); err != nil {
 			return safeError(ctx, err)
 		}
 		requested := int64(amount)
@@ -39,23 +43,24 @@ func (s *Store) ReserveBudgets(ctx context.Context, configs []publicbudget.Confi
 		}
 	}
 	for _, configured := range configs {
-		if _, err = tx.ExecContext(ctx, "UPDATE budget_usage SET reserved_bytes=reserved_bytes+? WHERE budget_id=?", int64(amount), string(configured.ID)); err != nil {
+		windowStart, _ := budgetWindowStart(configured, at)
+		if _, err = tx.ExecContext(ctx, "UPDATE budget_usage SET reserved_bytes=reserved_bytes+? WHERE budget_id=? AND window_start=?", int64(amount), string(configured.ID), windowStart); err != nil {
 			return safeError(ctx, err)
 		}
 	}
 	return safeError(ctx, tx.Commit())
 }
 
-func (s *Store) ConsumeBudgets(ctx context.Context, ids []model.ID, amount traffic.Bytes) error {
-	return s.moveBudgetReservation(ctx, ids, amount, true)
+func (s *Store) ConsumeBudgets(ctx context.Context, configs []publicbudget.Config, at time.Time, amount traffic.Bytes) error {
+	return s.moveBudgetReservation(ctx, configs, at, amount, true)
 }
 
-func (s *Store) ReleaseBudgets(ctx context.Context, ids []model.ID, amount traffic.Bytes) error {
-	return s.moveBudgetReservation(ctx, ids, amount, false)
+func (s *Store) ReleaseBudgets(ctx context.Context, configs []publicbudget.Config, at time.Time, amount traffic.Bytes) error {
+	return s.moveBudgetReservation(ctx, configs, at, amount, false)
 }
 
-func (s *Store) moveBudgetReservation(ctx context.Context, ids []model.ID, amount traffic.Bytes, consume bool) error {
-	if len(ids) == 0 || uint64(amount) > math.MaxInt64 {
+func (s *Store) moveBudgetReservation(ctx context.Context, configs []publicbudget.Config, at time.Time, amount traffic.Bytes, consume bool) error {
+	if len(configs) == 0 || uint64(amount) > math.MaxInt64 {
 		return publicbudget.ErrInvalid
 	}
 	if amount == 0 {
@@ -66,19 +71,20 @@ func (s *Store) moveBudgetReservation(ctx context.Context, ids []model.ID, amoun
 		return safeError(ctx, err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	for _, id := range ids {
-		if !id.Valid() {
-			return publicbudget.ErrInvalid
+	for _, configured := range configs {
+		windowStart, windowErr := budgetWindowStart(configured, at)
+		if windowErr != nil {
+			return windowErr
 		}
-		statement := "UPDATE budget_usage SET reserved_bytes=reserved_bytes-? WHERE budget_id=? AND reserved_bytes>=?"
+		statement := "UPDATE budget_usage SET reserved_bytes=reserved_bytes-? WHERE budget_id=? AND window_start=? AND reserved_bytes>=?"
 		if consume {
-			statement = "UPDATE budget_usage SET reserved_bytes=reserved_bytes-?,used_bytes=used_bytes+? WHERE budget_id=? AND reserved_bytes>=? AND used_bytes<=?"
+			statement = "UPDATE budget_usage SET reserved_bytes=reserved_bytes-?,used_bytes=used_bytes+? WHERE budget_id=? AND window_start=? AND reserved_bytes>=? AND used_bytes<=?"
 		}
 		var result sql.Result
 		if consume {
-			result, err = tx.ExecContext(ctx, statement, int64(amount), int64(amount), string(id), int64(amount), math.MaxInt64-int64(amount))
+			result, err = tx.ExecContext(ctx, statement, int64(amount), int64(amount), string(configured.ID), windowStart, int64(amount), math.MaxInt64-int64(amount))
 		} else {
-			result, err = tx.ExecContext(ctx, statement, int64(amount), string(id), int64(amount))
+			result, err = tx.ExecContext(ctx, statement, int64(amount), string(configured.ID), windowStart, int64(amount))
 		}
 		if err != nil {
 			return safeError(ctx, err)
@@ -93,12 +99,13 @@ func (s *Store) moveBudgetReservation(ctx context.Context, ids []model.ID, amoun
 	return safeError(ctx, tx.Commit())
 }
 
-func (s *Store) BudgetUsage(ctx context.Context, id model.ID) (publicbudget.Usage, error) {
-	if !id.Valid() {
-		return publicbudget.Usage{}, publicbudget.ErrInvalid
+func (s *Store) BudgetUsage(ctx context.Context, configured publicbudget.Config, at time.Time) (publicbudget.Usage, error) {
+	windowStart, err := budgetWindowStart(configured, at)
+	if err != nil {
+		return publicbudget.Usage{}, err
 	}
 	var used, reserved int64
-	err := s.db.QueryRowContext(ctx, "SELECT used_bytes,reserved_bytes FROM budget_usage WHERE budget_id=?", string(id)).Scan(&used, &reserved)
+	err = s.db.QueryRowContext(ctx, "SELECT used_bytes,reserved_bytes FROM budget_usage WHERE budget_id=? AND window_start=?", string(configured.ID), windowStart).Scan(&used, &reserved)
 	if errors.Is(err, sql.ErrNoRows) {
 		return publicbudget.Usage{}, nil
 	}
@@ -129,4 +136,15 @@ WHERE reserved_bytes>0 AND used_bytes<=9223372036854775807-reserved_bytes`)
 		return store.ErrSchema
 	}
 	return nil
+}
+
+func budgetWindowStart(configured publicbudget.Config, at time.Time) (int64, error) {
+	start, _, err := configured.WindowBounds(at)
+	if err != nil {
+		return 0, err
+	}
+	if start.IsZero() {
+		return 0, nil
+	}
+	return start.UnixNano(), nil
 }

@@ -135,7 +135,7 @@ The legacy `traffic.retention_days` field remains the raw retention policy;
 coarser tiers. Effective durations are normalized so a coarser tier is never shorter
 than the tier below it. Analytics read one non-overlapping authoritative tier for
 each time range, and all four watermarks survive restart. Transport-framing
-accounting, billing-window/cost budgets and projections are not completed by this
+accounting, rolling-window/cost budgets and projections are not completed by this
 foundation. Configured-cost analytics are estimates over rated application-stream
 bytes, not provider invoice reconciliation. Durable hard byte-budget state is
 separate from the best-effort analytics queue and fails closed on storage errors.

@@ -4,9 +4,13 @@ package budget
 import (
 	"context"
 	"errors"
+	"math"
+	"strings"
+	"time"
+	_ "time/tzdata"
+
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/traffic"
-	"math"
 )
 
 var ErrInvalid = errors.New("invalid budget")
@@ -15,6 +19,7 @@ var ErrClosed = errors.New("budget lease is closed")
 
 type Action string
 type Scope string
+type Window string
 
 const (
 	ActionAlert    Action = "alert"
@@ -24,16 +29,22 @@ const (
 	ScopeClient    Scope  = "client"
 	ScopePool      Scope  = "pool"
 	ScopeProxy     Scope  = "proxy"
+	WindowLifetime Window = "lifetime"
+	WindowDaily    Window = "daily"
+	WindowWeekly   Window = "weekly"
+	WindowMonthly  Window = "monthly"
 )
 
 type Config struct {
-	ID      model.ID      `json:"id" yaml:"id"`
-	Name    string        `json:"name" yaml:"name"`
-	Scope   Scope         `json:"scope" yaml:"scope"`
-	ScopeID model.ID      `json:"scope_id,omitempty" yaml:"scope_id,omitempty"`
-	Limit   traffic.Bytes `json:"limit_bytes" yaml:"limit_bytes"`
-	Hard    bool          `json:"hard" yaml:"hard"`
-	Action  Action        `json:"action" yaml:"action"`
+	ID       model.ID      `json:"id" yaml:"id"`
+	Name     string        `json:"name" yaml:"name"`
+	Scope    Scope         `json:"scope" yaml:"scope"`
+	ScopeID  model.ID      `json:"scope_id,omitempty" yaml:"scope_id,omitempty"`
+	Limit    traffic.Bytes `json:"limit_bytes" yaml:"limit_bytes"`
+	Hard     bool          `json:"hard" yaml:"hard"`
+	Action   Action        `json:"action" yaml:"action"`
+	Window   Window        `json:"window,omitempty" yaml:"window,omitempty"`
+	Timezone string        `json:"timezone,omitempty" yaml:"timezone,omitempty"`
 }
 
 func (c Config) Validate() error {
@@ -56,7 +67,55 @@ func (c Config) Validate() error {
 	if scope == ScopeSystem && c.ScopeID != "" || scope != ScopeSystem && !c.ScopeID.Valid() {
 		return ErrInvalid
 	}
+	window := c.Window
+	if window == "" {
+		window = WindowLifetime
+	}
+	if window == WindowLifetime {
+		if c.Timezone != "" {
+			return ErrInvalid
+		}
+		return nil
+	}
+	if window != WindowDaily && window != WindowWeekly && window != WindowMonthly || c.Timezone == "" || c.Timezone == "Local" || len(c.Timezone) > 128 || strings.TrimSpace(c.Timezone) != c.Timezone {
+		return ErrInvalid
+	}
+	if _, err := time.LoadLocation(c.Timezone); err != nil {
+		return ErrInvalid
+	}
 	return nil
+}
+
+// WindowBounds returns the half-open UTC interval containing at. A lifetime
+// budget has zero bounds and therefore keeps the legacy durable usage row.
+func (c Config) WindowBounds(at time.Time) (time.Time, time.Time, error) {
+	if c.Validate() != nil || at.IsZero() {
+		return time.Time{}, time.Time{}, ErrInvalid
+	}
+	window := c.Window
+	if window == "" || window == WindowLifetime {
+		return time.Time{}, time.Time{}, nil
+	}
+	location, err := time.LoadLocation(c.Timezone)
+	if err != nil {
+		return time.Time{}, time.Time{}, ErrInvalid
+	}
+	local := at.In(location)
+	year, month, day := local.Date()
+	start := time.Date(year, month, day, 0, 0, 0, 0, location)
+	switch window {
+	case WindowDaily:
+		return start.UTC(), start.AddDate(0, 0, 1).UTC(), nil
+	case WindowWeekly:
+		daysSinceMonday := (int(start.Weekday()) + 6) % 7
+		start = start.AddDate(0, 0, -daysSinceMonday)
+		return start.UTC(), start.AddDate(0, 0, 7).UTC(), nil
+	case WindowMonthly:
+		start = time.Date(year, month, 1, 0, 0, 0, 0, location)
+		return start.UTC(), start.AddDate(0, 1, 0).UTC(), nil
+	default:
+		return time.Time{}, time.Time{}, ErrInvalid
+	}
 }
 
 func (c Config) Applies(clientID, poolID, proxyID model.ID) bool {

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync/atomic"
+	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	"github.com/nguyenduytan/proxysieve/pkg/budget"
@@ -117,6 +118,57 @@ func TestPersistentConcurrentReservationsAndScopes(t *testing.T) {
 		}
 	}
 }
+
+func TestPersistentCalendarBudgetResetsAtLocalBoundary(t *testing.T) {
+	store, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "calendar-budgets.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	configured := budget.Config{ID: "daily", Name: "Daily", Scope: budget.ScopeSystem, Limit: 10, Hard: true, Action: budget.ActionReject, Window: budget.WindowDaily, Timezone: "America/New_York"}
+	manager, err := NewPersistent([]budget.Config{configured}, 10, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 3, 8, 4, 30, 0, 0, time.UTC)
+	manager.now = func() time.Time { return now }
+	lease, err := manager.Reserve(t.Context(), []model.ID{"daily"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lease.Consume(t.Context(), 10); err != nil {
+		t.Fatal(err)
+	}
+	if err = lease.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Reserve(t.Context(), []model.ID{"daily"}, 1); !errors.Is(err, budget.ErrExceeded) {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Hour)
+	if usage, usageErr := manager.Usage("daily"); usageErr != nil || usage != (budget.Usage{}) {
+		t.Fatal(usage, usageErr)
+	}
+	lease, err = manager.Reserve(t.Context(), []model.ID{"daily"}, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lease.Consume(t.Context(), 4); err != nil {
+		t.Fatal(err)
+	}
+	if err = lease.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewPersistent([]budget.Config{configured}, 10, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.now = func() time.Time { return now }
+	if usage, usageErr := restarted.Usage("daily"); usageErr != nil || usage.Used != 4 || usage.Reserved != 0 {
+		t.Fatal(usage, usageErr)
+	}
+}
+
 func TestConcurrentReservationsCannotOverspend(t *testing.T) {
 	m, _ := New([]budget.Config{{ID: "system", Name: "System", Limit: 1000, Hard: true, Action: budget.ActionReject}}, 10)
 	var group sync.WaitGroup
