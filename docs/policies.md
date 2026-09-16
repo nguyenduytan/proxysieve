@@ -13,6 +13,9 @@ support the observed request fields `host`, `listener`, `client`, `protocol`,
 `scheme`, `method`, `path`, `resource_type`, `destination_ip` and `hour_utc`.
 Supported operators are `equals`, `any`, `suffix`, `wildcard`, `regex` and
 `cidr`; regex, wildcard and CIDR values are compiled or parsed during validation.
+The accepted action set is limited to actions with a gateway contract; unknown or
+unimplemented actions are rejected during validation rather than becoming silent
+no-ops.
 
 Proxy actions must reference a saved pool. A pool referenced by any saved policy
 cannot be deleted until the policy reference is removed. Pool and policy

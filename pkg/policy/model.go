@@ -186,7 +186,7 @@ func supportedConditionOperator(operator string) bool {
 }
 func (a Action) Valid() bool {
 	switch a.Type {
-	case "allow", "block", "reject", "direct":
+	case "block", "reject", "direct":
 		return a.emptyRouteFields() && a.Value == ""
 	case "cache":
 		return a.emptyRouteFields() && a.Value == ""
@@ -199,8 +199,6 @@ func (a Action) Valid() bool {
 		return a.emptyRouteFields() && validRedirect(a.Value)
 	case "rewrite":
 		return a.emptyRouteFields() && validRewrite(a.Value)
-	case "set_tag", "set_session_policy":
-		return a.emptyRouteFields() && a.Value != "" && len(a.Value) <= 4096
 	case "proxy":
 		return a.PoolID.Valid() && a.ChainID == "" && len(a.FallbackChainIDs) == 0 && a.Value == ""
 	case "chain":

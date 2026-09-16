@@ -9,7 +9,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [ ] M2 — Proxy normalization, sources, endpoint management (parser/import, safe HTTP source fetch/preview, revisioned source CRUD, responsive source UI and atomic manual/automatic refresh locally implemented; broader formats pending)
 - [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local/password SOCKS5 CONNECT and runtime multi-listener support implemented; UDP, metrics and transport-framing accounting pending)
-- [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
+- [x] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation, durable atomic runtime activation/rollback and fail-closed execution of every accepted action complete locally)
 - [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/calendar/rolling hard byte-budget enforcement with durable revisioned API/Admin CRUD locally implemented; transport framing, soft thresholds and cost budgets pending)
@@ -23,6 +23,11 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
 
 ### Release engineering continuation — 2026-09-16
+
+- Closed the remaining M5 silent-no-op gap: policy schema v1 now rejects `allow`,
+  `set_tag` and `set_session_policy` because no runtime contract exists for them.
+  Every accepted action is now either executed or explicitly fails closed when the
+  current protocol cannot expose the required request surface.
 
 - Completed M9 visible-HTTP actions. CACHE now explicitly opts a routed request
   into the configured safe cache backend; THROTTLE paces upload/download bytes;

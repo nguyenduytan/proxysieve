@@ -116,6 +116,8 @@
 
 ### Fixed
 
+- Policy validation now rejects unsupported `allow`, `set_tag` and
+  `set_session_policy` actions instead of accepting runtime no-ops.
 - Report unavailable `CACHE`, `MOCK`, `REDIRECT` and `REWRITE` policy actions as
   `ACTION_UNAVAILABLE` instead of misclassifying them as destination denials;
   traffic attribution now preserves the requested action across HTTP and SOCKS5.

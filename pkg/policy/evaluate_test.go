@@ -81,6 +81,9 @@ func TestValidateAdvancedActionValues(t *testing.T) {
 		}
 	}
 	invalid := []Action{
+		{Type: "allow"},
+		{Type: "set_tag", Value: "residential"},
+		{Type: "set_session_policy", Value: "sticky"},
 		{Type: "cache", Value: "pool"},
 		{Type: "throttle", Value: "0"},
 		{Type: "throttle", Value: "fast"},

@@ -1235,7 +1235,7 @@ components:
       type: object
       required: [type]
       properties:
-        type: {type: string, enum: [allow, block, reject, direct, proxy, chain, cache, throttle, mock, redirect, rewrite, set_tag, set_session_policy]}
+        type: {type: string, enum: [block, reject, direct, proxy, chain, cache, throttle, mock, redirect, rewrite]}
         pool_id: {type: string}
         chain_id: {type: string}
         fallback_chain_ids: {type: array, maxItems: 15, uniqueItems: true, items: {type: string}}
