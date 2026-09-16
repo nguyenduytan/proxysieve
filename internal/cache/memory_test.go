@@ -74,3 +74,30 @@ func TestMemoryCacheBoundsStatsAndPurge(t *testing.T) {
 		t.Fatalf("expired entry retained: %+v", stats)
 	}
 }
+
+func TestPurgeDomainIsExactAndNormalized(t *testing.T) {
+	m, _ := NewMemory(3, 32)
+	now := time.Now().UTC()
+	key := func(client, target string) public.Key {
+		return public.Key{ClientID: model.ID(client), SessionHash: "hash", RouteID: "route", Method: "GET", URL: target}
+	}
+	for _, item := range []struct {
+		key  public.Key
+		body string
+	}{
+		{key("clienta", "https://Example.Invalid/one"), "one"},
+		{key("clientb", "https://example.invalid/two"), "two"},
+		{key("clientc", "https://sub.example.invalid/three"), "three"},
+	} {
+		if !m.Put(item.key, Entry{Body: []byte(item.body), ExpiresAt: now.Add(time.Minute)}) {
+			t.Fatal("put", item.key.URL)
+		}
+	}
+	removed := m.PurgeDomain("EXAMPLE.INVALID.")
+	if removed.Entries != 2 || removed.Bytes != 6 {
+		t.Fatalf("unexpected purge: %+v", removed)
+	}
+	if stats := m.Stats(now); stats.Entries != 1 || stats.Bytes != 5 {
+		t.Fatalf("unexpected retained cache: %+v", stats)
+	}
+}

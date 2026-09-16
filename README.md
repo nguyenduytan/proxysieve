@@ -59,9 +59,9 @@ explicitly scoped features.
 | Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, HTTP Basic/SOCKS5 password auth, graceful shutdown, listener limits | UDP, transport-framing accounting |
 | Routing | Deterministic policies, atomic revisioned inventory activation/rollback, simulation, health/latency-aware selection, durable bounded sticky affinity, ordered HTTP/HTTPS/SOCKS proxy chains with active probes, configurable bounded safe retry, endpoint/pool/alternative-chain failover, configured upstream HTTP/HTTPS/SOCKS | Per-hop chain cost |
 | Safety | Loopback defaults, private destination checks, pinned DIRECT DNS, no implicit DIRECT, source fetch guard | Persistent encrypted secret store, TLS remote admin |
-| Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited revisioned proxy/source/pool/policy/client/API-key APIs, cache stats/purge API, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore, versioned safe config import/export and published OpenAPI contract | SSE |
+| Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited revisioned proxy/source/pool/policy/client/API-key APIs, cache stats/full/exact-host purge API and CLI, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore, versioned safe config import/export and published OpenAPI contract | SSE |
 | Measurement | HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, newest-event live buffer, bounded batched SQLite history, restart-safe minute/hour/day rollups, tier-specific pruning, bounded summary/timeseries/breakdown queries, exact cache savings, evidence-separated avoided-byte estimates, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost estimates, rolling health/timing/throughput and circuit state, restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement | Transport/proxy framing, rolling windows, soft/cost budgets, provider billing reconciliation |
-| Cache | Safe opt-in bounded memory response cache with client/session partitioning, TTL/size eligibility, expired-first deterministic eviction, complete runtime statistics and audited operator purge | DNS/disk cache, full CACHE action, CLI/domain purge |
+| Cache | Safe opt-in bounded memory response cache with client/session partitioning, explicit HTTP freshness/size eligibility, expired-first deterministic eviction, complete runtime statistics and audited full/exact-host operator purge | DNS/disk cache, full CACHE action |
 | Dashboard | Embedded authenticated admin shell with Overview, Traffic, Budgets, Cache, Proxies, Sources, Pools, Chains, Health, Sessions, Policies, Clients, Audit and System; responsive navigation; inventory CRUD/import/simulation/activation/rollback workflows; health checks; cache operations; chain probes; session inspection/rotation; source scheduling; client/API-key lifecycle; sanitized audit history; real 24-hour traffic metrics/chart | Full visual rule builder, broader analytics/cost views, Alerts when its backend exists |
 
 Read [PROGRESS.md](PROGRESS.md) for the precise milestone checklist. A green local
@@ -81,6 +81,7 @@ go build -trimpath -o bin/ ./cmd/proxysieve
 ./bin/proxysieve restore --file config.example.yaml --path ./proxysieve-backup.db
 PSV_ADMIN_PASSWORD=... ./bin/proxysieve cache stats --username admin
 PSV_ADMIN_PASSWORD=... ./bin/proxysieve cache purge --username admin
+PSV_ADMIN_PASSWORD=... ./bin/proxysieve cache purge-domain --domain static.example.com --username admin
 ```
 
 On Windows, run `bin\proxysieve.exe start --file config.example.yaml` from

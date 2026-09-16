@@ -70,6 +70,8 @@
 - Added complete in-memory response-cache statistics, viewer status API,
   CSRF-protected audited operator purge and a responsive role-aware Admin Cache
   workspace, plus matching `cache stats|purge` CLI commands.
+- Added exact-hostname response-cache purge across the Admin API, CLI and Cache
+  workspace, with operator/CSRF enforcement and dedicated audit records.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe
@@ -89,5 +91,8 @@
 - Preserved response-cache accounting during rejected replacements and added
   expired-first deterministic eviction so configured entry and byte bounds remain
   enforced under pressure.
+- Replaced the implicit one-minute response-cache lifetime with explicit HTTP
+  freshness from `s-maxage`, `max-age`/`Age` or `Expires`, while conservatively
+  bypassing stale, partial, `no-cache` and unsupported `Vary` responses.
 
 No public release is published. See PROGRESS.md for verification status.

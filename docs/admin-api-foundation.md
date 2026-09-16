@@ -23,6 +23,7 @@ GET  /api/v1/traffic/breakdown
 GET  /api/v1/budgets
 GET  /api/v1/cache/stats
 POST /api/v1/cache/purge
+POST /api/v1/cache/purge/domain
 GET  /api/v1/health/proxies
 GET  /api/v1/health/pools
 POST /api/v1/health/proxies/{id}/check
@@ -105,10 +106,12 @@ persistent CRUD and runtime activation are implemented.
 plus its bounded capacity, stored and served bytes, hit/miss/bypass counts,
 expiration, eviction and hit ratio. Operators may clear all response entries with
 the CSRF-protected `POST /api/v1/cache/purge`; the mutation is audited as
-`cache.purged`. Purging does not reset cumulative process-lifetime counters.
-The matching `proxysieve cache stats` and `proxysieve cache purge` commands use
-the same Admin API and read the password from `PSV_ADMIN_PASSWORD`; command output
-never includes the password or session cookies.
+`cache.purged`. `POST /api/v1/cache/purge/domain` removes only entries whose exact
+hostname matches the validated `domain` body field (not subdomains) and records
+`cache.domain_purged`. Purging does not reset cumulative process-lifetime counters.
+The matching `proxysieve cache stats`, `cache purge` and `cache purge-domain`
+commands use the same Admin API and read the password from `PSV_ADMIN_PASSWORD`;
+command output never includes the password or session cookies.
 
 Health collection endpoints are viewer-readable. Manual checks require an
 operator session and CSRF token, accept a validated host and port, and apply the

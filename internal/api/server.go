@@ -240,6 +240,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.cacheStats(w) })
 	case "/api/v1/cache/purge":
 		s.requireMutation(w, r, auth.RoleOperator, func(user auth.User) { s.purgeCache(w, r, user) })
+	case "/api/v1/cache/purge/domain":
+		s.requireMutation(w, r, auth.RoleOperator, func(user auth.User) { s.purgeCacheDomain(w, r, user) })
 	case "/api/v1/health/proxies":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.proxyHealth(w, r) })
 	case "/api/v1/health/pools":

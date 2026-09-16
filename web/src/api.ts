@@ -222,6 +222,7 @@ export interface CacheStatus {
   stats?: CacheStats;
 }
 export interface CachePurgeResult {
+  domain?: string;
   purged: { entries: number; bytes: number };
   stats: CacheStats;
 }

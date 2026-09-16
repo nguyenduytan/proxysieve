@@ -35,6 +35,7 @@ Usage:
   proxysieve session delete --username USER [--admin URL] ID
   proxysieve cache stats --username USER [--admin URL] [--json]
   proxysieve cache purge --username USER [--admin URL] [--json]
+  proxysieve cache purge-domain --domain DOMAIN --username USER [--admin URL] [--json]
   proxysieve config validate [--file PATH] [--set dotted.path=value]
   proxysieve config print-effective [--file PATH] [--set dotted.path=value]
 

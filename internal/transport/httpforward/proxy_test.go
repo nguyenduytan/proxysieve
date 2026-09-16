@@ -236,6 +236,7 @@ func TestSafeResponseCache(t *testing.T) {
 	var hits int
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
+		w.Header().Set("Cache-Control", "max-age=60")
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte("cacheable"))
 	}))

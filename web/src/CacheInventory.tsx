@@ -21,6 +21,7 @@ export function CacheInventory({
   const [loading, setLoading] = useState(true);
   const [purging, setPurging] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [domain, setDomain] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -54,18 +55,23 @@ export function CacheInventory({
     return () => controller.abort();
   }, [load]);
 
-  async function purge() {
+  async function purge(targetDomain = "") {
     setPurging(true);
     setError("");
     setMessage("");
     try {
-      const result = await api<CachePurgeResult>("/api/v1/cache/purge", {
-        method: "POST",
-      });
+      const result = await api<CachePurgeResult>(
+        targetDomain ? "/api/v1/cache/purge/domain" : "/api/v1/cache/purge",
+        {
+          method: "POST",
+          ...(targetDomain ? { body: { domain: targetDomain } } : {}),
+        },
+      );
       setStatus({ enabled: true, stats: result.stats });
       setMessage(
-        `Purged ${result.purged.entries} entries (${formatBytes(result.purged.bytes)}).`,
+        `Purged ${result.purged.entries} entries${result.domain ? ` for ${result.domain}` : ""} (${formatBytes(result.purged.bytes)}).`,
       );
+      if (targetDomain) setDomain("");
       setConfirming(false);
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 401) onExpired();
@@ -172,16 +178,45 @@ export function CacheInventory({
             />
           </section>
           {canPurge && !confirming ? (
-            <button
-              className="danger-button"
-              onClick={() => {
-                setMessage("");
-                setConfirming(true);
-              }}
-            >
-              <Trash2 size={14} />
-              Purge cache
-            </button>
+            <div className="cache-actions">
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setMessage("");
+                  void purge(domain.trim());
+                }}
+              >
+                <label htmlFor="cache-domain">Exact hostname</label>
+                <div>
+                  <input
+                    id="cache-domain"
+                    value={domain}
+                    onChange={(event) => setDomain(event.target.value)}
+                    placeholder="static.example.com"
+                    required
+                    maxLength={253}
+                  />
+                  <button
+                    className="pause-button secondary"
+                    disabled={purging || !domain.trim()}
+                    type="submit"
+                  >
+                    <Trash2 size={14} />
+                    Purge hostname
+                  </button>
+                </div>
+              </form>
+              <button
+                className="danger-button"
+                onClick={() => {
+                  setMessage("");
+                  setConfirming(true);
+                }}
+              >
+                <Trash2 size={14} />
+                Purge all
+              </button>
+            </div>
           ) : null}
         </>
       )}

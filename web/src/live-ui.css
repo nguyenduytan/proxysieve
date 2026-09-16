@@ -292,6 +292,37 @@
   font-size: 12px;
   line-height: 1.5;
 }
+.cache-actions {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.cache-actions form {
+  display: grid;
+  gap: 6px;
+  min-width: min(100%, 430px);
+}
+.cache-actions label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.cache-actions form > div {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto;
+  gap: 8px;
+}
+.cache-actions input {
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--canvas);
+  color: var(--text);
+  padding: 8px 10px;
+}
 .simulation-panel p {
   margin: 8px 0;
 }
@@ -778,6 +809,21 @@ textarea:focus-visible {
   }
   .runtime-confirm > span {
     flex-basis: 100%;
+  }
+  .cache-actions,
+  .cache-actions form > div {
+    grid-template-columns: 1fr;
+  }
+  .cache-actions {
+    display: grid;
+    align-items: stretch;
+  }
+  .cache-actions form,
+  .cache-actions button {
+    width: 100%;
+  }
+  .cache-actions button {
+    justify-content: center;
   }
   .import-commit {
     grid-template-columns: 1fr;

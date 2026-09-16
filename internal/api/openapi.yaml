@@ -159,6 +159,26 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '409': {description: Response cache is disabled}
+  /api/v1/cache/purge/domain:
+    post:
+      tags: [Cache]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [domain]
+              properties:
+                domain: {type: string, maxLength: 253, description: Exact hostname; subdomains are not included}
+      responses:
+        '200': {description: Purged entries for the exact hostname and current statistics, content: {application/json: {schema: {$ref: '#/components/schemas/CacheDomainPurgeResponse'}}}}
+        '400': {description: Invalid hostname}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: Response cache is disabled}
   /api/v1/health/proxies:
     get:
       tags: [Health]
@@ -827,6 +847,13 @@ components:
             entries: {type: integer, minimum: 0}
             bytes: {type: integer, minimum: 0}
         stats: {$ref: '#/components/schemas/CacheStats'}
+    CacheDomainPurgeResponse:
+      allOf:
+        - {$ref: '#/components/schemas/CachePurgeResponse'}
+        - type: object
+          required: [domain]
+          properties:
+            domain: {type: string}
     User:
       type: object
       required: [id, username, role, enabled, created_at]

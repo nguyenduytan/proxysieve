@@ -2,6 +2,8 @@
 package cache
 
 import (
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +15,7 @@ type Entry struct {
 	Header    map[string][]string
 	Body      []byte
 	ExpiresAt time.Time
+	host      string
 }
 type Memory struct {
 	mu         sync.Mutex
@@ -83,6 +86,11 @@ func (m *Memory) Put(key public.Key, entry Entry) bool {
 	if key.Validate() != nil || entry.ExpiresAt.IsZero() || int64(len(entry.Body)) > m.maxBytes {
 		return false
 	}
+	parsed, err := url.Parse(key.URL)
+	if err != nil || parsed.Hostname() == "" {
+		return false
+	}
+	entry.host = strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := key.String()
@@ -116,6 +124,23 @@ func (m *Memory) Purge() PurgeResult {
 	result := PurgeResult{Entries: len(m.entries), Bytes: m.bytes}
 	m.entries = map[string]Entry{}
 	m.bytes = 0
+	return result
+}
+
+func (m *Memory) PurgeDomain(domain string) PurgeResult {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	domain = strings.ToLower(strings.TrimSuffix(domain, "."))
+	result := PurgeResult{}
+	for id, entry := range m.entries {
+		if entry.host != domain {
+			continue
+		}
+		result.Entries++
+		result.Bytes += int64(len(entry.Body))
+		delete(m.entries, id)
+	}
+	m.bytes -= result.Bytes
 	return result
 }
 

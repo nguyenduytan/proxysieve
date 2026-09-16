@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 )
 
 type cacheCLIStats struct {
@@ -30,6 +32,7 @@ type cacheCLIStatus struct {
 }
 
 type cacheCLIPurge struct {
+	Domain string `json:"domain,omitempty"`
 	Purged struct {
 		Entries int   `json:"entries"`
 		Bytes   int64 `json:"bytes"`
@@ -38,7 +41,7 @@ type cacheCLIPurge struct {
 }
 
 func runCache(args []string, stdout, stderr io.Writer, env map[string]string) int {
-	if len(args) == 0 || args[0] != "stats" && args[0] != "purge" {
+	if len(args) == 0 || args[0] != "stats" && args[0] != "purge" && args[0] != "purge-domain" {
 		return usageError(stderr)
 	}
 	command := args[0]
@@ -46,8 +49,9 @@ func runCache(args []string, stdout, stderr io.Writer, env map[string]string) in
 	f.SetOutput(io.Discard)
 	adminURL := f.String("admin", "http://127.0.0.1:9090", "Admin API base URL")
 	username := f.String("username", "", "Admin username")
+	domain := f.String("domain", "", "Exact hostname to purge")
 	jsonOutput := f.Bool("json", false, "Output machine-readable JSON")
-	if f.Parse(args[1:]) != nil || *username == "" || f.NArg() != 0 {
+	if f.Parse(args[1:]) != nil || *username == "" || command == "purge-domain" && *domain == "" || command != "purge-domain" && *domain != "" || f.NArg() != 0 {
 		return usageError(stderr)
 	}
 	password := env[adminCLIPasswordEnv]
@@ -62,10 +66,14 @@ func runCache(args []string, stdout, stderr io.Writer, env map[string]string) in
 	}
 	defer client.logout(context.Background())
 	method, path, body := http.MethodGet, "/api/v1/cache/stats", []byte(nil)
-	if command == "purge" {
+	switch command {
+	case "purge":
 		method, path, body = http.MethodPost, "/api/v1/cache/purge", []byte("{}")
+	case "purge-domain":
+		method, path = http.MethodPost, "/api/v1/cache/purge/domain"
+		body, _ = json.Marshal(map[string]string{"domain": *domain})
 	}
-	response, err := client.request(context.Background(), method, path, body, command == "purge")
+	response, err := client.request(context.Background(), method, path, body, command != "stats")
 	if err != nil || response.StatusCode != http.StatusOK {
 		if response != nil {
 			_ = response.Body.Close()
@@ -88,10 +96,14 @@ func runCache(args []string, stdout, stderr io.Writer, env map[string]string) in
 		}
 		return 0
 	}
-	if command == "purge" {
+	if command != "stats" {
 		var value cacheCLIPurge
 		_ = json.Unmarshal(result, &value)
-		_, err = fmt.Fprintf(stdout, "purged %d cache entries (%d bytes)\n", value.Purged.Entries, value.Purged.Bytes)
+		if command == "purge-domain" {
+			_, err = fmt.Fprintf(stdout, "purged %d cache entries for %s (%d bytes)\n", value.Purged.Entries, value.Domain, value.Purged.Bytes)
+		} else {
+			_, err = fmt.Fprintf(stdout, "purged %d cache entries (%d bytes)\n", value.Purged.Entries, value.Purged.Bytes)
+		}
 		if err != nil {
 			return 1
 		}
@@ -120,10 +132,14 @@ func validateCachePayload(command string, body []byte) error {
 		}
 		return nil
 	}
-	document, ok := requiredJSONFields(body, "purged", "stats")
+	required := []string{"purged", "stats"}
+	if command == "purge-domain" {
+		required = append(required, "domain")
+	}
+	document, ok := requiredJSONFields(body, required...)
 	_, purgedOK := requiredJSONFields(document["purged"], "entries", "bytes")
 	var value cacheCLIPurge
-	if !ok || !purgedOK || json.Unmarshal(body, &value) != nil || value.Purged.Entries < 0 || value.Purged.Bytes < 0 || !validCacheStats(document["stats"]) {
+	if !ok || !purgedOK || json.Unmarshal(body, &value) != nil || command == "purge-domain" && !proxy.ValidHost(value.Domain) || value.Purged.Entries < 0 || value.Purged.Bytes < 0 || !validCacheStats(document["stats"]) {
 		return errAdminCLI
 	}
 	return nil

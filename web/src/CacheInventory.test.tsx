@@ -8,7 +8,7 @@ describe("cache workspace", () => {
       <CacheInventory role="viewer" onExpired={() => {}} />,
     );
     expect(html).toContain("Loading cache status");
-    expect(html).not.toContain("Purge cache");
+    expect(html).not.toContain("Purge all");
   });
 
   it("formats ratios defensively", () => {

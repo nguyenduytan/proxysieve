@@ -241,11 +241,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	download := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: r.Context(), Source: response.Body, Reserve: route.Reserve}}
 	responseHeaders := response.Header.Clone()
 	stripHopByHop(responseHeaders)
-	cacheable := h.responseCache != nil && cachepkg.CheckRequest(r).Eligible && response.Header.Get("Vary") == "" && cachepkg.CheckResponse(response.StatusCode, response.Header, response.ContentLength, h.maxCacheBody).Eligible
-	if cacheable {
+	cacheEligibility := cachepkg.CheckResponse(response.StatusCode, response.Header, response.ContentLength, h.maxCacheBody, time.Now().UTC())
+	if h.responseCache != nil && cachepkg.CheckRequest(r).Eligible && cacheEligibility.Eligible {
 		body, readErr := io.ReadAll(io.LimitReader(download, h.maxCacheBody+1))
 		if readErr == nil && int64(len(body)) <= h.maxCacheBody {
-			_ = h.responseCache.Put(cacheKey, internalcache.Entry{Status: response.StatusCode, Header: responseHeaders, Body: body, ExpiresAt: time.Now().UTC().Add(time.Minute)})
+			_ = h.responseCache.Put(cacheKey, internalcache.Entry{Status: response.StatusCode, Header: responseHeaders, Body: body, ExpiresAt: cacheEligibility.ExpiresAt})
 			copyHeader(w.Header(), responseHeaders)
 			w.WriteHeader(response.StatusCode)
 			delivered := &internaltraffic.Writer{Destination: w}
