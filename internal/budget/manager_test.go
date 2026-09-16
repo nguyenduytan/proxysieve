@@ -169,6 +169,37 @@ func TestPersistentCalendarBudgetResetsAtLocalBoundary(t *testing.T) {
 	}
 }
 
+func TestPersistentConfigMutationsApplyImmediately(t *testing.T) {
+	repository, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "managed-budgets.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repository.Close() })
+	manager, err := NewPersistent(nil, 10, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured := budget.Config{ID: "system", Name: "System", Scope: budget.ScopeSystem, Limit: 10, Hard: true, Action: budget.ActionReject}
+	record, err := manager.PutConfig(t.Context(), configured, 0)
+	if err != nil || record.Revision != 1 || !slices.Equal(manager.ApplicableIDs("client", "pool", "proxy"), []model.ID{"system"}) {
+		t.Fatal(record, err)
+	}
+	configured.Limit = 5
+	record, err = manager.PutConfig(t.Context(), configured, record.Revision)
+	if err != nil || record.Revision != 2 {
+		t.Fatal(record, err)
+	}
+	if _, err = manager.Reserve(t.Context(), []model.ID{"system"}, 6); !errors.Is(err, budget.ErrExceeded) {
+		t.Fatal(err)
+	}
+	if err = manager.DeleteConfig(t.Context(), configured.ID, record.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if manager.References(budget.ScopeSystem, "") || len(manager.ApplicableIDs("client", "pool", "proxy")) != 0 {
+		t.Fatal("deleted budget remained active")
+	}
+}
+
 func TestConcurrentReservationsCannotOverspend(t *testing.T) {
 	m, _ := New([]budget.Config{{ID: "system", Name: "System", Limit: 1000, Hard: true, Action: budget.ActionReject}}, 10)
 	var group sync.WaitGroup

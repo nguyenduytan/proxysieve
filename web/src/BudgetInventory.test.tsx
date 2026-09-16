@@ -5,10 +5,20 @@ import { BudgetInventory, formatScope, formatWindow } from "./BudgetInventory";
 
 describe("budget workspace", () => {
   it("renders one read-only loading surface", () => {
-    const html = renderToStaticMarkup(<BudgetInventory onExpired={() => {}} />);
+    const html = renderToStaticMarkup(
+      <BudgetInventory role="viewer" onExpired={() => {}} />,
+    );
     expect(html).toContain("Active limits");
     expect(html).toContain("Loading budget usage");
+    expect(html).not.toContain("Add budget");
     expect(html).not.toContain('role="alert"');
+  });
+
+  it("shows operator budget controls", () => {
+    const html = renderToStaticMarkup(
+      <BudgetInventory role="operator" onExpired={() => {}} />,
+    );
+    expect(html).toContain("Add budget");
   });
 
   it("formats scope and calendar bounds", () => {
@@ -22,6 +32,7 @@ describe("budget workspace", () => {
       action: "reject",
       window: "daily",
       timezone: "UTC",
+      revision: 1,
       used_bytes: 25,
       reserved_bytes: 5,
       remaining_bytes: 70,

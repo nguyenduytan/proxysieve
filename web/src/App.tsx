@@ -220,7 +220,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
             onToggle={() => setPaused((value) => !value)}
           />
         )}
-        {page === "Budgets" && <BudgetInventory onExpired={onExpired} />}
+        {page === "Budgets" && (
+          <BudgetInventory role={user.role} onExpired={onExpired} />
+        )}
         {page === "Cache" && (
           <CacheInventory role={user.role} onExpired={onExpired} />
         )}

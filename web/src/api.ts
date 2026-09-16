@@ -184,16 +184,21 @@ export interface ProxyHealthPage {
 export interface PoolHealthPage {
   items: PoolHealth[];
 }
-export interface BudgetStatus {
+export type BudgetScope = "system" | "client" | "pool" | "proxy";
+export type BudgetWindow = "lifetime" | "daily" | "weekly" | "monthly";
+export interface BudgetConfig {
   id: string;
   name: string;
-  scope: "system" | "client" | "pool" | "proxy";
+  scope: BudgetScope;
   scope_id?: string;
   limit_bytes: number;
   hard: boolean;
   action: "alert" | "reject" | "throttle";
-  window: "lifetime" | "daily" | "weekly" | "monthly";
+  window: BudgetWindow;
   timezone?: string;
+}
+export interface BudgetStatus extends BudgetConfig {
+  revision: number;
   used_bytes: number;
   reserved_bytes: number;
   remaining_bytes: number;

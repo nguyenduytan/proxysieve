@@ -108,7 +108,10 @@ proxy IDs must exist in the same configuration. A hard budget currently requires
 startup fails rather than silently running an in-memory hard limit. Omitted `window`
 means lifetime usage. `daily`, `weekly`, and `monthly` calendar windows require an
 explicit IANA `timezone`; week boundaries are Monday 00:00 local and UTC persistence
-preserves DST behavior.
+preserves DST behavior. On the first schema-20 start, YAML budgets seed the durable
+inventory atomically. Later YAML budget edits are intentionally ignored; use the
+Admin API or Budgets workspace. Keeping the original YAML list preserves the budget
+behavior when rolling back to a binary that predates schema 20.
 
 Listener arrays replace defaults in full. Required listener identity/protocol/auth
 fields must be present. Omitted connection limit/idle timeout receive safe defaults;

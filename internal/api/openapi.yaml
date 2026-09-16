@@ -164,9 +164,54 @@ paths:
     get:
       tags: [Budgets]
       responses:
-        '200': {description: Active budget configuration and current usage, content: {application/json: {schema: {$ref: '#/components/schemas/BudgetStatusPage'}}}}
+        '200': {description: Revisioned active budget configuration and current usage, content: {application/json: {schema: {$ref: '#/components/schemas/BudgetStatusPage'}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '503': {description: Budget usage could not be read}
+    post:
+      tags: [Budgets]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [budget], properties: {budget: {$ref: '#/components/schemas/BudgetConfig'}}}}}
+      responses:
+        '201': {description: Budget created and applied to new reservations, content: {application/json: {schema: {$ref: '#/components/schemas/BudgetStatus'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {description: Budget ID already exists}
+  /api/v1/budgets/{budgetId}:
+    parameters: [{name: budgetId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Budgets]
+      responses:
+        '200': {description: Budget configuration and current usage, content: {application/json: {schema: {$ref: '#/components/schemas/BudgetStatus'}}}}
+        '404': {description: Budget not found}
+    patch:
+      tags: [Budgets]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [budget, revision], properties: {budget: {$ref: '#/components/schemas/BudgetConfig'}, revision: {type: integer, minimum: 1}}}}}
+      responses:
+        '200': {description: Budget updated and applied to new reservations, content: {application/json: {schema: {$ref: '#/components/schemas/BudgetStatus'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {description: Budget not found}
+        '409': {description: Budget revision is stale}
+    delete:
+      tags: [Budgets]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [revision], properties: {revision: {type: integer, minimum: 1}}}}}
+      responses:
+        '204': {description: Budget deleted for new reservations; historical usage is retained}
+        '404': {description: Budget not found}
+        '409': {description: Budget revision is stale}
+  /api/v1/budgets/{budgetId}/usage:
+    parameters: [{name: budgetId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Budgets]
+      responses:
+        '200': {description: Budget configuration and current usage, content: {application/json: {schema: {$ref: '#/components/schemas/BudgetStatus'}}}}
+        '404': {description: Budget not found}
   /api/v1/traffic/stream:
     get:
       tags: [Traffic]
@@ -852,9 +897,9 @@ components:
         until: {type: string, format: date-time}
         dimension: {type: string, enum: [client, pool, proxy, chain, policy, rule, action, protocol]}
         items: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/TrafficBreakdownItem'}}
-    BudgetStatus:
+    BudgetConfig:
       type: object
-      required: [id, name, scope, limit_bytes, hard, action, window, used_bytes, reserved_bytes, remaining_bytes, exhausted]
+      required: [id, name, scope, limit_bytes, hard, action, window]
       properties:
         id: {type: string}
         name: {type: string}
@@ -865,12 +910,19 @@ components:
         action: {type: string, enum: [alert, reject, throttle]}
         window: {type: string, enum: [lifetime, daily, weekly, monthly]}
         timezone: {type: string}
-        used_bytes: {type: integer, minimum: 0}
-        reserved_bytes: {type: integer, minimum: 0}
-        remaining_bytes: {type: integer, minimum: 0}
-        exhausted: {type: boolean}
-        window_start: {type: string, format: date-time}
-        window_end: {type: string, format: date-time}
+    BudgetStatus:
+      allOf:
+        - {$ref: '#/components/schemas/BudgetConfig'}
+        - type: object
+          required: [revision, used_bytes, reserved_bytes, remaining_bytes, exhausted]
+          properties:
+            revision: {type: integer, minimum: 1}
+            used_bytes: {type: integer, minimum: 0}
+            reserved_bytes: {type: integer, minimum: 0}
+            remaining_bytes: {type: integer, minimum: 0}
+            exhausted: {type: boolean}
+            window_start: {type: string, format: date-time}
+            window_end: {type: string, format: date-time}
     BudgetStatusPage:
       type: object
       required: [items]

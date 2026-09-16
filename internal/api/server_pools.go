@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
+	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
@@ -210,6 +211,10 @@ func (s *Server) deletePool(w http.ResponseWriter, r *http.Request, id model.ID,
 			writeError(w, http.StatusConflict, "POOL_IN_USE", "The pool is used by a saved proxy chain.")
 			return
 		}
+	}
+	if s.budgets != nil && s.budgets.References(publicbudget.ScopePool, id) {
+		writeError(w, http.StatusConflict, "POOL_IN_USE", "The pool is referenced by a saved budget.")
+		return
 	}
 	err = s.pools.DeletePool(r.Context(), id, input.Revision)
 	switch {

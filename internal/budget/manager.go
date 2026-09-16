@@ -10,6 +10,7 @@ import (
 
 	"github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
+	publicstore "github.com/nguyenduytan/proxysieve/pkg/store"
 	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
@@ -18,6 +19,7 @@ var ErrNotFound = errors.New("budget not found")
 type Manager struct {
 	mu             sync.Mutex
 	configs        map[model.ID]budget.Config
+	revisions      map[model.ID]int64
 	usage          map[usageKey]budget.Usage
 	maxReservation traffic.Bytes
 	store          Store
@@ -25,6 +27,7 @@ type Manager struct {
 }
 
 type Store interface {
+	publicstore.Budgets
 	ReserveBudgets(context.Context, []budget.Config, time.Time, traffic.Bytes) error
 	ConsumeBudgets(context.Context, []budget.Config, time.Time, traffic.Bytes) error
 	ReleaseBudgets(context.Context, []budget.Config, time.Time, traffic.Bytes) error
@@ -39,6 +42,7 @@ type usageKey struct {
 
 type Status struct {
 	budget.Config
+	Revision    int64         `json:"revision"`
 	Used        traffic.Bytes `json:"used_bytes"`
 	Reserved    traffic.Bytes `json:"reserved_bytes"`
 	Remaining   traffic.Bytes `json:"remaining_bytes"`
@@ -55,7 +59,7 @@ func NewPersistent(configs []budget.Config, maxReservation traffic.Bytes, store 
 	if maxReservation == 0 || maxReservation > 1<<40 {
 		return nil, budget.ErrInvalid
 	}
-	m := &Manager{configs: map[model.ID]budget.Config{}, usage: map[usageKey]budget.Usage{}, maxReservation: maxReservation, store: store, now: time.Now}
+	m := &Manager{configs: map[model.ID]budget.Config{}, revisions: map[model.ID]int64{}, usage: map[usageKey]budget.Usage{}, maxReservation: maxReservation, store: store, now: time.Now}
 	for _, config := range configs {
 		if config.Validate() != nil {
 			return nil, budget.ErrInvalid
@@ -64,13 +68,83 @@ func NewPersistent(configs []budget.Config, maxReservation traffic.Bytes, store 
 			return nil, budget.ErrInvalid
 		}
 		m.configs[config.ID] = config
+		m.revisions[config.ID] = 1
 	}
 	if store != nil {
+		records, err := store.InitializeBudgets(context.Background(), configs)
+		if err != nil {
+			return nil, err
+		}
+		m.configs = make(map[model.ID]budget.Config, len(records))
+		m.revisions = make(map[model.ID]int64, len(records))
+		for _, record := range records {
+			m.configs[record.Budget.ID] = record.Budget
+			m.revisions[record.Budget.ID] = record.Revision
+		}
 		if err := store.RecoverBudgetReservations(context.Background()); err != nil {
 			return nil, err
 		}
 	}
 	return m, nil
+}
+
+func (m *Manager) PutConfig(ctx context.Context, configured budget.Config, expected int64) (publicstore.BudgetRecord, error) {
+	if m == nil || configured.Validate() != nil || expected < 0 {
+		return publicstore.BudgetRecord{}, publicstore.ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return publicstore.BudgetRecord{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, exists := m.configs[configured.ID]
+	if expected == 0 && exists {
+		return publicstore.BudgetRecord{}, publicstore.ErrConflict
+	}
+	if expected > 0 {
+		if !exists {
+			return publicstore.BudgetRecord{}, publicstore.ErrNotFound
+		}
+		if m.revisions[configured.ID] != expected {
+			return publicstore.BudgetRecord{}, publicstore.ErrConflict
+		}
+	}
+	record := publicstore.BudgetRecord{Budget: configured, Revision: expected + 1}
+	if m.store != nil {
+		var err error
+		record, err = m.store.PutBudget(ctx, configured, expected)
+		if err != nil {
+			return publicstore.BudgetRecord{}, err
+		}
+	}
+	m.configs[configured.ID] = configured
+	m.revisions[configured.ID] = record.Revision
+	return record, nil
+}
+
+func (m *Manager) DeleteConfig(ctx context.Context, id model.ID, expected int64) error {
+	if m == nil || !id.Valid() || expected < 1 {
+		return publicstore.ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.configs[id]; !exists {
+		return publicstore.ErrNotFound
+	}
+	if m.revisions[id] != expected {
+		return publicstore.ErrConflict
+	}
+	if m.store != nil {
+		if err := m.store.DeleteBudget(ctx, id, expected); err != nil {
+			return err
+		}
+	}
+	delete(m.configs, id)
+	delete(m.revisions, id)
+	return nil
 }
 
 type Lease struct {
@@ -232,32 +306,52 @@ func (m *Manager) Statuses(ctx context.Context) ([]Status, error) {
 	slices.Sort(ids)
 	statuses := make([]Status, 0, len(ids))
 	for _, id := range ids {
-		config := m.configs[id]
-		usage, err := m.usageLocked(ctx, config, at)
+		status, err := m.statusLocked(ctx, id, at)
 		if err != nil {
 			return nil, err
-		}
-		start, end, err := config.WindowBounds(at)
-		if err != nil {
-			return nil, err
-		}
-		if config.Scope == "" {
-			config.Scope = budget.ScopeSystem
-		}
-		if config.Window == "" {
-			config.Window = budget.WindowLifetime
-		}
-		remaining := traffic.Bytes(0)
-		if usage.Used < config.Limit && usage.Reserved < config.Limit-usage.Used {
-			remaining = config.Limit - usage.Used - usage.Reserved
-		}
-		status := Status{Config: config, Used: usage.Used, Reserved: usage.Reserved, Remaining: remaining, Exhausted: remaining == 0}
-		if !start.IsZero() {
-			status.WindowStart, status.WindowEnd = &start, &end
 		}
 		statuses = append(statuses, status)
 	}
 	return statuses, nil
+}
+
+func (m *Manager) Status(ctx context.Context, id model.ID) (Status, error) {
+	if err := ctx.Err(); err != nil {
+		return Status{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.statusLocked(ctx, id, m.now().UTC())
+}
+
+func (m *Manager) statusLocked(ctx context.Context, id model.ID, at time.Time) (Status, error) {
+	config, ok := m.configs[id]
+	if !ok {
+		return Status{}, publicstore.ErrNotFound
+	}
+	usage, err := m.usageLocked(ctx, config, at)
+	if err != nil {
+		return Status{}, err
+	}
+	start, end, err := config.WindowBounds(at)
+	if err != nil {
+		return Status{}, err
+	}
+	if config.Scope == "" {
+		config.Scope = budget.ScopeSystem
+	}
+	if config.Window == "" {
+		config.Window = budget.WindowLifetime
+	}
+	remaining := traffic.Bytes(0)
+	if usage.Used < config.Limit && usage.Reserved < config.Limit-usage.Used {
+		remaining = config.Limit - usage.Used - usage.Reserved
+	}
+	status := Status{Config: config, Revision: m.revisions[id], Used: usage.Used, Reserved: usage.Reserved, Remaining: remaining, Exhausted: remaining == 0}
+	if !start.IsZero() {
+		status.WindowStart, status.WindowEnd = &start, &end
+	}
+	return status, nil
 }
 
 func (m *Manager) usageLocked(ctx context.Context, config budget.Config, at time.Time) (budget.Usage, error) {
@@ -282,6 +376,20 @@ func (m *Manager) ApplicableIDs(clientID, poolID, proxyID model.ID) []model.ID {
 	}
 	slices.Sort(ids)
 	return ids
+}
+
+func (m *Manager) References(scope budget.Scope, id model.ID) bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, configured := range m.configs {
+		if configured.Scope == scope && configured.ScopeID == id {
+			return true
+		}
+	}
+	return false
 }
 func wouldExceed(usage budget.Usage, amount, limit traffic.Bytes) bool {
 	if usage.Used > limit || usage.Reserved > limit-usage.Used {

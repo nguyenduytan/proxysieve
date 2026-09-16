@@ -43,11 +43,19 @@ Schema 19 stores usage by budget and window start. Existing lifetime usage upgra
 under window start zero without resetting the guard. Crash-left reservations remain
 charged to their original window during startup recovery.
 
-Authenticated viewers can inspect the active configuration and current
-used/reserved/remaining bytes through `GET /api/v1/budgets` or the Admin Budgets
-workspace. Calendar rows expose their current half-open UTC bounds; lifetime rows
-have no reset timestamp. This surface is read-only.
+Schema 20 adds the revisioned budget inventory. On the first start after migration,
+the configured YAML budgets are imported atomically. SQLite is authoritative after
+that initialization, including when every budget has been deleted, so a restart
+does not silently recreate removed limits. Older binaries continue to read YAML and
+leave the new inventory untouched, providing a non-destructive rollback path.
 
-Rolling windows, soft threshold notifications, cost-denominated limits, API/UI
-CRUD management, throttle, pool switching and fallback-policy actions remain
-required before M8 is complete.
+Authenticated viewers can inspect configuration and current used/reserved/remaining
+bytes through `GET /api/v1/budgets`, `GET /api/v1/budgets/{id}/usage`, or the Admin
+Budgets workspace. Operators can create, update and delete budgets with CSRF
+protection and optimistic revisions. Mutations are durable and affect new
+reservations immediately; leases already in flight finish with their captured
+configuration. Historical usage rows remain after deletion. Client, pool and proxy
+records cannot be deleted while a scoped budget references them.
+
+Rolling windows, soft threshold notifications, cost-denominated limits, throttle,
+pool switching and fallback-policy actions remain required before M8 is complete.

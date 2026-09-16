@@ -722,12 +722,10 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
-		if len(c.Budgets) > 0 {
-			budgetManager, err = internalbudget.NewPersistent(c.Budgets, 64<<10, controlStore)
-			if err != nil {
-				_ = controlStore.Close()
-				return Runtime{}, err
-			}
+		budgetManager, err = internalbudget.NewPersistent(c.Budgets, 64<<10, controlStore)
+		if err != nil {
+			_ = controlStore.Close()
+			return Runtime{}, err
 		}
 		service, err := admin.New(controlStore, security.DefaultPasswordParams())
 		if err != nil {

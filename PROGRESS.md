@@ -12,11 +12,11 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
 - [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
-- [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement with API/Admin observability locally implemented; transport framing, rolling windows, soft thresholds, cost budgets and budget CRUD pending)
+- [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement with durable revisioned API/Admin CRUD locally implemented; transport framing, rolling windows, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions (safe bounded memory/disk response cache, explicit HTTP freshness, deterministic TTL eviction, bounded DNS cache, complete process-lifetime cache statistics, audited full/exact-host purge API/CLI and role-aware Admin workspace locally implemented; CACHE action completion and remaining visible-HTTP actions pending)
 - [x] M10 — Browser integrations (client-scoped snapshot/control contract, safe presets, Playwright/Puppeteer adapters, bounded estimated block reporting, Selenium foundation and controlled Chrome E2E complete locally)
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key/cache lifecycle endpoints, bounded authenticated traffic SSE and embedded OpenAPI contract locally implemented; broader API/event completion pending)
-- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including budget usage and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
+- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including revisioned budget management and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect
 - [ ] M15 — Backup, restore, import/export, operations (doctor command checks effective config, data directory, SQLite schema and listener availability; safe local SQLite backup/restore and versioned secret-free config import/export are implemented)
@@ -411,8 +411,18 @@ public push or release was performed. Preserved the existing API/frontend edits.
   exhaustion state.
 - Added the responsive read-only Admin Budgets workspace with native usage progress,
   deterministic scope/window details, empty/error/loading states and manual refresh.
-- Budget CRUD, soft thresholds, actions beyond hard rejection and projections remain
-  explicitly pending; no Alerts surface or placeholder editor was added.
+- At this checkpoint, budget CRUD, soft thresholds and actions beyond hard rejection
+  remained pending; no Alerts surface or placeholder editor was added.
+
+### Revisioned budget inventory continuation — 2026-09-16
+
+- Added schema 20 revisioned budget inventory with atomic one-time YAML import. Once
+  initialized, SQLite remains authoritative even after every budget is deleted.
+- Added operator CRUD with CSRF, optimistic revisions, audit events and immediate
+  enforcement for new reservations. Existing leases keep their captured config.
+- Added role-aware Admin create/edit/delete flows with one feedback surface and
+  conflict refresh. Client, pool and proxy deletion now rejects active budget refs.
+- Rolling windows, soft threshold events and cost-denominated budgets remain open.
 
 ### Response-cache operations continuation — 2026-09-16
 

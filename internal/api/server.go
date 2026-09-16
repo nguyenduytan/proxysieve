@@ -30,6 +30,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
+	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
@@ -249,7 +250,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	case "/api/v1/browser/blocks":
 		s.browserBlocks(w, r)
 	case "/api/v1/budgets":
-		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.budgetStatuses(w, r) })
+		s.budgetsCollection(w, r)
 	case "/api/v1/cache/stats":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.cacheStats(w) })
 	case "/api/v1/cache/purge":
@@ -322,6 +323,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.revokeAPIKey(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/budgets/") {
+			s.budgetByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/clients/") {
 			s.clientByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/proxies/") {
@@ -539,6 +542,12 @@ func (s *Server) deleteClient(w http.ResponseWriter, r *http.Request, id model.I
 	}
 	if input.Revision < 1 {
 		writeError(w, http.StatusBadRequest, "INVALID_REVISION", "Client revision was not accepted.")
+		return
+	}
+	s.routingMu.Lock()
+	defer s.routingMu.Unlock()
+	if s.budgets != nil && s.budgets.References(publicbudget.ScopeClient, id) {
+		writeError(w, http.StatusConflict, "CLIENT_IN_USE", "The client is referenced by a saved budget.")
 		return
 	}
 	err := s.clients.DeleteClient(r.Context(), id, input.Revision)
@@ -1016,6 +1025,10 @@ func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request, id model.ID
 			writeError(w, http.StatusConflict, "PROXY_IN_USE", "The proxy is assigned to a pool.")
 			return
 		}
+	}
+	if s.budgets != nil && s.budgets.References(publicbudget.ScopeProxy, id) {
+		writeError(w, http.StatusConflict, "PROXY_IN_USE", "The proxy is referenced by a saved budget.")
+		return
 	}
 	err := s.endpoints.Delete(r.Context(), id, input.Revision)
 	switch {

@@ -21,6 +21,11 @@ GET  /api/v1/traffic/summary
 GET  /api/v1/traffic/timeseries
 GET  /api/v1/traffic/breakdown
 GET  /api/v1/budgets
+POST /api/v1/budgets
+GET  /api/v1/budgets/{id}
+PATCH /api/v1/budgets/{id}
+DELETE /api/v1/budgets/{id}
+GET  /api/v1/budgets/{id}/usage
 GET  /api/v1/cache/stats
 POST /api/v1/cache/purge
 POST /api/v1/cache/purge/domain
@@ -99,11 +104,11 @@ Policies, Clients, Audit and System. Planned
 workspaces such as Alerts are not rendered as disabled navigation. This avoids
 duplicate or inert menu surfaces while features are still under development.
 
-`GET /api/v1/budgets` exposes the active file-configured budgets and their current
-durable usage to viewers. Calendar budgets include the current half-open UTC window;
-lifetime budgets omit bounds. The response reports used, reserved and remaining
-bytes plus exhaustion state. Budget mutation remains configuration-only until
-persistent CRUD and runtime activation are implemented.
+Budget reads expose the revisioned durable inventory and current usage to viewers.
+Calendar budgets include the current half-open UTC window; lifetime budgets omit
+bounds. Operators may create, update and delete budgets with CSRF protection and
+optimistic revision checks. Changes affect new reservations immediately and are
+audited as `budget.created`, `budget.updated` and `budget.deleted`.
 
 `GET /api/v1/cache/stats` exposes whether the in-memory response cache is enabled,
 plus its bounded capacity, stored and served bytes, hit/miss/bypass counts,
