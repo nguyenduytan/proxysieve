@@ -52,5 +52,6 @@ policy inventory as one immutable revision; individual Save actions never alter
 live routing. Existing requests retain the revision they evaluated against, while
 new requests use the newly active revision. See [runtime activation](runtime-activation.md).
 
-A visual rule builder, durable simulation history and SSE event streaming remain
-later milestone work.
+A visual rule builder, durable simulation history and policy-specific event
+streaming remain later milestone work. The Admin traffic feed already uses its
+separate bounded SSE endpoint.

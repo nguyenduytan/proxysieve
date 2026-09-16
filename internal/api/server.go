@@ -226,6 +226,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(user auth.User) { writeJSON(w, http.StatusOK, user) })
 	case "/api/v1/traffic/live":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.liveTraffic(w) })
+	case "/api/v1/traffic/stream":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.streamTraffic(w, r) })
 	case "/api/v1/traffic/history":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficHistory(w, r) })
 	case "/api/v1/traffic/summary":

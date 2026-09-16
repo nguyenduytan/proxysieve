@@ -15,7 +15,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement with API/Admin observability locally implemented; transport framing, rolling windows, soft thresholds, cost budgets and budget CRUD pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions (safe bounded memory/disk response cache, explicit HTTP freshness, deterministic TTL eviction, bounded DNS cache, complete process-lifetime cache statistics, audited full/exact-host purge API/CLI and role-aware Admin workspace locally implemented; CACHE action completion and remaining visible-HTTP actions pending)
 - [ ] M10 — Browser integrations
-- [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key/cache lifecycle endpoints and embedded OpenAPI contract locally implemented; SSE pending)
+- [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key/cache lifecycle endpoints, bounded authenticated traffic SSE and embedded OpenAPI contract locally implemented; broader API/event completion pending)
 - [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including budget usage and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect
@@ -40,6 +40,9 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - Unavailable advanced policy actions now fail closed with explicit HTTP status and
   preserve their actual action in HTTP/CONNECT/SOCKS5 traffic attribution instead
   of appearing as destination-policy rejection.
+- Added an authenticated bounded traffic SSE stream. Slow viewers are disconnected
+  instead of blocking recorder hot paths; the Admin merges streamed events with
+  the existing five-second polling fallback without duplicate rows.
 
 ### Latest local continuation — inventory lifecycle (2026-09-13)
 

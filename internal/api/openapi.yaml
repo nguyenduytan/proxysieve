@@ -144,6 +144,13 @@ paths:
         '200': {description: Active budget configuration and current usage, content: {application/json: {schema: {$ref: '#/components/schemas/BudgetStatusPage'}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '503': {description: Budget usage could not be read}
+  /api/v1/traffic/stream:
+    get:
+      tags: [Traffic]
+      responses:
+        '200': {description: Bounded server-sent stream of new traffic events, content: {text/event-stream: {schema: {type: string}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503': {description: Traffic streaming is unavailable or at capacity}
   /api/v1/cache/stats:
     get:
       tags: [Cache]

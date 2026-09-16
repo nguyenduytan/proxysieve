@@ -80,15 +80,18 @@ Remote/TLS admin serving rejects explicitly until the TLS secret/certificate pat
 implemented. Do not work around this by exposing the local admin port publicly.
 
 `GET /api/v1/traffic/live` is authenticated and returns the bounded newest-event
-gateway buffer plus asynchronous persistence health. `GET /api/v1/traffic/history`
-returns recent SQLite events. `traffic/summary` and `traffic/timeseries` return
-bounded analytics over aligned UTC ranges with optional client, pool, proxy,
-action and protocol filters. Timeseries accepts minute/hour/day granularity and
-returns at most 2,000 non-empty buckets. These application-stream measurements do
-not represent network-interface bytes or a provider invoice. SSE and domain/rule
-breakdowns arrive in later milestones. `configured_costs` is grouped by currency
-and includes the rated upstream-byte coverage; these values are configured
-estimates, not provider-billed amounts.
+gateway buffer plus asynchronous persistence health. The authenticated
+`GET /api/v1/traffic/stream` SSE feed publishes new traffic events through bounded
+per-viewer buffers; a slow subscriber is disconnected instead of blocking gateway
+accounting, and the Admin polling path remains the recovery mechanism.
+`GET /api/v1/traffic/history` returns recent SQLite events. `traffic/summary`,
+`traffic/timeseries`, and `traffic/breakdown` return bounded analytics over aligned
+UTC ranges with optional client, pool, proxy, chain, policy, rule, action, and
+protocol filters. Timeseries accepts minute/hour/day granularity and returns at
+most 2,000 non-empty buckets. These application-stream measurements do not
+represent network-interface bytes or a provider invoice. `configured_costs` is
+grouped by currency and includes rated upstream-byte coverage; these values are
+configured estimates, not provider-billed amounts.
 
 The embedded Admin Panel deliberately lists only API-backed destinations:
 Overview, Traffic, Budgets, Cache, Proxies, Sources, Pools, Chains, Health, Sessions,

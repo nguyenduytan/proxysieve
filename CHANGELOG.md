@@ -76,6 +76,8 @@
   expiry eviction and shared gateway, chain-test and health-check resolution.
 - Added an opt-in bounded disk response-cache backend with atomic private files,
   restart recovery, corrupt/expired entry cleanup and shared Admin/CLI operations.
+- Added an authenticated bounded traffic SSE endpoint and live Admin updates with
+  polling fallback; slow subscribers cannot block gateway traffic accounting.
 - Added a tag-gated draft release workflow for six cross-platform archives,
   checksums, SPDX SBOM generation and GitHub build-provenance attestations.
 - Added CA roots to the non-root scratch container and refreshed stale bootstrap

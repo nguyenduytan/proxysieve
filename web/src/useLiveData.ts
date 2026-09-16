@@ -3,6 +3,7 @@ import { api, ApiError, errorMessage } from "./api";
 import type {
   BuildInfo,
   TrafficBreakdown,
+  TrafficEvent,
   TrafficHistory,
   TrafficPage,
   TrafficSeries,
@@ -26,6 +27,13 @@ export function mergeTraffic(
   });
 }
 
+export function mergeStreamEvent(
+  current: NonNullable<TrafficPage["events"]>,
+  event: TrafficEvent,
+) {
+  return mergeTraffic([], [...current, event]).slice(0, 10_000);
+}
+
 export function useLiveData(paused: boolean, onExpired: () => void) {
   const [data, setData] = useState<TrafficPage | null>(null);
   const [error, setError] = useState("");
@@ -34,6 +42,28 @@ export function useLiveData(paused: boolean, onExpired: () => void) {
     if (paused) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
+    const stream =
+      typeof EventSource === "undefined"
+        ? null
+        : new EventSource("/api/v1/traffic/stream");
+    stream?.addEventListener("traffic", (message) => {
+      try {
+        const event = JSON.parse(
+          (message as MessageEvent<string>).data,
+        ) as TrafficEvent;
+        setData((current) =>
+          current
+            ? {
+                ...current,
+                events: mergeStreamEvent(current.events ?? [], event),
+              }
+            : current,
+        );
+        setUpdated(new Date());
+      } catch {
+        // Polling below remains the recovery path for malformed/interrupted streams.
+      }
+    });
     async function refresh() {
       try {
         const until = new Date();
@@ -98,6 +128,7 @@ export function useLiveData(paused: boolean, onExpired: () => void) {
     return () => {
       controller.abort();
       clearTimeout(timer);
+      stream?.close();
     };
   }, [paused, onExpired]);
   return { data, error, updated };

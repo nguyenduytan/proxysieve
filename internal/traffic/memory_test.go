@@ -3,8 +3,10 @@ package traffic
 import (
 	"context"
 	"errors"
-	public "github.com/nguyenduytan/proxysieve/pkg/traffic"
 	"testing"
+	"time"
+
+	public "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
 func TestBoundedRecorder(t *testing.T) {
@@ -21,5 +23,36 @@ func TestBoundedRecorder(t *testing.T) {
 	events, dropped := m.Snapshot()
 	if len(events) != 1 || events[0].Action != "newest" || dropped != 1 {
 		t.Fatal(events, dropped)
+	}
+}
+
+func TestSubscribersNeverBlockRecorder(t *testing.T) {
+	m, _ := NewMemory(1)
+	ctx, cancel := context.WithCancel(t.Context())
+	stream := m.Subscribe(ctx)
+	event := public.Event{Action: "proxy"}
+	if err := m.Record(t.Context(), event); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-stream:
+		if got.Action != event.Action {
+			t.Fatal(got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscriber did not receive traffic")
+	}
+	for range 65 {
+		_ = m.Record(t.Context(), event)
+	}
+	cancel()
+	select {
+	case _, open := <-stream:
+		if open {
+			for range stream {
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("slow subscriber was not closed")
 	}
 }

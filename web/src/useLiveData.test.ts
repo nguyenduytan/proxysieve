@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TrafficEvent } from "./api";
-import { mergeTraffic } from "./useLiveData";
+import { mergeStreamEvent, mergeTraffic } from "./useLiveData";
 
 function event(
   request: string,
@@ -46,5 +46,11 @@ describe("traffic feed merge", () => {
     const first = event("request", "one", at, 1);
     const second = event("request", "two", at, 2);
     expect(mergeTraffic([first], [second])).toHaveLength(2);
+  });
+
+  it("merges an SSE event without duplicating its polled copy", () => {
+    const polled = event("request", "connection", "2026-09-11T01:00:00Z", 1);
+    const streamed = { ...polled, upstream_download_bytes: 2 };
+    expect(mergeStreamEvent([polled], streamed)).toEqual([streamed]);
   });
 });

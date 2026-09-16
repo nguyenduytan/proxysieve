@@ -141,7 +141,7 @@ export function TrafficView({
             ? "Paused"
             : error
               ? "Connection interrupted"
-              : "Refreshing every 5s"}
+              : "Live · 5s fallback"}
         </span>
       </header>
       <div className="scope-notice">
