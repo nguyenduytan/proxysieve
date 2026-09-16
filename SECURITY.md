@@ -2,9 +2,10 @@
 
 ## Supported versions
 
-No production-supported version exists yet. The M0 development build does not
-implement a network gateway. Do not deploy it for production traffic or secrets.
-Support windows will be documented with the first release candidate.
+No production-supported version exists yet. The unreleased build includes network
+gateway and admin functionality, but its release/security acceptance matrix is not
+complete. Do not deploy it for production traffic or production secrets. Support
+windows will be documented with the first release candidate.
 
 ## Report a vulnerability privately
 

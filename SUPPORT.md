@@ -1,6 +1,7 @@
 # Support
 
-This project is at bootstrap stage; there is no production support commitment.
+This project is in pre-release development; there is no production support
+commitment or supported version yet.
 
 - Bugs and actionable feature requests: repository Issues using the provided forms.
 - Design scope and status: PLAN.md and PROGRESS.md.

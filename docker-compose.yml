@@ -6,4 +6,4 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    # M0 is CLI-only. No network listeners, port mappings, or restart loop.
+    # Artifact smoke test only; gateway deployment still requires an explicit config and writable data volume.

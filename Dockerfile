@@ -1,5 +1,6 @@
 FROM golang:1.27.1-alpine AS build
 WORKDIR /src
+RUN apk add --no-cache ca-certificates
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
@@ -16,6 +17,7 @@ LABEL org.opencontainers.image.title="ProxySieve" \
       org.opencontainers.image.source="https://github.com/nguyenduytan/proxysieve" \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=build /out/proxysieve /proxysieve
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY LICENSE NOTICE /licenses/
 USER 65532:65532
 ENTRYPOINT ["/proxysieve"]

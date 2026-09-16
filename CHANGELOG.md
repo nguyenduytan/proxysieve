@@ -76,6 +76,8 @@
   expiry eviction and shared gateway, chain-test and health-check resolution.
 - Added a tag-gated draft release workflow for six cross-platform archives,
   checksums, SPDX SBOM generation and GitHub build-provenance attestations.
+- Added CA roots to the non-root scratch container and refreshed stale bootstrap
+  security, support and development guidance for the current pre-release runtime.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe

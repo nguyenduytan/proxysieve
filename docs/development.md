@@ -35,12 +35,13 @@ Windows workstation lacks one. Do not report an unexecuted race test as passing.
 Use golangci-lint 2.13.2 for `golangci-lint run`; CI pins that version. The Makefile
 wraps these raw commands and does not install global tooling silently.
 
-## Frontend milestone boundary
+## Frontend workflow
 
-M0 uses Vite library mode to verify TypeScript build/test/lint plumbing. It has no
-SPA, dev server, routes, screenshots, or fake gateway dashboard. M12 replaces the
-library entry with the API-driven React SPA and adds browser interaction tests.
-React dependencies are pinned now to establish the planned stack.
+The API-driven React SPA is built by Vite and embedded under `internal/api/ui/`.
+Frontend changes must pass lint, unit tests and the production build; user-facing
+workflow changes also require desktop/mobile browser QA against a local API fixture
+or runtime. The dashboard uses same-origin `/api/v1` routes and does not read SQLite
+directly.
 
 ## Repository conventions
 
@@ -58,13 +59,14 @@ examples belong in fake fixtures, not shell history or committed configs.
 
 ## Release scaffold
 
-`.goreleaser.yml` describes static cross-platform CLI archives and checksums; it is
-not a release. Local SQLite backup/restore is available through the CLI and uses
-WAL-consistent snapshots, schema validation, pre-restore archives and atomic
-replacement; stop the process before running either operation. `go build` has no web embedding at M0. Docker's final image is scratch,
-non-root, and deliberately has no network defaults. Root CA bundles and runtime
-storage/permissions must be introduced and tested with outbound transports in M3.
-Do not publish tags/images until their milestone and release gates pass.
+`.goreleaser.yml` describes static cross-platform archives with the embedded Admin
+SPA, sample configuration, operator docs and checksums. A semantic-version tag runs
+the pinned release workflow, adds an SPDX SBOM and provenance, and creates a draft
+release for smoke testing; see [release.md](release.md). Local SQLite backup/restore
+uses WAL-consistent snapshots, schema validation, pre-restore archives and atomic
+replacement; stop the process before either operation. Docker's final image is
+scratch, non-root, includes the CA roots needed by outbound TLS and deliberately has
+no listener defaults. Do not publish a draft or image until its release gates pass.
 
 ## Hosted setup still needs verification
 

@@ -31,6 +31,9 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - Added operator verification/publish guidance. Container publication, the hosted
   cross-platform run, benchmark/protocol/browser matrices and an actual RC remain
   pending, so M16 and the v1 release gate stay open.
+- Fixed outbound TLS in the scratch container by copying a current CA bundle from
+  the pinned Alpine build stage. The compose target remains an artifact smoke test,
+  not an implicitly exposed gateway deployment.
 
 ### Latest local continuation — inventory lifecycle (2026-09-13)
 
