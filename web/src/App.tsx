@@ -13,6 +13,7 @@ import { SourceInventory } from "./SourceInventory";
 import { SessionInventory } from "./SessionInventory";
 import { HealthInventory } from "./HealthInventory";
 import { BudgetInventory } from "./BudgetInventory";
+import { CacheInventory } from "./CacheInventory";
 import { TrafficView } from "./TrafficView";
 import { navigationForRole } from "./navigation";
 import type { Page } from "./navigation";
@@ -220,6 +221,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
           />
         )}
         {page === "Budgets" && <BudgetInventory onExpired={onExpired} />}
+        {page === "Cache" && (
+          <CacheInventory role={user.role} onExpired={onExpired} />
+        )}
         {page === "Proxies" && (
           <ProxyInventory role={user.role} onExpired={onExpired} />
         )}

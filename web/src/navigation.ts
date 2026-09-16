@@ -13,6 +13,7 @@ import {
   Settings,
   HeartPulse,
   Gauge,
+  HardDrive,
 } from "lucide-react";
 import type { Role } from "./api";
 
@@ -20,6 +21,7 @@ export type Page =
   | "Overview"
   | "Traffic"
   | "Budgets"
+  | "Cache"
   | "Proxies"
   | "Sources"
   | "Pools"
@@ -59,6 +61,12 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Budgets",
     description: "Active limits and usage",
     icon: Gauge,
+  },
+  {
+    page: "Cache",
+    label: "Cache",
+    description: "Response cache usage and controls",
+    icon: HardDrive,
   },
   {
     page: "Proxies",

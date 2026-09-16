@@ -157,7 +157,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cacheKey := cacheKeyFor(route, ctx, r)
-	if h.responseCache != nil && cachepkg.CheckRequest(r).Eligible {
+	cacheEligible := cachepkg.CheckRequest(r).Eligible
+	if h.responseCache != nil && !cacheEligible {
+		h.responseCache.RecordBypass()
+	}
+	if h.responseCache != nil && cacheEligible {
 		if cached, ok := h.responseCache.Get(cacheKey, time.Now().UTC()); ok {
 			copyHeader(w.Header(), http.Header(cached.Header))
 			w.WriteHeader(cached.Status)

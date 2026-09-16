@@ -21,6 +21,8 @@ GET  /api/v1/traffic/summary
 GET  /api/v1/traffic/timeseries
 GET  /api/v1/traffic/breakdown
 GET  /api/v1/budgets
+GET  /api/v1/cache/stats
+POST /api/v1/cache/purge
 GET  /api/v1/health/proxies
 GET  /api/v1/health/pools
 POST /api/v1/health/proxies/{id}/check
@@ -88,7 +90,7 @@ and includes the rated upstream-byte coverage; these values are configured
 estimates, not provider-billed amounts.
 
 The embedded Admin Panel deliberately lists only API-backed destinations:
-Overview, Traffic, Budgets, Proxies, Sources, Pools, Chains, Health, Sessions,
+Overview, Traffic, Budgets, Cache, Proxies, Sources, Pools, Chains, Health, Sessions,
 Policies, Clients, Audit and System. Planned
 workspaces such as Alerts are not rendered as disabled navigation. This avoids
 duplicate or inert menu surfaces while features are still under development.
@@ -98,6 +100,12 @@ durable usage to viewers. Calendar budgets include the current half-open UTC win
 lifetime budgets omit bounds. The response reports used, reserved and remaining
 bytes plus exhaustion state. Budget mutation remains configuration-only until
 persistent CRUD and runtime activation are implemented.
+
+`GET /api/v1/cache/stats` exposes whether the in-memory response cache is enabled,
+plus its bounded capacity, stored and served bytes, hit/miss/bypass counts,
+expiration, eviction and hit ratio. Operators may clear all response entries with
+the CSRF-protected `POST /api/v1/cache/purge`; the mutation is audited as
+`cache.purged`. Purging does not reset cumulative process-lifetime counters.
 
 Health collection endpoints are viewer-readable. Manual checks require an
 operator session and CSRF token, accept a validated host and port, and apply the

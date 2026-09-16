@@ -263,6 +263,10 @@ func TestSafeResponseCache(t *testing.T) {
 	if hits != 1 {
 		t.Fatal("cache missed", hits)
 	}
+	stats := cache.Stats(time.Now().UTC())
+	if stats.Hits != 1 || stats.Misses != 1 || stats.BytesServed != 9 {
+		t.Fatalf("unexpected cache stats: %+v", stats)
+	}
 }
 func TestCacheRejectsCookieResponses(t *testing.T) {
 	var hits int

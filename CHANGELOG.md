@@ -67,6 +67,9 @@
 - Added bounded global retry configuration and ordered policy-level alternative
   chain failover with reference validation, deletion protection and per-attempt
   traffic attribution.
+- Added complete in-memory response-cache statistics, viewer status API,
+  CSRF-protected audited operator purge and a responsive role-aware Admin Cache
+  workspace.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe
@@ -80,5 +83,11 @@
 - Tony Nguyen creator/maintainer attribution and Apache-2.0 licensing.
 - Engineering refinements, milestone tracker, contribution and security documents.
 - Frontend tooling workspace, CI definitions, container and release scaffolds.
+
+### Fixed
+
+- Preserved response-cache accounting during rejected replacements and added
+  expired-first deterministic eviction so configured entry and byte bounds remain
+  enforced under pressure.
 
 No public release is published. See PROGRESS.md for verification status.

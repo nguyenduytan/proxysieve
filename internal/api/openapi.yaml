@@ -13,6 +13,7 @@ tags:
   - name: System
   - name: Traffic
   - name: Budgets
+  - name: Cache
   - name: Health
   - name: Proxies
   - name: Sources
@@ -143,6 +144,21 @@ paths:
         '200': {description: Active budget configuration and current usage, content: {application/json: {schema: {$ref: '#/components/schemas/BudgetStatusPage'}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '503': {description: Budget usage could not be read}
+  /api/v1/cache/stats:
+    get:
+      tags: [Cache]
+      responses:
+        '200': {description: Active in-memory response cache status, content: {application/json: {schema: {$ref: '#/components/schemas/CacheStatus'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/cache/purge:
+    post:
+      tags: [Cache]
+      security: [sessionCookie: [], csrfToken: []]
+      responses:
+        '200': {description: Purged response cache entries and current statistics, content: {application/json: {schema: {$ref: '#/components/schemas/CachePurgeResponse'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: Response cache is disabled}
   /api/v1/health/proxies:
     get:
       tags: [Health]
@@ -779,6 +795,38 @@ components:
       required: [items]
       properties:
         items: {type: array, items: {$ref: '#/components/schemas/BudgetStatus'}}
+    CacheStats:
+      type: object
+      required: [entries, bytes_stored, max_entries, max_bytes, hits, misses, bypasses, expired, evictions, bytes_served, hit_ratio]
+      properties:
+        entries: {type: integer, minimum: 0}
+        bytes_stored: {type: integer, minimum: 0}
+        max_entries: {type: integer, minimum: 1}
+        max_bytes: {type: integer, minimum: 1}
+        hits: {type: integer, minimum: 0}
+        misses: {type: integer, minimum: 0}
+        bypasses: {type: integer, minimum: 0}
+        expired: {type: integer, minimum: 0}
+        evictions: {type: integer, minimum: 0}
+        bytes_served: {type: integer, minimum: 0}
+        hit_ratio: {type: number, minimum: 0, maximum: 1}
+    CacheStatus:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: {type: boolean}
+        stats: {$ref: '#/components/schemas/CacheStats'}
+    CachePurgeResponse:
+      type: object
+      required: [purged, stats]
+      properties:
+        purged:
+          type: object
+          required: [entries, bytes]
+          properties:
+            entries: {type: integer, minimum: 0}
+            bytes: {type: integer, minimum: 0}
+        stats: {$ref: '#/components/schemas/CacheStats'}
     User:
       type: object
       required: [id, username, role, enabled, created_at]

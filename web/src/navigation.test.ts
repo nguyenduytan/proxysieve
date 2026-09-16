@@ -11,6 +11,7 @@ describe("admin navigation", () => {
       "Overview",
       "Traffic",
       "Budgets",
+      "Cache",
       "Proxies",
       "Sources",
       "Pools",

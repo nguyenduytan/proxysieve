@@ -13,10 +13,10 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement with API/Admin observability locally implemented; transport framing, rolling windows, soft thresholds, cost budgets and budget CRUD pending)
-- [ ] M9 — Cache and advanced visible-HTTP actions
+- [ ] M9 — Cache and advanced visible-HTTP actions (safe bounded memory response cache, deterministic TTL eviction, complete process-lifetime cache statistics, audited purge API and role-aware Admin workspace locally implemented; DNS/disk cache, CACHE action completion, CLI/domain purge and remaining visible-HTTP actions pending)
 - [ ] M10 — Browser integrations
-- [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key lifecycle endpoints and embedded OpenAPI contract locally implemented; SSE pending)
-- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including budget usage, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
+- [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key/cache lifecycle endpoints and embedded OpenAPI contract locally implemented; SSE pending)
+- [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including budget usage and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect
 - [ ] M15 — Backup, restore, import/export, operations (doctor command checks effective config, data directory, SQLite schema and listener availability; safe local SQLite backup/restore and versioned secret-free config import/export are implemented)
@@ -368,6 +368,23 @@ public push or release was performed. Preserved the existing API/frontend edits.
   deterministic scope/window details, empty/error/loading states and manual refresh.
 - Budget CRUD, soft thresholds, actions beyond hard rejection and projections remain
   explicitly pending; no Alerts surface or placeholder editor was added.
+
+### Response-cache operations continuation — 2026-09-16
+
+- Fixed replacement accounting in the shared memory cache and added bounded
+  expired-first/earliest-expiry eviction, so entry and byte limits remain true
+  under replacement and pressure.
+- Added process-lifetime hit, miss, bypass, expiration, eviction and bytes-served
+  counters, current bytes/entries, capacity and hit ratio. Purging entries keeps
+  the cumulative counters intact.
+- Added viewer-readable `GET /api/v1/cache/stats` and operator-only,
+  CSRF-protected `POST /api/v1/cache/purge`, including `cache.purged` audit events,
+  explicit disabled state and the matching OpenAPI contract.
+- Added a role-aware responsive Cache workspace with real loading/error/disabled
+  states, manual refresh and inline purge confirmation. Desktop/mobile browser QA
+  found no horizontal overflow or console warnings/errors.
+- Disk/DNS cache, full CACHE policy semantics, CLI/domain purge and
+  THROTTLE/MOCK/REDIRECT/REWRITE completion remain pending, so M9 stays open.
 
 ### Original milestone entry gate
 

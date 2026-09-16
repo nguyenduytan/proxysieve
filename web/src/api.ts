@@ -204,6 +204,27 @@ export interface BudgetStatus {
 export interface BudgetStatusPage {
   items: BudgetStatus[];
 }
+export interface CacheStats {
+  entries: number;
+  bytes_stored: number;
+  max_entries: number;
+  max_bytes: number;
+  hits: number;
+  misses: number;
+  bypasses: number;
+  expired: number;
+  evictions: number;
+  bytes_served: number;
+  hit_ratio: number;
+}
+export interface CacheStatus {
+  enabled: boolean;
+  stats?: CacheStats;
+}
+export interface CachePurgeResult {
+  purged: { entries: number; bytes: number };
+  stats: CacheStats;
+}
 export interface ChainHop {
   pool_id: string;
   timeout_ns: number;

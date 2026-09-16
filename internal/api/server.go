@@ -22,6 +22,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/audit"
 	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	"github.com/nguyenduytan/proxysieve/internal/buildinfo"
+	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	"github.com/nguyenduytan/proxysieve/internal/keys"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
@@ -57,6 +58,7 @@ type Server struct {
 	sessions       SessionStore
 	health         HealthControl
 	budgets        *internalbudget.Manager
+	responseCache  *internalcache.Memory
 	audit          audit.Writer
 	now            func() time.Time
 	sourceResolver internalsource.Resolver
@@ -146,13 +148,14 @@ type sourceResolver struct{}
 func (sourceResolver) LookupNetIP(ctx context.Context, host string) ([]netip.Addr, error) {
 	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 }
-func (s *Server) Handler() http.Handler                      { return securityHeaders(http.HandlerFunc(s.handle)) }
-func (s *Server) SetTrafficStatus(status TrafficStatus)      { s.trafficStatus = status }
-func (s *Server) SetRuntimeControl(control RuntimeControl)   { s.runtimeControl = control }
-func (s *Server) SetSessions(sessions SessionStore)          { s.sessions = sessions }
-func (s *Server) SetHealth(health HealthControl)             { s.health = health }
-func (s *Server) SetBudgets(budgets *internalbudget.Manager) { s.budgets = budgets }
-func (s *Server) SetChainTester(tester ChainTester)          { s.chainTester = tester }
+func (s *Server) Handler() http.Handler                        { return securityHeaders(http.HandlerFunc(s.handle)) }
+func (s *Server) SetTrafficStatus(status TrafficStatus)        { s.trafficStatus = status }
+func (s *Server) SetRuntimeControl(control RuntimeControl)     { s.runtimeControl = control }
+func (s *Server) SetSessions(sessions SessionStore)            { s.sessions = sessions }
+func (s *Server) SetHealth(health HealthControl)               { s.health = health }
+func (s *Server) SetBudgets(budgets *internalbudget.Manager)   { s.budgets = budgets }
+func (s *Server) SetCache(responseCache *internalcache.Memory) { s.responseCache = responseCache }
+func (s *Server) SetChainTester(tester ChainTester)            { s.chainTester = tester }
 func (s *Server) SetSourceRefresher(refresher *internalsource.Refresher) {
 	if refresher != nil {
 		s.sourceRefresh = refresher
@@ -233,6 +236,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficBreakdown(w, r) })
 	case "/api/v1/budgets":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.budgetStatuses(w, r) })
+	case "/api/v1/cache/stats":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.cacheStats(w) })
+	case "/api/v1/cache/purge":
+		s.requireMutation(w, r, auth.RoleOperator, func(user auth.User) { s.purgeCache(w, r, user) })
 	case "/api/v1/health/proxies":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.proxyHealth(w, r) })
 	case "/api/v1/health/pools":
