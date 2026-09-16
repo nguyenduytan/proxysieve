@@ -127,8 +127,9 @@ upstream application-stream, direct, or avoided-byte counters.
 
 ## Remaining acceptance work
 
-Load benchmarks, configurable queue/batch sizing, transient-write retry policy and
-chunked catch-up remain necessary before production traffic claims. Raw, minute,
+Long-duration load benchmarks, transient-write retry policy and chunked catch-up
+remain necessary before production traffic claims. Queue capacity, batch size and
+flush interval are bounded configuration with concurrent burst/drain coverage. Raw, minute,
 hour and day retention policies are independently configured and pruned transactionally.
 The legacy `traffic.retention_days` field remains the raw retention policy;
 `minute_retention_days`, `hour_retention_days`, and `day_retention_days` control the

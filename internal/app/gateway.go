@@ -734,7 +734,7 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
-		durableRecorder, err := internaltraffic.NewAsync(controlStore, 4096, 128, 250*time.Millisecond)
+		durableRecorder, err := internaltraffic.NewAsync(controlStore, c.Traffic.QueueCapacity, c.Traffic.BatchSize, time.Duration(c.Traffic.FlushInterval))
 		if err != nil {
 			_ = controlStore.Close()
 			return Runtime{}, err

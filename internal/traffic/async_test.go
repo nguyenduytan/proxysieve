@@ -3,6 +3,7 @@ package traffic
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -119,5 +120,31 @@ func TestAsyncRejectsInvalidConfigurationAndEvent(t *testing.T) {
 	t.Cleanup(recorder.Stop)
 	if err := recorder.Record(t.Context(), public.Event{}); !errors.Is(err, public.ErrInvalidEvent) {
 		t.Fatal(err)
+	}
+}
+
+func TestAsyncConcurrentBurstDrainsWithoutLoss(t *testing.T) {
+	const workers, perWorker = 16, 500
+	store := &batchStore{}
+	recorder, err := NewAsync(store, 2*workers*perWorker, 128, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder.Start()
+	var group sync.WaitGroup
+	for worker := range workers {
+		group.Go(func() {
+			for event := range perWorker {
+				if recordErr := recorder.Record(t.Context(), validEvent(fmt.Sprintf("event-%d-%d", worker, event))); recordErr != nil {
+					t.Error(recordErr)
+				}
+			}
+		})
+	}
+	group.Wait()
+	recorder.Stop()
+	stats := recorder.Stats()
+	if stats.Accepted != workers*perWorker || stats.Written != workers*perWorker || stats.QueueDropped != 0 || stats.FailedEvents != 0 || stats.Queued != 0 {
+		t.Fatal(stats)
 	}
 }

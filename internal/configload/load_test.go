@@ -63,6 +63,19 @@ func TestMissingRetrySectionUsesDefaults(t *testing.T) {
 	}
 }
 
+func TestTrafficQueueDefaultsAndOverrides(t *testing.T) {
+	home := t.TempDir()
+	effective, err := Load(Options{Home: home, File: strings.NewReader("version: 1\n")})
+	if err != nil || effective.Config.Traffic != config.Defaults(home).Traffic || effective.Sources["traffic.queue_capacity"] != "default" {
+		t.Fatal(effective.Config.Traffic, err)
+	}
+	doc := "version: 1\ntraffic:\n  queue_capacity: 32\n  batch_size: 8\n  flush_interval: 50ms\n"
+	effective, err = Load(Options{Home: home, File: strings.NewReader(doc)})
+	if err != nil || effective.Config.Traffic.QueueCapacity != 32 || effective.Config.Traffic.BatchSize != 8 || effective.Config.Traffic.FlushInterval != config.Duration(50*time.Millisecond) {
+		t.Fatal(effective.Config.Traffic, err)
+	}
+}
+
 func TestDNSCacheDefaultsAndTTLOverride(t *testing.T) {
 	home := t.TempDir()
 	effective, err := Load(Options{Home: home, File: strings.NewReader("version: 1\n")})

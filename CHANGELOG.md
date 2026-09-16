@@ -84,6 +84,8 @@
   SOCKS-upstream protocol matrix with native Linux, Windows and macOS CI execution.
 - Added bounded fuzz smoke coverage for proxy and policy input, configuration,
   URL redaction, HTTP CONNECT targets and SOCKS5 request addresses.
+- Made durable traffic queue capacity, batch size and flush interval bounded
+  configuration, with concurrent burst/drain loss regression coverage.
 - Added a tag-gated draft release workflow for six cross-platform archives,
   checksums, SPDX SBOM generation and GitHub build-provenance attestations.
 - Added CA roots to the non-root scratch container and refreshed stale bootstrap

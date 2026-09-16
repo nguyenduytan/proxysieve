@@ -48,6 +48,12 @@ source tier; shortening a setting never moves a durable watermark backward or
 recovers already-pruned data. `traffic.aggregation_interval` controls maintenance
 frequency and defaults to one minute.
 
+Durable traffic persistence uses a bounded asynchronous queue. `queue_capacity`
+defaults to 4,096 events, `batch_size` to 128, and `flush_interval` to 250 ms.
+Capacity accepts 1–1,000,000, batch size cannot exceed capacity, and flush interval
+accepts 10 ms–1 minute. Overflow remains observable loss in Admin/API statistics;
+these settings never weaken synchronous hard-budget enforcement.
+
 Health scoring starts at 50. Successful observations add 5 points and failures
 subtract 15, always clamped to the visible 0–100 range. Configure those weights
 with `health.initial_score`, `health.success_gain`, and

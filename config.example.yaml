@@ -17,6 +17,9 @@ traffic:
   hour_retention_days: 365
   day_retention_days: 3650
   aggregation_interval: 1m
+  queue_capacity: 4096
+  batch_size: 128
+  flush_interval: 250ms
 health:
   failure_threshold: 3
   success_threshold: 2

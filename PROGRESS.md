@@ -52,6 +52,9 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - Added scheduled/path-gated fuzz smoke coverage at six trust boundaries. Proxy URI
   and CONNECT target lengths are now rejected before parser allocation; archive and
   future extension protocol fuzzing remain pending with those features.
+- Replaced fixed durable traffic queue settings with validated schema-v1 capacity,
+  batch and flush controls. A concurrent 8,000-event burst proves accepted events
+  drain without analytics loss; long-duration and hosted load evidence remains.
 
 ### Latest local continuation — inventory lifecycle (2026-09-13)
 

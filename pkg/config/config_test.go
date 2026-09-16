@@ -149,7 +149,7 @@ func TestSafeDefaultsAndManager(t *testing.T) {
 	if c.Health.ActiveChecks || c.Health.RuntimeConfig().Validate() != nil || c.Health.GlobalCheckRate != 60 || c.Health.PoolCheckRate != 30 {
 		t.Fatal("unsafe health defaults", c.Health)
 	}
-	if c.Traffic.RetentionDays != 30 || c.Traffic.MinuteRetentionDays != 90 || c.Traffic.HourRetentionDays != 365 || c.Traffic.DayRetentionDays != 3650 {
+	if c.Traffic.RetentionDays != 30 || c.Traffic.MinuteRetentionDays != 90 || c.Traffic.HourRetentionDays != 365 || c.Traffic.DayRetentionDays != 3650 || c.Traffic.QueueCapacity != 4096 || c.Traffic.BatchSize != 128 || c.Traffic.FlushInterval != Duration(250*time.Millisecond) {
 		t.Fatal("unexpected traffic retention defaults", c.Traffic)
 	}
 	m, err := NewManager(c)
@@ -190,6 +190,22 @@ func TestSafeDefaultsAndManager(t *testing.T) {
 	snap.Config.Listeners[0].Bind = "mutated"
 	if m.Snapshot().Config.Listeners[0].Bind == "mutated" {
 		t.Fatal("snapshot aliased")
+	}
+}
+
+func TestTrafficQueueConfigurationValidation(t *testing.T) {
+	for name, mutate := range map[string]func(*Config){
+		"capacity": func(c *Config) { c.Traffic.QueueCapacity = 0 },
+		"batch":    func(c *Config) { c.Traffic.BatchSize = c.Traffic.QueueCapacity + 1 },
+		"flush":    func(c *Config) { c.Traffic.FlushInterval = Duration(time.Millisecond) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			configured := Defaults(t.TempDir())
+			mutate(&configured)
+			if err := configured.Validate(); !errors.Is(err, ErrInvalid) {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
