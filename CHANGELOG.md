@@ -74,6 +74,8 @@
   workspace, with operator/CSRF enforcement and dedicated audit records.
 - Added a bounded positive-result DNS cache with configurable TTL, deterministic
   expiry eviction and shared gateway, chain-test and health-check resolution.
+- Added a tag-gated draft release workflow for six cross-platform archives,
+  checksums, SPDX SBOM generation and GitHub build-provenance attestations.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe

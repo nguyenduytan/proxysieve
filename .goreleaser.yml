@@ -16,9 +16,19 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
-    files: [LICENSE, NOTICE, README.md, CHANGELOG.md]
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+      - CHANGELOG.md
+      - config.example.yaml
+      - docs/**
 checksum:
   name_template: checksums.txt
 release:
   draft: true
   prerelease: auto
+  preflight:
+    fail_on_error: true
+  extra_files:
+    - glob: ./proxysieve.spdx.json

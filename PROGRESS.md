@@ -22,6 +22,16 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [ ] M15 — Backup, restore, import/export, operations (doctor command checks effective config, data directory, SQLite schema and listener availability; safe local SQLite backup/restore and versioned secret-free config import/export are implemented)
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
 
+### Release engineering continuation — 2026-09-16
+
+- Added a SemVer-tag-gated, least-privilege release workflow using pinned actions
+  and tool versions. GoReleaser produces draft Linux/Windows/macOS amd64/arm64
+  archives and checksums; Syft adds an SPDX JSON SBOM and GitHub attests both the
+  archive checksums and SBOM provenance.
+- Added operator verification/publish guidance. Container publication, the hosted
+  cross-platform run, benchmark/protocol/browser matrices and an actual RC remain
+  pending, so M16 and the v1 release gate stay open.
+
 ### Latest local continuation — inventory lifecycle (2026-09-13)
 
 - Added authenticated `GET`, optimistic-revision `PATCH` and `DELETE` endpoints

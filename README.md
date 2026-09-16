@@ -161,6 +161,7 @@ paste proxy credentials, cookies, API keys, setup tokens, or user traffic in iss
 - [Proxy source security](docs/proxy-sources.md)
 - [Traffic accounting](docs/traffic-accounting.md)
 - [Development guide](docs/development.md)
+- [Release process and artifact verification](docs/release.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## License And Credits
