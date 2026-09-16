@@ -135,9 +135,14 @@ The legacy `traffic.retention_days` field remains the raw retention policy;
 coarser tiers. Effective durations are normalized so a coarser tier is never shorter
 than the tier below it. Analytics read one non-overlapping authoritative tier for
 each time range, and all four watermarks survive restart. Transport-framing
-accounting, rolling-window/cost budgets and projections are not completed by this
-foundation. Configured-cost analytics are estimates over rated application-stream
+accounting and rolling-window/cost budgets are not completed by this foundation.
+The Admin dashboard projects 30-day paid stream usage and configured cost from the
+current 24-hour rate, keeping currencies separate and labeling both as estimates.
+Configured-cost analytics are estimates over rated application-stream
 bytes, not provider invoice reconciliation. Durable hard byte-budget state is
 separate from the best-effort analytics queue and fails closed on storage errors.
 
-The dashboard must label estimated avoided bytes as an estimate at every display.
+The Traffic workspace reports cache-served bytes as exact savings. It shows
+estimated avoided bytes only as an estimate and reports the measurement as
+unavailable when no evidence-backed estimate was recorded; policy blocks do not
+invent savings.

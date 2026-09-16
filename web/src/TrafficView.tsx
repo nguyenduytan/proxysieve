@@ -4,15 +4,70 @@ import {
   ArrowDownToLine,
   BarChart3,
   CircleDollarSign,
+  Database,
+  Gauge,
   Pause,
   Play,
   Search,
   ShieldCheck,
+  TrendingUp,
 } from "lucide-react";
 import { formatBytes, formatConfiguredCosts } from "./api";
-import type { TrafficBreakdown, TrafficEvent, TrafficPage } from "./api";
+import type {
+  TrafficBreakdown,
+  TrafficEvent,
+  TrafficPage,
+  TrafficSummary,
+} from "./api";
 
 const hourMilliseconds = 60 * 60 * 1000;
+const thirtyDaysMilliseconds = 30 * 24 * hourMilliseconds;
+
+function thirtyDayProjectionFactor(
+  summary: TrafficSummary | undefined,
+  now: number,
+) {
+  if (!summary) return null;
+  const from = Date.parse(summary.from);
+  const until = Math.min(Date.parse(summary.until), now);
+  if (!Number.isFinite(from) || !Number.isFinite(until) || until <= from)
+    return null;
+  return thirtyDaysMilliseconds / (until - from);
+}
+
+export function projectThirtyDayPaidBytes(
+  summary: TrafficSummary | undefined,
+  now = Date.now(),
+) {
+  const factor = thirtyDayProjectionFactor(summary, now);
+  if (!summary || factor === null) return null;
+  const bytes =
+    summary.totals.upstream_upload_bytes +
+    summary.totals.upstream_download_bytes;
+  if (!Number.isSafeInteger(bytes) || bytes < 0) return null;
+  const projected = Math.round(bytes * factor);
+  return Number.isSafeInteger(projected) ? projected : null;
+}
+
+export function projectThirtyDayConfiguredCosts(
+  summary: TrafficSummary | undefined,
+  now = Date.now(),
+) {
+  const factor = thirtyDayProjectionFactor(summary, now);
+  if (!summary?.configured_costs?.length || factor === null) return undefined;
+  const projected = summary.configured_costs.map((cost) => ({
+    ...cost,
+    amount: {
+      ...cost.amount,
+      micros: Math.round(cost.amount.micros * factor),
+    },
+  }));
+  return projected.every(
+    ({ amount }) => Number.isSafeInteger(amount.micros) && amount.micros >= 0,
+  )
+    ? projected
+    : undefined;
+}
 
 export function fillHourlySeries(data: TrafficPage["series"]) {
   if (!data || data.granularity !== "hour") return [];
@@ -68,6 +123,8 @@ export function TrafficView({
     ? totals.upstream_upload_bytes + totals.upstream_download_bytes
     : null;
   const direct = totals?.direct_bytes ?? null;
+  const projectedPaid = projectThirtyDayPaidBytes(data?.summary);
+  const projectedCosts = projectThirtyDayConfiguredCosts(data?.summary);
   const hourly = useMemo(() => fillHourlySeries(data?.series), [data?.series]);
   const persistenceLosses =
     (data?.durable?.queue_dropped ?? 0) + (data?.durable?.failed_events ?? 0);
@@ -90,9 +147,9 @@ export function TrafficView({
       <div className="scope-notice">
         Local development build · Live and retained HTTP, CONNECT and SOCKS5
         events with bounded summary and minute/hour/day rollups. Transport
-        framing, budget management and savings projections are not available
-        yet. Configured costs are estimates for rated proxy routes only;
-        configured hard byte budgets are enforced in the gateway.
+        framing plus rolling, soft and cost budgets are not available yet.
+        Configured costs and projections are estimates; configured hard byte
+        budgets are enforced in the gateway.
       </div>
       {error && (
         <div role="alert" className="auth-error">
@@ -130,6 +187,16 @@ export function TrafficView({
             context="Last 24 hours · rated proxy routes"
           />
           <DataMetric
+            icon={<TrendingUp size={17} />}
+            label="30-day paid traffic projection"
+            value={projectedPaid === null ? "—" : formatBytes(projectedPaid)}
+            context={
+              projectedCosts?.length
+                ? `Estimate · ${formatConfiguredCosts(projectedCosts)} configured cost`
+                : "Estimate from the current 24-hour rate"
+            }
+          />
+          <DataMetric
             icon={<Activity size={17} />}
             label="Events not persisted"
             value={data ? String(persistenceLosses) : "—"}
@@ -143,6 +210,33 @@ export function TrafficView({
       )}
       {overview && (
         <TrafficChart buckets={hourly} total={totals?.request_count ?? null} />
+      )}
+      {!overview && (
+        <section
+          className="metric-grid savings-grid"
+          aria-label="Saved traffic measurement"
+        >
+          <DataMetric
+            icon={<Database size={17} />}
+            label="Exact cache savings"
+            value={totals ? formatBytes(totals.cache_served_bytes) : "—"}
+            context="Bytes served from ProxySieve cache · last 24 hours"
+          />
+          <DataMetric
+            icon={<Gauge size={17} />}
+            label="Estimated avoided traffic"
+            value={
+              totals?.estimated_avoided_bytes
+                ? formatBytes(totals.estimated_avoided_bytes)
+                : "—"
+            }
+            context={
+              totals?.estimated_avoided_bytes
+                ? "Evidence-based estimate · last 24 hours"
+                : "No evidence-backed estimates recorded"
+            }
+          />
+        </section>
       )}
       {!overview && (
         <section
