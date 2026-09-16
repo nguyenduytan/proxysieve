@@ -94,6 +94,9 @@
 
 ### Fixed
 
+- Report unavailable `CACHE`, `MOCK`, `REDIRECT` and `REWRITE` policy actions as
+  `ACTION_UNAVAILABLE` instead of misclassifying them as destination denials;
+  traffic attribution now preserves the requested action across HTTP and SOCKS5.
 - Preserved continuous hard-budget enforcement while replaying the buffered prefix
   of an oversized response-cache candidate; remaining upstream bytes can no longer
   bypass reservation and accounting.

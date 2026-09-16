@@ -360,6 +360,29 @@ func TestRejectsUnsafeAndUnsupported(t *testing.T) {
 		t.Fatal(events, dropped)
 	}
 }
+func TestReportsUnavailableActions(t *testing.T) {
+	recorded := make(eventRecorder, 2)
+	h, err := New(Options{Evaluator: Decider(direct), Recorder: recorded, Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+		return gateway.Route{Action: "cache"}, gateway.ErrUnsupported
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ method, target string }{{http.MethodGet, "http://example.invalid/"}, {http.MethodConnect, "example.invalid:443"}} {
+		request := httptest.NewRequest(tc.method, tc.target, nil)
+		request.RequestURI = ""
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, request)
+		if response.Code != http.StatusNotImplemented || !strings.Contains(response.Body.String(), "ACTION_UNAVAILABLE") {
+			t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+		}
+	}
+	for range 2 {
+		if event := <-recorded; event.Action != "cache" || event.StatusCode != http.StatusNotImplemented {
+			t.Fatal(event)
+		}
+	}
+}
 func TestDownstreamBearerAuth(t *testing.T) {
 	called := false
 	recorder, _ := internaltraffic.NewMemory(2)

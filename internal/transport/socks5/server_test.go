@@ -169,6 +169,38 @@ func TestRejectsUnsupportedMethodsAndRoutes(t *testing.T) {
 	}
 }
 
+func TestUnavailableActionKeepsTrafficAttribution(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = client.Close() }()
+	recorded := make(eventRecorder, 1)
+	s, err := New(Options{
+		Evaluator: eval(func(context.Context, policy.RequestContext, policy.Visibility) (policy.Result, error) {
+			return policy.Result{PolicyID: "policy", TerminalRuleID: "rule", Actions: []policy.Action{{Type: "cache"}}}, nil
+		}),
+		Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{Action: "cache"}, gateway.ErrUnsupported
+		}),
+		Recorder: recorded,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go s.Serve(context.Background(), server)
+	_, _ = client.Write([]byte{5, 1, 0})
+	methodReply := make([]byte, 2)
+	if _, err = io.ReadFull(client, methodReply); err != nil || methodReply[1] != 0 {
+		t.Fatal(methodReply, err)
+	}
+	_, _ = client.Write([]byte{5, 1, 0, 3, 4, 't', 'e', 's', 't', 1, 187})
+	reply := make([]byte, 10)
+	if _, err = io.ReadFull(client, reply); err != nil || reply[1] != 2 {
+		t.Fatal(reply, err)
+	}
+	if event := <-recorded; event.Action != "cache" || event.PolicyID != "policy" || event.RuleID != "rule" {
+		t.Fatal(event)
+	}
+}
+
 func TestPasswordAuthenticationSetsClientIdentity(t *testing.T) {
 	client, server := net.Pipe()
 	defer func() { _ = client.Close() }()

@@ -140,6 +140,8 @@ func (r *router) Route(ctx context.Context, request policy.RequestContext, resul
 		return r.chainWithFallbacks(ctx, request, action.ChainID, action.FallbackChainIDs, snapshot)
 	case "block", "reject":
 		return gateway.Route{Action: action.Type}, nil
+	case "cache", "mock", "redirect", "rewrite":
+		return gateway.Route{Action: action.Type}, gateway.ErrUnsupported
 	}
 	return gateway.Route{}, gateway.ErrDenied
 }

@@ -134,6 +134,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	route, err := h.router.Route(r.Context(), ctx, result)
 	route.PolicyID, route.RuleID = result.PolicyID, result.TerminalRuleID
 	if err != nil || route.Action == "block" || route.Action == "reject" || route.Action == "" {
+		if errors.Is(err, gateway.ErrUnsupported) {
+			recordHTTP(h.recorder, r, ctx, route, host, 0, 0, 0, http.StatusNotImplemented, 0)
+			http.Error(w, "ACTION_UNAVAILABLE", http.StatusNotImplemented)
+			return
+		}
 		if route.Action != "block" && route.Action != "reject" {
 			route.Action = "reject"
 		}
@@ -294,6 +299,11 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 	route, err := h.router.Route(r.Context(), ctx, result)
 	route.PolicyID, route.RuleID = result.PolicyID, result.TerminalRuleID
 	if err != nil || route.Dial == nil {
+		if errors.Is(err, gateway.ErrUnsupported) {
+			recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusNotImplemented, 0, 0, 0, 0)
+			http.Error(w, "ACTION_UNAVAILABLE", http.StatusNotImplemented)
+			return
+		}
 		if route.Action != "block" && route.Action != "reject" {
 			route.Action = "reject"
 		}

@@ -89,7 +89,7 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 	route, err := s.router.Route(ctx, request, result)
 	route.PolicyID, route.RuleID = result.PolicyID, result.TerminalRuleID
 	if err != nil || route.Dial == nil {
-		if route.Action != "block" && route.Action != "reject" {
+		if !errors.Is(err, gateway.ErrUnsupported) && route.Action != "block" && route.Action != "reject" {
 			route.Action = "reject"
 		}
 		recordTunnel(s.recorder, ctx, request, route, 2, 0, 0, 0, 0)

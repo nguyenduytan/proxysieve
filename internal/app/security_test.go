@@ -21,6 +21,15 @@ func TestDirectGlobalPermissionCannotBeBypassed(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestUnavailableActionsAreNotReportedAsDestinationDenials(t *testing.T) {
+	r := &router{}
+	for _, action := range []string{"cache", "mock", "redirect", "rewrite"} {
+		route, err := r.Route(t.Context(), policy.RequestContext{}, policy.Result{Actions: []policy.Action{{Type: action}}})
+		if !errors.Is(err, gateway.ErrUnsupported) || route.Action != action {
+			t.Fatalf("action=%q route=%+v err=%v", action, route, err)
+		}
+	}
+}
 func TestFailedBindDoesNotReportReady(t *testing.T) {
 	busy, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
