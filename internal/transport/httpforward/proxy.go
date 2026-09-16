@@ -195,6 +195,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	out.Header.Del("Proxy-Connection")
 	var response *http.Response
 	attempt := uint8(1)
+	retryPolicy := retrypkg.DefaultPolicy()
+	if route.RetryPolicy != nil {
+		retryPolicy = *route.RetryPolicy
+	}
 	for {
 		started := time.Now()
 		trace := newAttemptTrace(started)
@@ -211,7 +215,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			route.Observe(trace.observation(false, 0, latency, errors.Join(err, r.Context().Err())))
 		}
 		recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), 0, 0, http.StatusBadGateway, 0)
-		canRetry := route.Retry != nil && retrypkg.DefaultPolicy().ShouldRetry(retrypkg.Request{Method: r.Method, BodyPresent: r.ContentLength != 0 || len(r.TransferEncoding) > 0, Attempt: attempt, Failure: retrypkg.ConnectFailure})
+		canRetry := route.Retry != nil && retryPolicy.ShouldRetry(retrypkg.Request{Method: r.Method, BodyPresent: r.ContentLength != 0 || len(r.TransferEncoding) > 0, IdempotencyKey: r.Header.Get("Idempotency-Key") != "", Attempt: attempt, Failure: retrypkg.ConnectFailure})
 		if !canRetry || retrypkg.Wait(r.Context(), attempt) != nil {
 			break
 		}
@@ -306,6 +310,10 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 	}
 	var upstream net.Conn
 	attempt := uint8(1)
+	retryPolicy := retrypkg.DefaultPolicy()
+	if route.RetryPolicy != nil {
+		retryPolicy = *route.RetryPolicy
+	}
 	for {
 		started := time.Now()
 		upstream, err = route.Dial(r.Context(), net.JoinHostPort(host, portRaw))
@@ -320,7 +328,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 			route.Observe(publichealth.Observation{Success: false, Latency: latency, ConnectLatency: latency, Cause: errors.Join(err, r.Context().Err())})
 		}
 		recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusBadGateway, 0, 0, 0, 0)
-		if route.Retry == nil || attempt >= retrypkg.DefaultPolicy().MaxAttempts || retrypkg.Wait(r.Context(), attempt) != nil {
+		if route.Retry == nil || attempt >= retryPolicy.MaxAttempts || retrypkg.Wait(r.Context(), attempt) != nil {
 			break
 		}
 		next, retryErr := route.Retry(r.Context())

@@ -64,6 +64,9 @@
 - Added rolling health outcome/status, DNS/TLS, connection latency, TTFB and
   application-stream throughput signals, globally/per-pool paced active and
   manual checks, and a responsive Health workspace with guarded operator actions.
+- Added bounded global retry configuration and ordered policy-level alternative
+  chain failover with reference validation, deletion protection and per-attempt
+  traffic attribution.
 - Completed revisioned client GET/PATCH/DELETE API routes with cascade key
   cleanup, RBAC/CSRF enforcement, audited mutations and OpenAPI schemas.
 - Connected Admin proxy import commits and responsive, revision-safe

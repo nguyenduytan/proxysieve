@@ -1,6 +1,6 @@
 # ProxySieve milestone tracker
 
-Maintainer: **Tony Nguyen**. Updated: 2026-09-15.
+Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 
 ## Status
 
@@ -10,8 +10,8 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-15.
 - [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
 - [ ] M4 — SOCKS5 downstream and multi-listener support (local/password SOCKS5 CONNECT and runtime multi-listener support implemented; UDP, metrics and transport-framing accounting pending)
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
-- [ ] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes and audited session API/Admin/CLI observability locally implemented; broader failover validation pending)
-- [ ] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard and per-attempt HTTP/CONNECT/SOCKS5 retry attribution locally implemented; configurable retry policy and alternative-chain failover pending)
+- [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
+- [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries API, independent four-tier retention, currency-separated configured-cost snapshots/analytics and restart-safe hard byte-budget enforcement locally implemented; transport framing, billing windows, projections, soft thresholds and cost budgets pending)
 - [ ] M9 — Cache and advanced visible-HTTP actions
 - [ ] M10 — Browser integrations
@@ -224,6 +224,16 @@ source document.
   hop and records session usage even when the optional traffic recorder is absent.
   The Admin Health table keeps its existing columns and shows timing/throughput as
   compact secondary values.
+- Added global schema-v1 retry controls for one to five total attempts and explicit
+  bodyless idempotency-key opt-in. Existing schema-v1 files retain conservative
+  defaults, and one attempt disables retry without bypassing traffic accounting.
+- Added ordered `fallback_chain_ids` to chain policy actions. Runtime retries the
+  primary chain with different eligible endpoints before trying alternatives;
+  every referenced chain is validated and protected from deletion, and no path
+  falls back to `DIRECT`.
+- Proved alternative-chain failover end to end with separate failed/successful
+  traffic events, plus config compatibility, reference and no-retry regression
+  coverage. M6 and M7 acceptance are complete locally.
 
 Vite child-process execution and golangci-lint's user cache required approved
 out-of-sandbox runs; no safety checks were disabled to work around those restrictions.

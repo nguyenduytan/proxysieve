@@ -11,6 +11,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
+	"github.com/nguyenduytan/proxysieve/pkg/retry"
 	"github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
@@ -36,6 +37,7 @@ type Route struct {
 	Dial         func(context.Context, string) (net.Conn, error)
 	Acquire      func() bool
 	Retry        func(context.Context) (Route, error)
+	RetryPolicy  *retry.Policy
 	Observe      func(health.Observation)
 	Complete     func(context.Context, traffic.Bytes, traffic.Bytes)
 	Rate         *traffic.Rate

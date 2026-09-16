@@ -21,6 +21,16 @@ Hop pools, including their reachable fallback pools, must have disjoint endpoint
 membership. Sticky session policies on chain hop pools are rejected because one
 affinity record cannot correctly represent multiple ordered proxy selections.
 
+Policies can declare ordered alternative chains without changing chain inventory:
+
+```json
+{"type":"chain","chain_id":"primary-chain","fallback_chain_ids":["secondary-chain"]}
+```
+
+Before any response is delivered, a safe retry first rebuilds the primary chain
+with different eligible endpoints. If that is unavailable, ProxySieve tries each
+listed fallback chain in order. Every hop remains mandatory.
+
 The Admin Chains workspace supports revisioned create, edit, reorder, enable,
 disable and delete operations. Saved changes remain staged until the complete
 inventory is activated from Policies. Operators can test the exact active chain

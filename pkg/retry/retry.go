@@ -21,8 +21,8 @@ const (
 )
 
 type Policy struct {
-	MaxAttempts         uint8
-	AllowIdempotencyKey bool
+	MaxAttempts         uint8 `json:"max_attempts" yaml:"max_attempts"`
+	AllowIdempotencyKey bool  `json:"allow_idempotency_key" yaml:"allow_idempotency_key"`
 }
 
 func DefaultPolicy() Policy { return Policy{MaxAttempts: 2, AllowIdempotencyKey: false} }

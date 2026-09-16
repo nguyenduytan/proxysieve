@@ -225,6 +225,7 @@ export type PolicyAction = {
   type: string;
   pool_id?: string;
   chain_id?: string;
+  fallback_chain_ids?: string[];
   value?: string;
 };
 export interface PolicyCondition {

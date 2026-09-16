@@ -243,11 +243,13 @@ func (s *Server) validatePolicyReferences(r *http.Request, document policy.Polic
 				if s.chains == nil {
 					return store.ErrUnavailable
 				}
-				if _, err := s.chains.GetChain(r.Context(), action.ChainID); err != nil {
-					if errors.Is(err, store.ErrNotFound) {
-						return errPolicyChainMissing
+				for _, id := range append([]model.ID{action.ChainID}, action.FallbackChainIDs...) {
+					if _, err := s.chains.GetChain(r.Context(), id); err != nil {
+						if errors.Is(err, store.ErrNotFound) {
+							return errPolicyChainMissing
+						}
+						return err
 					}
-					return err
 				}
 			}
 		}
@@ -293,8 +295,12 @@ func (s *Server) policyUsesChain(r *http.Request, id model.ID) (bool, error) {
 	for _, record := range records {
 		for _, rule := range record.Policy.Rules {
 			for _, action := range rule.Actions {
-				if action.Type == "chain" && action.ChainID == id {
-					return true, nil
+				if action.Type == "chain" {
+					for _, referenced := range append([]model.ID{action.ChainID}, action.FallbackChainIDs...) {
+						if referenced == id {
+							return true, nil
+						}
+					}
 				}
 			}
 		}

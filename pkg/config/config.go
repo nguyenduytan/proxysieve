@@ -19,6 +19,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	pspolicy "github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	retrypkg "github.com/nguyenduytan/proxysieve/pkg/retry"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	"github.com/nguyenduytan/proxysieve/pkg/secret"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
@@ -55,6 +56,7 @@ type Config struct {
 	Storage   Storage               `json:"storage" yaml:"storage"`
 	Traffic   Traffic               `json:"traffic" yaml:"traffic"`
 	Health    Health                `json:"health" yaml:"health"`
+	Retry     retrypkg.Policy       `json:"retry" yaml:"retry"`
 	Inspect   Inspect               `json:"inspect" yaml:"inspect"`
 	Cache     Cache                 `json:"cache" yaml:"cache"`
 	Security  Security              `json:"security" yaml:"security"`
@@ -167,6 +169,7 @@ func Defaults(home string) Config {
 		Storage:  Storage{Driver: "sqlite", Path: filepath.Join(dir, "proxysieve.db"), BusyTimeout: Duration(5 * time.Second)},
 		Traffic:  Traffic{RetentionDays: 30, MinuteRetentionDays: 90, HourRetentionDays: 365, DayRetentionDays: 3650, AggregationInterval: Duration(time.Minute)},
 		Health:   Health{FailureThreshold: 3, SuccessThreshold: 2, OpenDuration: Duration(time.Minute), InitialScore: 50, SuccessGain: 5, FailurePenalty: 15, Treat429AsFailure: true, Treat5xxAsFailure: true, CheckHost: "example.com", CheckPort: 443, CheckInterval: Duration(5 * time.Minute), CheckTimeout: Duration(15 * time.Second), GlobalCheckRate: 60, PoolCheckRate: 30},
+		Retry:    retrypkg.DefaultPolicy(),
 		Cache:    Cache{DNS: CacheLimit{Enabled: true, MaxEntries: 4096, MaxBytes: 4 << 20}, Response: CacheLimit{MaxEntries: 1024, MaxBytes: 64 << 20}},
 		Security: Security{DenyPrivate: true},
 		Logging:  Logging{Level: "info", Format: "json"},
@@ -234,6 +237,9 @@ func (c Config) Validate() error {
 		return ErrInvalid
 	}
 	if c.Health.RuntimeConfig().Validate() != nil || c.Health.CheckPort == 0 || !proxy.ValidHost(c.Health.CheckHost) || c.Health.CheckInterval < Duration(time.Minute) || c.Health.CheckInterval > Duration(24*time.Hour) || c.Health.CheckTimeout <= 0 || c.Health.CheckTimeout > Duration(time.Minute) || c.Health.GlobalCheckRate < 1 || c.Health.GlobalCheckRate > 60_000 || c.Health.PoolCheckRate < 1 || c.Health.PoolCheckRate > 60_000 {
+		return ErrInvalid
+	}
+	if c.Retry.Validate() != nil || c.Retry.MaxAttempts == 0 {
 		return ErrInvalid
 	}
 	for _, v := range []CacheLimit{c.Cache.DNS, c.Cache.Response} {
@@ -318,12 +324,20 @@ func (c Config) Validate() error {
 		policyIDs[document.ID] = true
 		for _, rule := range document.Rules {
 			for _, action := range rule.Actions {
-				if action.Type == "proxy" {
+				switch action.Type {
+				case "proxy":
 					if _, exists := poolIDs[action.PoolID]; !exists {
 						return ErrInvalid
 					}
-				} else if action.Type == "chain" && !chainIDs[action.ChainID] {
-					return ErrInvalid
+				case "chain":
+					if !chainIDs[action.ChainID] {
+						return ErrInvalid
+					}
+					for _, fallback := range action.FallbackChainIDs {
+						if !chainIDs[fallback] {
+							return ErrInvalid
+						}
+					}
 				}
 			}
 		}

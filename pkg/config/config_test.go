@@ -11,6 +11,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	retrypkg "github.com/nguyenduytan/proxysieve/pkg/retry"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
 )
@@ -39,6 +40,20 @@ func TestHealthConfigurationValidation(t *testing.T) {
 	}
 }
 
+func TestRetryConfigurationValidation(t *testing.T) {
+	configured := Defaults(t.TempDir())
+	if configured.Retry != retrypkg.DefaultPolicy() {
+		t.Fatal("unexpected retry defaults", configured.Retry)
+	}
+	for _, attempts := range []uint8{0, 6} {
+		invalid := configured
+		invalid.Retry.MaxAttempts = attempts
+		if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Fatal(attempts, err)
+		}
+	}
+}
+
 func TestChainConfigurationReferencesAndIsolation(t *testing.T) {
 	configured := Defaults(t.TempDir())
 	configured.Proxies = []proxy.Endpoint{
@@ -49,8 +64,11 @@ func TestChainConfigurationReferencesAndIsolation(t *testing.T) {
 		{ID: "first-pool", Name: "First", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"first-proxy"}, Enabled: true},
 		{ID: "second-pool", Name: "Second", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"second-proxy"}, Enabled: true},
 	}
-	configured.Chains = []routing.Chain{{ID: "privacy-chain", Name: "Privacy chain", Hops: []routing.Hop{{PoolID: "first-pool"}, {PoolID: "second-pool"}}, Enabled: true}}
-	configured.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "Default", Rules: []policy.Rule{{ID: "chain", Name: "Chain", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "chain", ChainID: "privacy-chain"}}}}}}
+	configured.Chains = []routing.Chain{
+		{ID: "privacy-chain", Name: "Privacy chain", Hops: []routing.Hop{{PoolID: "first-pool"}, {PoolID: "second-pool"}}, Enabled: true},
+		{ID: "fallback-chain", Name: "Fallback chain", Hops: []routing.Hop{{PoolID: "second-pool"}, {PoolID: "first-pool"}}, Enabled: true},
+	}
+	configured.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "Default", Rules: []policy.Rule{{ID: "chain", Name: "Chain", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "chain", ChainID: "privacy-chain", FallbackChainIDs: []model.ID{"fallback-chain"}}}}}}}
 	if err := configured.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -59,8 +77,14 @@ func TestChainConfigurationReferencesAndIsolation(t *testing.T) {
 	if clone.Chains[0].Hops[0].PoolID != "first-pool" {
 		t.Fatal("chain configuration aliased")
 	}
+	configured.Policies[0].Rules[0].Actions[0].FallbackChainIDs[0] = "mutated"
+	if clone.Policies[0].Rules[0].Actions[0].FallbackChainIDs[0] != "fallback-chain" {
+		t.Fatal("policy fallback chains aliased")
+	}
 	for name, mutate := range map[string]func(*Config){
 		"missing chain":          func(c *Config) { c.Policies[0].Rules[0].Actions[0].ChainID = "missing" },
+		"missing fallback chain": func(c *Config) { c.Policies[0].Rules[0].Actions[0].FallbackChainIDs[0] = "missing" },
+		"duplicate fallback":     func(c *Config) { c.Policies[0].Rules[0].Actions[0].FallbackChainIDs = []model.ID{"privacy-chain"} },
 		"missing pool":           func(c *Config) { c.Chains[0].Hops[0].PoolID = "missing" },
 		"overlapping membership": func(c *Config) { c.Pools[1].EndpointIDs[0] = "first-proxy" },
 		"sticky hop":             func(c *Config) { c.Pools[0].SessionPolicy = publicsession.Policy{Strategy: publicsession.Client} },

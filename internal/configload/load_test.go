@@ -50,6 +50,18 @@ func TestMissingHealthSectionUsesDefaults(t *testing.T) {
 		t.Fatal(effective.Config.Health, err)
 	}
 }
+
+func TestMissingRetrySectionUsesDefaults(t *testing.T) {
+	home := t.TempDir()
+	effective, err := Load(Options{Home: home, File: strings.NewReader("version: 1\n")})
+	if err != nil || effective.Config.Retry != config.Defaults(home).Retry || effective.Sources["retry.max_attempts"] != "default" {
+		t.Fatal(effective.Config.Retry, err)
+	}
+	effective, err = Load(Options{Home: home, File: strings.NewReader("version: 1\nretry:\n  max_attempts: 1\n  allow_idempotency_key: true\n")})
+	if err != nil || effective.Config.Retry.MaxAttempts != 1 || !effective.Config.Retry.AllowIdempotencyKey || effective.Sources["retry.max_attempts"] != "file" {
+		t.Fatal(effective.Config.Retry, err)
+	}
+}
 func TestInvalidDocuments(t *testing.T) {
 	for _, doc := range []string{
 		"", "logging: {}", "version: 2", "version: 1\nunknown: true", "version: 1\nversion: 1",

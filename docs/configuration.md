@@ -80,6 +80,12 @@ the same pool. Lower rates can make a large manual pool check exceed the Admin
 request deadline; completed probes remain valid and the caller receives a bounded
 failure instead of bypassing the configured rate.
 
+Safe retry behavior is configured globally under `retry`. `max_attempts` accepts
+1–5 total attempts, including the first request; set it to 1 to disable retries.
+`allow_idempotency_key` defaults to false and only enables bodyless keyed requests
+in the current adapters. ProxySieve never replays request bodies, retries after
+response delivery, or bypasses health and hard-budget checks.
+
 `budgets` accepts durable paid-route byte guards. Supported scopes are `system`,
 `client`, `pool`, and `proxy`; every non-system scope requires `scope_id`. Pool and
 proxy IDs must exist in the same configuration. A hard budget currently requires

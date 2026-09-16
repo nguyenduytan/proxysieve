@@ -108,6 +108,10 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 	}
 	var upstream net.Conn
 	attempt := uint8(1)
+	retryPolicy := retrypkg.DefaultPolicy()
+	if route.RetryPolicy != nil {
+		retryPolicy = *route.RetryPolicy
+	}
 	for {
 		started := time.Now()
 		upstream, err = route.Dial(ctx, net.JoinHostPort(host, strconv.Itoa(int(port))))
@@ -122,7 +126,7 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 			route.Observe(publichealth.Observation{Success: false, Latency: latency, ConnectLatency: latency, Cause: errors.Join(err, ctx.Err())})
 		}
 		recordTunnel(s.recorder, ctx, request, route, 5, 0, 0, 0, 0)
-		if route.Retry == nil || attempt >= retrypkg.DefaultPolicy().MaxAttempts || retrypkg.Wait(ctx, attempt) != nil {
+		if route.Retry == nil || attempt >= retryPolicy.MaxAttempts || retrypkg.Wait(ctx, attempt) != nil {
 			break
 		}
 		next, retryErr := route.Retry(ctx)

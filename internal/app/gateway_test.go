@@ -274,6 +274,64 @@ func TestProxyChainRoutesThroughEveryHop(t *testing.T) {
 	}
 }
 
+func TestProxyChainFallsBackToAlternativeChain(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "through-fallback")
+	}))
+	defer target.Close()
+	second := newConnectProxy(t, make(chan string, 1))
+	defer second.Close()
+	first := newConnectProxy(t, make(chan string, 1))
+	defer first.Close()
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusBadGateway)
+	}))
+	defer dead.Close()
+	endpoint := func(id model.ID, rawAddress string) proxy.Endpoint {
+		host, portRaw, _ := net.SplitHostPort(strings.TrimPrefix(rawAddress, "http://"))
+		return proxy.Endpoint{ID: id, Name: string(id), Protocol: proxy.HTTP, Host: host, Port: parsePort(t, portRaw), Enabled: true, TrustedRemoteDNS: true}
+	}
+	c := config.Defaults(t.TempDir())
+	c.Listeners = c.Listeners[:1]
+	c.Admin.Enabled = false
+	c.Proxies = []proxy.Endpoint{
+		endpoint("dead-first", dead.URL), endpoint("dead-second", dead.URL),
+		endpoint("live-first", first.URL), endpoint("live-second", second.URL),
+	}
+	c.Pools = []routing.Pool{
+		{ID: "dead-first-pool", Name: "Dead first", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"dead-first"}, Enabled: true},
+		{ID: "dead-second-pool", Name: "Dead second", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"dead-second"}, Enabled: true},
+		{ID: "live-first-pool", Name: "Live first", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"live-first"}, Enabled: true},
+		{ID: "live-second-pool", Name: "Live second", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"live-second"}, Enabled: true},
+	}
+	c.Chains = []routing.Chain{
+		{ID: "primary-chain", Name: "Primary", Hops: []routing.Hop{{PoolID: "dead-first-pool"}, {PoolID: "dead-second-pool"}}, Enabled: true},
+		{ID: "fallback-chain", Name: "Fallback", Hops: []routing.Hop{{PoolID: "live-first-pool"}, {PoolID: "live-second-pool"}}, Enabled: true},
+	}
+	c.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "default", Rules: []policy.Rule{{ID: "route", Name: "route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "chain", ChainID: "primary-chain", FallbackChainIDs: []model.ID{"fallback-chain"}}}}}}}
+	runtime, err := Build(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downstream := httptest.NewServer(runtime.Server.Handler)
+	defer downstream.Close()
+	downstreamURL, _ := url.Parse(downstream.URL)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(downstreamURL)}}
+	response, err := client.Get(target.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if string(body) != "through-fallback" {
+		t.Fatal(string(body))
+	}
+	events, _ := runtime.Traffic.Snapshot()
+	if len(events) != 2 || events[0].ChainID != "primary-chain" || events[0].StatusCode != http.StatusBadGateway || events[1].ChainID != "fallback-chain" || events[1].StatusCode != http.StatusOK {
+		t.Fatalf("unexpected failover events: %+v", events)
+	}
+}
+
 func newConnectProxy(t *testing.T, targets chan<- string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

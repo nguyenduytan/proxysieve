@@ -20,6 +20,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
+	retrypkg "github.com/nguyenduytan/proxysieve/pkg/retry"
 	trafficpkg "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
 
@@ -204,6 +205,29 @@ func TestHTTPRetryRecordsEachAttempt(t *testing.T) {
 	first, second := <-recorded, <-recorded
 	if first.ProxyID != "first" || first.StatusCode != http.StatusBadGateway || second.ProxyID != "second" || second.StatusCode != http.StatusNoContent || first.RequestID != second.RequestID || first.ConnectionID != second.ConnectionID {
 		t.Fatal(first, second)
+	}
+}
+
+func TestHTTPRetryPolicyCanDisableRetry(t *testing.T) {
+	retried := false
+	retryRules := retrypkg.Policy{MaxAttempts: 1}
+	handler, err := New(Options{
+		Evaluator: Decider(direct),
+		Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{
+				Action: "proxy", RetryPolicy: &retryRules,
+				Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("failed") }),
+				Retry:     func(context.Context) (gateway.Route, error) { retried = true; return gateway.Route{}, nil },
+			}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://example.invalid/no-retry", nil))
+	if response.Code != http.StatusBadGateway || retried {
+		t.Fatal(response.Code, retried)
 	}
 }
 func TestSafeResponseCache(t *testing.T) {

@@ -23,10 +23,11 @@ type Condition struct {
 	Not      *Condition  `json:"not,omitempty" yaml:"not,omitempty"`
 }
 type Action struct {
-	Type    string   `json:"type" yaml:"type"`
-	PoolID  model.ID `json:"pool_id,omitempty" yaml:"pool_id,omitempty"`
-	ChainID model.ID `json:"chain_id,omitempty" yaml:"chain_id,omitempty"`
-	Value   string   `json:"value,omitempty" yaml:"value,omitempty"`
+	Type             string     `json:"type" yaml:"type"`
+	PoolID           model.ID   `json:"pool_id,omitempty" yaml:"pool_id,omitempty"`
+	ChainID          model.ID   `json:"chain_id,omitempty" yaml:"chain_id,omitempty"`
+	FallbackChainIDs []model.ID `json:"fallback_chain_ids,omitempty" yaml:"fallback_chain_ids,omitempty"`
+	Value            string     `json:"value,omitempty" yaml:"value,omitempty"`
 }
 type Rule struct {
 	ID             model.ID  `json:"id" yaml:"id"`
@@ -48,6 +49,9 @@ func (p Policy) Clone() Policy {
 	p.Rules = slices.Clone(p.Rules)
 	for i := range p.Rules {
 		p.Rules[i].Actions = slices.Clone(p.Rules[i].Actions)
+		for j := range p.Rules[i].Actions {
+			p.Rules[i].Actions[j].FallbackChainIDs = slices.Clone(p.Rules[i].Actions[j].FallbackChainIDs)
+		}
 		p.Rules[i].Conditions = p.Rules[i].Conditions.Clone()
 	}
 	return p
@@ -181,11 +185,21 @@ func supportedConditionOperator(operator string) bool {
 func (a Action) Valid() bool {
 	switch a.Type {
 	case "allow", "block", "reject", "direct", "cache", "throttle", "mock", "redirect", "rewrite", "set_tag", "set_session_policy":
-		return a.PoolID == "" && a.ChainID == "" && len(a.Value) <= 4096
+		return a.PoolID == "" && a.ChainID == "" && len(a.FallbackChainIDs) == 0 && len(a.Value) <= 4096
 	case "proxy":
-		return a.PoolID.Valid() && a.ChainID == "" && a.Value == ""
+		return a.PoolID.Valid() && a.ChainID == "" && len(a.FallbackChainIDs) == 0 && a.Value == ""
 	case "chain":
-		return a.ChainID.Valid() && a.PoolID == "" && a.Value == ""
+		if !a.ChainID.Valid() || a.PoolID != "" || a.Value != "" || len(a.FallbackChainIDs) > 15 {
+			return false
+		}
+		seen := map[model.ID]bool{a.ChainID: true}
+		for _, id := range a.FallbackChainIDs {
+			if !id.Valid() || seen[id] {
+				return false
+			}
+			seen[id] = true
+		}
+		return true
 	}
 	return false
 }

@@ -43,6 +43,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
+	retrypkg "github.com/nguyenduytan/proxysieve/pkg/retry"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	"github.com/nguyenduytan/proxysieve/pkg/secret"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
@@ -89,6 +90,7 @@ type router struct {
 	directPolicy config.Security
 	budgets      *internalbudget.Manager
 	sessions     *internalsession.Manager
+	retryPolicy  retrypkg.Policy
 }
 
 func (r *router) Evaluate(_ context.Context, request policy.RequestContext, visibility policy.Visibility) (policy.Result, error) {
@@ -135,7 +137,7 @@ func (r *router) Route(ctx context.Context, request policy.RequestContext, resul
 		if !ok {
 			return gateway.Route{}, gateway.ErrDenied
 		}
-		return r.chain(ctx, request, action.ChainID, snapshot)
+		return r.chainWithFallbacks(ctx, request, action.ChainID, action.FallbackChainIDs, snapshot)
 	case "block", "reject":
 		return gateway.Route{Action: action.Type}, nil
 	}
@@ -152,10 +154,30 @@ func terminal(actions []policy.Action) policy.Action {
 }
 
 func (r *router) chain(ctx context.Context, request policy.RequestContext, chainID model.ID, snapshot *routingSnapshot) (gateway.Route, error) {
-	return r.chainExcluding(ctx, request, chainID, snapshot, map[model.ID]bool{})
+	return r.chainWithFallbacks(ctx, request, chainID, nil, snapshot)
 }
 
-func (r *router) chainExcluding(ctx context.Context, request policy.RequestContext, chainID model.ID, snapshot *routingSnapshot, excluded map[model.ID]bool) (gateway.Route, error) {
+func (r *router) chainWithFallbacks(ctx context.Context, request policy.RequestContext, chainID model.ID, fallbacks []model.ID, snapshot *routingSnapshot) (gateway.Route, error) {
+	chainIDs := append([]model.ID{chainID}, fallbacks...)
+	return r.selectChain(ctx, request, chainIDs, snapshot, map[model.ID]bool{})
+}
+
+func (r *router) selectChain(ctx context.Context, request policy.RequestContext, chainIDs []model.ID, snapshot *routingSnapshot, excluded map[model.ID]bool) (gateway.Route, error) {
+	for _, chainID := range chainIDs {
+		nextExcluded := maps.Clone(excluded)
+		route, err := r.buildChain(ctx, request, chainID, snapshot, nextExcluded)
+		if err != nil {
+			continue
+		}
+		route.Retry = func(ctx context.Context) (gateway.Route, error) {
+			return r.selectChain(ctx, request, chainIDs, snapshot, nextExcluded)
+		}
+		return route, nil
+	}
+	return gateway.Route{}, ErrPoolUnavailable
+}
+
+func (r *router) buildChain(ctx context.Context, request policy.RequestContext, chainID model.ID, snapshot *routingSnapshot, excluded map[model.ID]bool) (gateway.Route, error) {
 	chain, ok := snapshot.chains[chainID]
 	if !ok || !chain.Enabled {
 		return gateway.Route{}, ErrPoolUnavailable
@@ -232,9 +254,7 @@ func (r *router) chainExcluding(ctx context.Context, request policy.RequestConte
 			}
 			return true
 		},
-		Retry: func(ctx context.Context) (gateway.Route, error) {
-			return r.chainExcluding(ctx, request, chainID, snapshot, maps.Clone(excluded))
-		},
+		RetryPolicy: &r.retryPolicy,
 		Observe: func(observation publichealth.Observation) {
 			observation = healthObservation(observation)
 			failureMu.Lock()
@@ -419,7 +439,7 @@ func (r *router) proxyExcluding(ctx context.Context, request policy.RequestConte
 		}
 	}
 	routeStarted := time.Now()
-	route := gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, SessionID: sessionID, SessionHash: sessionHash, Rate: rate, Reserve: reserve, Transport: transport, Acquire: func() bool {
+	route := gateway.Route{Action: "proxy", PoolID: poolID, ProxyID: endpoint.ID, SessionID: sessionID, SessionHash: sessionHash, Rate: rate, Reserve: reserve, Transport: transport, RetryPolicy: &r.retryPolicy, Acquire: func() bool {
 		return r.health.Acquire(endpoint.ID, time.Now().UTC())
 	}, Retry: func(ctx context.Context) (gateway.Route, error) {
 		if sessionID != "" && r.sessions != nil {
@@ -717,7 +737,7 @@ func Build(c config.Config) (Runtime, error) {
 		server.SetHealth(healthService)
 		server.SetSourceRefresher(sourceRefresher)
 		server.SetRuntimeControl(&runtimeControl{runtime: routeRuntime, store: controlStore, now: func() time.Time { return time.Now().UTC() }})
-		chainTester := &router{runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager}
+		chainTester := &router{runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry}
 		server.SetChainTester(chainTester.testChain)
 		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}
 		runtime.AdminBind = c.Admin.Bind
@@ -778,7 +798,7 @@ func Build(c config.Config) (Runtime, error) {
 		if listener.Auth != "local" && listener.Auth != "api_key" && listener.Auth != "password" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
-		r := &router{policyID: model.ID(listener.Policy), runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager}
+		r := &router{policyID: model.ID(listener.Policy), runtime: routeRuntime, resolver: resolver{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry}
 		var authenticatePassword func(context.Context, string, string) (model.ID, error)
 		if listener.Auth == "password" {
 			authenticatePassword = passwordAuthenticator(listener.CredentialRef, listener.Name)

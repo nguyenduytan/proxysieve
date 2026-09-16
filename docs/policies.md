@@ -19,6 +19,12 @@ cannot be deleted until the policy reference is removed. Pool and policy
 reference checks are serialized within the running control plane so concurrent
 mutations cannot bypass those checks.
 
+Chain actions require `chain_id` and may add up to 15 unique ordered
+`fallback_chain_ids`. Retry exhausts eligible replacement endpoints in the primary
+chain before trying those alternatives. Primary and fallback chains cannot be
+deleted while a saved policy references them, and no failure path substitutes
+`DIRECT`.
+
 ## Simulation
 
 `POST /api/v1/policies/{id}/simulate` accepts a bounded request context and runs

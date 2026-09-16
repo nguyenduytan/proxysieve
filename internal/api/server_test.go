@@ -753,7 +753,14 @@ func TestChainLifecycleValidatesReferencesOverlapAndPolicyUse(t *testing.T) {
 	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"health":{"status":"healthy"`)) {
 		t.Fatal(response.Code, response.Body.String())
 	}
-	document := policy.Policy{Version: 1, ID: "chain-policy", Name: "Chain policy", Rules: []policy.Rule{{ID: "chain", Name: "Chain", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "chain", ChainID: chain.ID}}}}}
+	alternative := chain
+	alternative.ID = "alternative-chain"
+	alternative.Name = "Alternative chain"
+	alternative.Hops = []routing.Hop{chain.Hops[1], chain.Hops[0]}
+	if _, err = repository.PutChain(t.Context(), alternative, 0); err != nil {
+		t.Fatal(err)
+	}
+	document := policy.Policy{Version: 1, ID: "chain-policy", Name: "Chain policy", Rules: []policy.Rule{{ID: "chain", Name: "Chain", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "chain", ChainID: chain.ID, FallbackChainIDs: []model.ID{alternative.ID}}}}}}
 	response = mutationRequest(handler, http.MethodPost, "/api/v1/policies", map[string]any{"policy": document}, cookies)
 	if response.Code != http.StatusCreated {
 		t.Fatal(response.Code, response.Body.String())
@@ -762,11 +769,18 @@ func TestChainLifecycleValidatesReferencesOverlapAndPolicyUse(t *testing.T) {
 	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("CHAIN_IN_USE")) {
 		t.Fatal(response.Code, response.Body.String())
 	}
+	response = mutationRequest(handler, http.MethodDelete, "/api/v1/chains/alternative-chain", map[string]any{"revision": 1}, cookies)
+	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("CHAIN_IN_USE")) {
+		t.Fatal(response.Code, response.Body.String())
+	}
 	response = mutationRequest(handler, http.MethodDelete, "/api/v1/pools/first-pool", map[string]any{"revision": 3}, cookies)
 	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("POOL_IN_USE")) {
 		t.Fatal(response.Code, response.Body.String())
 	}
 	if response = mutationRequest(handler, http.MethodDelete, "/api/v1/policies/chain-policy", map[string]any{"revision": 1}, cookies); response.Code != http.StatusNoContent {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	if response = mutationRequest(handler, http.MethodDelete, "/api/v1/chains/alternative-chain", map[string]any{"revision": 1}, cookies); response.Code != http.StatusNoContent {
 		t.Fatal(response.Code, response.Body.String())
 	}
 	if response = mutationRequest(handler, http.MethodDelete, "/api/v1/chains/ordered-chain", map[string]any{"revision": 2}, cookies); response.Code != http.StatusNoContent {
