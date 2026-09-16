@@ -185,7 +185,8 @@ export interface PoolHealthPage {
   items: PoolHealth[];
 }
 export type BudgetScope = "system" | "client" | "pool" | "proxy";
-export type BudgetWindow = "lifetime" | "daily" | "weekly" | "monthly";
+export type BudgetWindow =
+  "lifetime" | "rolling" | "daily" | "weekly" | "monthly";
 export interface BudgetConfig {
   id: string;
   name: string;
@@ -196,6 +197,7 @@ export interface BudgetConfig {
   action: "alert" | "reject" | "throttle";
   window: BudgetWindow;
   timezone?: string;
+  rolling_seconds?: number;
 }
 export interface BudgetStatus extends BudgetConfig {
   revision: number;

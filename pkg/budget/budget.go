@@ -33,18 +33,22 @@ const (
 	WindowDaily    Window = "daily"
 	WindowWeekly   Window = "weekly"
 	WindowMonthly  Window = "monthly"
+	WindowRolling  Window = "rolling"
+	minRollingSecs        = int64(60)
+	maxRollingSecs        = int64(365 * 24 * 60 * 60)
 )
 
 type Config struct {
-	ID       model.ID      `json:"id" yaml:"id"`
-	Name     string        `json:"name" yaml:"name"`
-	Scope    Scope         `json:"scope" yaml:"scope"`
-	ScopeID  model.ID      `json:"scope_id,omitempty" yaml:"scope_id,omitempty"`
-	Limit    traffic.Bytes `json:"limit_bytes" yaml:"limit_bytes"`
-	Hard     bool          `json:"hard" yaml:"hard"`
-	Action   Action        `json:"action" yaml:"action"`
-	Window   Window        `json:"window,omitempty" yaml:"window,omitempty"`
-	Timezone string        `json:"timezone,omitempty" yaml:"timezone,omitempty"`
+	ID             model.ID      `json:"id" yaml:"id"`
+	Name           string        `json:"name" yaml:"name"`
+	Scope          Scope         `json:"scope" yaml:"scope"`
+	ScopeID        model.ID      `json:"scope_id,omitempty" yaml:"scope_id,omitempty"`
+	Limit          traffic.Bytes `json:"limit_bytes" yaml:"limit_bytes"`
+	Hard           bool          `json:"hard" yaml:"hard"`
+	Action         Action        `json:"action" yaml:"action"`
+	Window         Window        `json:"window,omitempty" yaml:"window,omitempty"`
+	Timezone       string        `json:"timezone,omitempty" yaml:"timezone,omitempty"`
+	RollingSeconds int64         `json:"rolling_seconds,omitempty" yaml:"rolling_seconds,omitempty"`
 }
 
 func (c Config) Validate() error {
@@ -72,12 +76,18 @@ func (c Config) Validate() error {
 		window = WindowLifetime
 	}
 	if window == WindowLifetime {
-		if c.Timezone != "" {
+		if c.Timezone != "" || c.RollingSeconds != 0 {
 			return ErrInvalid
 		}
 		return nil
 	}
-	if window != WindowDaily && window != WindowWeekly && window != WindowMonthly || c.Timezone == "" || c.Timezone == "Local" || len(c.Timezone) > 128 || strings.TrimSpace(c.Timezone) != c.Timezone {
+	if window == WindowRolling {
+		if c.Timezone != "" || c.RollingSeconds < minRollingSecs || c.RollingSeconds > maxRollingSecs {
+			return ErrInvalid
+		}
+		return nil
+	}
+	if c.RollingSeconds != 0 || window != WindowDaily && window != WindowWeekly && window != WindowMonthly || c.Timezone == "" || c.Timezone == "Local" || len(c.Timezone) > 128 || strings.TrimSpace(c.Timezone) != c.Timezone {
 		return ErrInvalid
 	}
 	if _, err := time.LoadLocation(c.Timezone); err != nil {
@@ -95,6 +105,10 @@ func (c Config) WindowBounds(at time.Time) (time.Time, time.Time, error) {
 	window := c.Window
 	if window == "" || window == WindowLifetime {
 		return time.Time{}, time.Time{}, nil
+	}
+	if window == WindowRolling {
+		end := at.UTC()
+		return end.Add(-time.Duration(c.RollingSeconds) * time.Second), end, nil
 	}
 	location, err := time.LoadLocation(c.Timezone)
 	if err != nil {

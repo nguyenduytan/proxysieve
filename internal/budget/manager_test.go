@@ -83,8 +83,8 @@ func TestPersistentConcurrentReservationsAndScopes(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	configs := []budget.Config{
-		{ID: "system", Name: "System", Scope: budget.ScopeSystem, Limit: 1000, Hard: true, Action: budget.ActionReject},
-		{ID: "client-a", Name: "Client A", Scope: budget.ScopeClient, ScopeID: "client", Limit: 1000, Hard: true, Action: budget.ActionReject},
+		{ID: "system", Name: "System", Scope: budget.ScopeSystem, Limit: 1000, Hard: true, Action: budget.ActionReject, Window: budget.WindowRolling, RollingSeconds: 3600},
+		{ID: "client-a", Name: "Client A", Scope: budget.ScopeClient, ScopeID: "client", Limit: 1000, Hard: true, Action: budget.ActionReject, Window: budget.WindowRolling, RollingSeconds: 3600},
 	}
 	manager, err := NewPersistent(configs, 10, store)
 	if err != nil {
@@ -165,6 +165,77 @@ func TestPersistentCalendarBudgetResetsAtLocalBoundary(t *testing.T) {
 	}
 	restarted.now = func() time.Time { return now }
 	if usage, usageErr := restarted.Usage("daily"); usageErr != nil || usage.Used != 4 || usage.Reserved != 0 {
+		t.Fatal(usage, usageErr)
+	}
+}
+
+func TestRollingBudgetExpiresConservativelyAtMinuteBoundary(t *testing.T) {
+	configured := budget.Config{ID: "rolling", Name: "Rolling", Limit: 10, Hard: true, Action: budget.ActionReject, Window: budget.WindowRolling, RollingSeconds: 120}
+	manager, err := New([]budget.Config{configured}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 16, 12, 0, 30, 0, time.UTC)
+	manager.now = func() time.Time { return now }
+	lease, err := manager.Reserve(t.Context(), []model.ID{"rolling"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lease.Consume(t.Context(), 10); err != nil {
+		t.Fatal(err)
+	}
+	if err = lease.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	now = time.Date(2026, 9, 16, 12, 2, 31, 0, time.UTC)
+	if _, err = manager.Reserve(t.Context(), []model.ID{"rolling"}, 1); !errors.Is(err, budget.ErrExceeded) {
+		t.Fatal(err)
+	}
+	status, err := manager.Status(t.Context(), "rolling")
+	if err != nil || status.WindowStart == nil || status.WindowEnd == nil || status.WindowEnd.Sub(*status.WindowStart) != 120*time.Second {
+		t.Fatal(status, err)
+	}
+	now = time.Date(2026, 9, 16, 12, 3, 0, 0, time.UTC)
+	if usage, usageErr := manager.Usage("rolling"); usageErr != nil || usage != (budget.Usage{}) {
+		t.Fatal(usage, usageErr)
+	}
+}
+
+func TestPersistentRollingBudgetSurvivesRestart(t *testing.T) {
+	store, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "rolling-budgets.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	configured := budget.Config{ID: "rolling", Name: "Rolling", Limit: 10, Hard: true, Action: budget.ActionReject, Window: budget.WindowRolling, RollingSeconds: 120}
+	manager, err := NewPersistent([]budget.Config{configured}, 10, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 16, 12, 0, 30, 0, time.UTC)
+	manager.now = func() time.Time { return now }
+	lease, err := manager.Reserve(t.Context(), []model.ID{"rolling"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lease.Consume(t.Context(), 10); err != nil {
+		t.Fatal(err)
+	}
+	if err = lease.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewPersistent(nil, 10, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = time.Date(2026, 9, 16, 12, 1, 0, 0, time.UTC)
+	restarted.now = func() time.Time { return now }
+	status, err := restarted.Status(t.Context(), "rolling")
+	if err != nil || status.RollingSeconds != 120 || status.Used != 10 {
+		t.Fatal(status, err)
+	}
+	now = time.Date(2026, 9, 16, 12, 3, 0, 0, time.UTC)
+	if usage, usageErr := restarted.Usage("rolling"); usageErr != nil || usage != (budget.Usage{}) {
 		t.Fatal(usage, usageErr)
 	}
 }

@@ -334,6 +334,9 @@ function BudgetForm({
     initial?.window ?? "lifetime",
   );
   const [timezone, setTimezone] = useState(initial?.timezone ?? "UTC");
+  const [rollingSeconds, setRollingSeconds] = useState(
+    String(initial?.rolling_seconds ?? 3600),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -350,7 +353,19 @@ function BudgetForm({
       setError("Scope ID is required for client, pool and proxy budgets.");
       return;
     }
-    if (window !== "lifetime" && !timezone.trim()) {
+    const calendarWindow =
+      window === "daily" || window === "weekly" || window === "monthly";
+    const rollingDuration = Number(rollingSeconds);
+    if (
+      window === "rolling" &&
+      (!Number.isSafeInteger(rollingDuration) ||
+        rollingDuration < 60 ||
+        rollingDuration > 365 * 24 * 60 * 60)
+    ) {
+      setError("Rolling duration must be between 60 seconds and 365 days.");
+      return;
+    }
+    if (calendarWindow && !timezone.trim()) {
       setError("Timezone is required for calendar budgets.");
       return;
     }
@@ -363,7 +378,8 @@ function BudgetForm({
       hard: initial?.hard ?? true,
       action: initial?.action ?? "reject",
       window,
-      ...(window === "lifetime" ? {} : { timezone: timezone.trim() }),
+      ...(calendarWindow ? { timezone: timezone.trim() } : {}),
+      ...(window === "rolling" ? { rolling_seconds: rollingDuration } : {}),
     };
     setBusy(true);
     setError("");
@@ -454,12 +470,27 @@ function BudgetForm({
             onChange={(event) => setWindow(event.target.value as BudgetWindow)}
           >
             <option value="lifetime">Lifetime</option>
+            <option value="rolling">Rolling</option>
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
           </select>
         </label>
-        {window !== "lifetime" ? (
+        {window === "rolling" ? (
+          <label>
+            Duration (seconds)
+            <input
+              required
+              type="number"
+              min={60}
+              max={365 * 24 * 60 * 60}
+              step={1}
+              value={rollingSeconds}
+              onChange={(event) => setRollingSeconds(event.target.value)}
+            />
+          </label>
+        ) : null}
+        {window === "daily" || window === "weekly" || window === "monthly" ? (
           <label>
             IANA timezone
             <input
@@ -505,6 +536,9 @@ export function formatScope(budget: BudgetStatus): string {
 }
 
 export function formatWindow(budget: BudgetStatus): string {
+  if (budget.window === "rolling" && budget.rolling_seconds) {
+    return `Last ${formatDuration(budget.rolling_seconds)}`;
+  }
   if (!budget.window_start || !budget.window_end) return "No reset";
   const start = new Date(budget.window_start);
   const end = new Date(budget.window_end);
@@ -515,4 +549,18 @@ export function formatWindow(budget: BudgetStatus): string {
     ...(budget.timezone ? { timeZone: budget.timezone } : {}),
   });
   return `${formatter.format(start)} – ${formatter.format(end)}${budget.timezone ? ` · ${budget.timezone}` : ""}`;
+}
+
+function formatDuration(seconds: number): string {
+  for (const [unit, size] of [
+    ["day", 24 * 60 * 60],
+    ["hour", 60 * 60],
+    ["minute", 60],
+  ] as const) {
+    if (seconds % size === 0) {
+      const value = seconds / size;
+      return `${value} ${unit}${value === 1 ? "" : "s"}`;
+    }
+  }
+  return `${seconds} seconds`;
 }

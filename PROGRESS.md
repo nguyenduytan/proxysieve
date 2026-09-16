@@ -12,7 +12,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [ ] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation and durable atomic runtime activation/rollback locally implemented; full action execution pending)
 - [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
-- [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement with durable revisioned API/Admin CRUD locally implemented; transport framing, rolling windows, soft thresholds and cost budgets pending)
+- [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/calendar/rolling hard byte-budget enforcement with durable revisioned API/Admin CRUD locally implemented; transport framing, soft thresholds and cost budgets pending)
 - [x] M9 — Cache and advanced visible-HTTP actions (policy-opt-in safe bounded memory/disk response cache, explicit HTTP freshness, deterministic TTL eviction, bounded DNS cache, complete process-lifetime cache statistics, audited full/exact-host purge API/CLI, role-aware Admin workspace and validated CACHE/THROTTLE/MOCK/REDIRECT/REWRITE execution complete locally)
 - [x] M10 — Browser integrations (client-scoped snapshot/control contract, safe presets, Playwright/Puppeteer adapters, bounded estimated block reporting, Selenium foundation and controlled Chrome E2E complete locally)
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key/cache lifecycle endpoints, bounded authenticated traffic SSE and embedded OpenAPI contract locally implemented; broader API/event completion pending)
@@ -417,6 +417,16 @@ public push or release was performed. Preserved the existing API/frontend edits.
   deterministic scope/window details, empty/error/loading states and manual refresh.
 - At this checkpoint, budget CRUD, soft thresholds and actions beyond hard rejection
   remained pending; no Alerts surface or placeholder editor was added.
+
+### Rolling hard-budget continuation — 2026-09-16
+
+- Added elapsed-time rolling hard budgets from 60 seconds through 365 days without
+  adding a schema migration. Existing usage rows store UTC minute buckets.
+- Enforcement aggregates the active buckets transactionally and keeps the cutoff
+  minute charged until the next minute boundary, conservatively expiring by less
+  than one minute instead of allowing an early reset.
+- Added revisioned API/OpenAPI/Admin authoring, dynamic status bounds and restart,
+  concurrent reservation, validation and boundary regression coverage.
 
 ### Revisioned budget inventory continuation — 2026-09-16
 

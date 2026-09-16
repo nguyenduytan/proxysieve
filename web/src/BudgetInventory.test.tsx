@@ -45,5 +45,12 @@ describe("budget workspace", () => {
     const { window_start, ...lifetime } = budget;
     expect(window_start).toBeDefined();
     expect(formatWindow(lifetime)).toBe("No reset");
+    expect(
+      formatWindow({
+        ...lifetime,
+        window: "rolling",
+        rolling_seconds: 3600,
+      }),
+    ).toBe("Last 1 hour");
   });
 });

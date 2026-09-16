@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added restart-safe rolling hard byte budgets with bounded elapsed durations,
+  transactional minute-bucket enforcement, API/OpenAPI support and Admin controls.
 - Added validated policy `CACHE`, `THROTTLE`, `MOCK`, `REDIRECT` and same-origin
   `REWRITE` execution. Cache use is opt-in, throttle paces HTTP/CONNECT/SOCKS
   streams, synthetic responses are accounted, and incompatible tunnel actions

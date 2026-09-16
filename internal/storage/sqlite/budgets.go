@@ -203,10 +203,11 @@ func (s *Store) ReserveBudgets(ctx context.Context, configs []publicbudget.Confi
 		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO budget_usage(budget_id,window_start) VALUES (?,?)", string(configured.ID), windowStart); err != nil {
 			return safeError(ctx, err)
 		}
-		var used, reserved int64
-		if err = tx.QueryRowContext(ctx, "SELECT used_bytes,reserved_bytes FROM budget_usage WHERE budget_id=? AND window_start=?", string(configured.ID), windowStart).Scan(&used, &reserved); err != nil {
-			return safeError(ctx, err)
+		usage, usageErr := readBudgetUsage(ctx, tx, configured, at)
+		if usageErr != nil {
+			return usageErr
 		}
+		used, reserved := int64(usage.Used), int64(usage.Reserved)
 		requested := int64(amount)
 		limit := int64(configured.Limit)
 		if used > math.MaxInt64-reserved || reserved > math.MaxInt64-requested || configured.Hard && (used+reserved > limit || requested > limit-used-reserved) {
@@ -271,12 +272,26 @@ func (s *Store) moveBudgetReservation(ctx context.Context, configs []publicbudge
 }
 
 func (s *Store) BudgetUsage(ctx context.Context, configured publicbudget.Config, at time.Time) (publicbudget.Usage, error) {
+	return readBudgetUsage(ctx, s.db, configured, at)
+}
+
+func readBudgetUsage(ctx context.Context, q querier, configured publicbudget.Config, at time.Time) (publicbudget.Usage, error) {
 	windowStart, err := budgetWindowStart(configured, at)
 	if err != nil {
 		return publicbudget.Usage{}, err
 	}
 	var used, reserved int64
-	err = s.db.QueryRowContext(ctx, "SELECT used_bytes,reserved_bytes FROM budget_usage WHERE budget_id=? AND window_start=?", string(configured.ID), windowStart).Scan(&used, &reserved)
+	query := "SELECT used_bytes,reserved_bytes FROM budget_usage WHERE budget_id=? AND window_start=?"
+	args := []any{string(configured.ID), windowStart}
+	if configured.Window == publicbudget.WindowRolling {
+		start, _, boundsErr := configured.WindowBounds(at)
+		if boundsErr != nil {
+			return publicbudget.Usage{}, boundsErr
+		}
+		query = "SELECT COALESCE(SUM(used_bytes),0),COALESCE(SUM(reserved_bytes),0) FROM budget_usage WHERE budget_id=? AND window_start>=?"
+		args = []any{string(configured.ID), start.UTC().Truncate(time.Minute).UnixNano()}
+	}
+	err = q.QueryRowContext(ctx, query, args...).Scan(&used, &reserved)
 	if errors.Is(err, sql.ErrNoRows) {
 		return publicbudget.Usage{}, nil
 	}
@@ -316,6 +331,9 @@ func budgetWindowStart(configured publicbudget.Config, at time.Time) (int64, err
 	}
 	if start.IsZero() {
 		return 0, nil
+	}
+	if configured.Window == publicbudget.WindowRolling {
+		return at.UTC().Truncate(time.Minute).UnixNano(), nil
 	}
 	return start.UnixNano(), nil
 }

@@ -121,8 +121,10 @@ func TestBudgetLifecycleIsRevisionedAndProtectsScopeReferences(t *testing.T) {
 	}
 
 	system.Limit = 50
+	system.Window = publicbudget.WindowRolling
+	system.RollingSeconds = 300
 	response = mutationRequest(handler, http.MethodPatch, "/api/v1/budgets/system", map[string]any{"budget": system, "revision": 1}, operatorCookies)
-	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"revision":2`)) {
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"revision":2`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"rolling_seconds":300`)) {
 		t.Fatal(response.Code, response.Body.String())
 	}
 	if response = mutationRequest(handler, http.MethodPatch, "/api/v1/budgets/system", map[string]any{"budget": system, "revision": 1}, operatorCookies); response.Code != http.StatusConflict {

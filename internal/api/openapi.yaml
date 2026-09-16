@@ -908,8 +908,9 @@ components:
         limit_bytes: {type: integer, minimum: 1}
         hard: {type: boolean}
         action: {type: string, enum: [alert, reject, throttle]}
-        window: {type: string, enum: [lifetime, daily, weekly, monthly]}
+        window: {type: string, enum: [lifetime, rolling, daily, weekly, monthly]}
         timezone: {type: string}
+        rolling_seconds: {type: integer, minimum: 60, maximum: 31536000}
     BudgetStatus:
       allOf:
         - {$ref: '#/components/schemas/BudgetConfig'}

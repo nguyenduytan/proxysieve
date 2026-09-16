@@ -181,11 +181,13 @@ func (m *Manager) Reserve(ctx context.Context, ids []model.ID, amount traffic.By
 		}
 		configs = append(configs, config)
 		if m.store == nil {
-			key, keyErr := budgetUsageKey(config, at)
-			if keyErr != nil {
-				return nil, keyErr
+			usage, usageErr := m.usageLocked(ctx, config, at)
+			if errors.Is(usageErr, traffic.ErrOverflow) {
+				return nil, budget.ErrExceeded
 			}
-			usage := m.usage[key]
+			if usageErr != nil {
+				return nil, usageErr
+			}
 			if config.Hard && wouldExceed(usage, amount, config.Limit) {
 				return nil, budget.ErrExceeded
 			}
@@ -358,6 +360,27 @@ func (m *Manager) usageLocked(ctx context.Context, config budget.Config, at time
 	if m.store != nil {
 		return m.store.BudgetUsage(ctx, config, at)
 	}
+	if config.Window == budget.WindowRolling {
+		start, _, err := config.WindowBounds(at)
+		if err != nil {
+			return budget.Usage{}, err
+		}
+		cutoff := start.UTC().Truncate(time.Minute).UnixNano()
+		var total budget.Usage
+		for key, usage := range m.usage {
+			if key.id != config.ID || key.windowStart < cutoff {
+				continue
+			}
+			total.Used, err = total.Used.Add(usage.Used)
+			if err == nil {
+				total.Reserved, err = total.Reserved.Add(usage.Reserved)
+			}
+			if err != nil {
+				return budget.Usage{}, err
+			}
+		}
+		return total, nil
+	}
 	key, err := budgetUsageKey(config, at)
 	if err != nil {
 		return budget.Usage{}, err
@@ -404,6 +427,10 @@ func budgetUsageKey(config budget.Config, at time.Time) (usageKey, error) {
 		return usageKey{}, err
 	}
 	key := usageKey{id: config.ID}
+	if config.Window == budget.WindowRolling {
+		key.windowStart = at.UTC().Truncate(time.Minute).UnixNano()
+		return key, nil
+	}
 	if !start.IsZero() {
 		key.windowStart = start.UnixNano()
 	}

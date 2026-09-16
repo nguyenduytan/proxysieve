@@ -29,10 +29,29 @@ func TestCalendarWindowRequiresExplicitTimezone(t *testing.T) {
 	for _, configured := range []Config{
 		{ID: "missing", Name: "Missing", Limit: 1, Hard: true, Action: ActionReject, Window: WindowDaily},
 		{ID: "local", Name: "Local", Limit: 1, Hard: true, Action: ActionReject, Window: WindowDaily, Timezone: "Local"},
-		{ID: "unknown", Name: "Unknown", Limit: 1, Hard: true, Action: ActionReject, Window: "rolling", Timezone: "UTC"},
+		{ID: "unknown", Name: "Unknown", Limit: 1, Hard: true, Action: ActionReject, Window: "sliding", Timezone: "UTC"},
 	} {
 		if configured.Validate() == nil {
 			t.Fatal(configured)
+		}
+	}
+}
+
+func TestRollingWindowUsesElapsedTimeAndValidatesDuration(t *testing.T) {
+	configured := Config{ID: "rolling", Name: "Rolling", Limit: 1, Hard: true, Action: ActionReject, Window: WindowRolling, RollingSeconds: 90}
+	at := time.Date(2026, 9, 16, 12, 34, 56, 0, time.UTC)
+	start, end, err := configured.WindowBounds(at)
+	if err != nil || !start.Equal(at.Add(-90*time.Second)) || !end.Equal(at) {
+		t.Fatal(start, end, err)
+	}
+	for _, invalid := range []Config{
+		{ID: "short", Name: "Short", Limit: 1, Hard: true, Action: ActionReject, Window: WindowRolling, RollingSeconds: 59},
+		{ID: "long", Name: "Long", Limit: 1, Hard: true, Action: ActionReject, Window: WindowRolling, RollingSeconds: maxRollingSecs + 1},
+		{ID: "zone", Name: "Zone", Limit: 1, Hard: true, Action: ActionReject, Window: WindowRolling, RollingSeconds: 60, Timezone: "UTC"},
+		{ID: "calendar", Name: "Calendar", Limit: 1, Hard: true, Action: ActionReject, Window: WindowDaily, Timezone: "UTC", RollingSeconds: 60},
+	} {
+		if invalid.Validate() == nil {
+			t.Fatal(invalid)
 		}
 	}
 }
