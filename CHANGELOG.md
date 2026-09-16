@@ -94,6 +94,9 @@
 
 ### Fixed
 
+- Preserved continuous hard-budget enforcement while replaying the buffered prefix
+  of an oversized response-cache candidate; remaining upstream bytes can no longer
+  bypass reservation and accounting.
 - Preserved response-cache accounting during rejected replacements and added
   expired-first deterministic eviction so configured entry and byte bounds remain
   enforced under pressure.

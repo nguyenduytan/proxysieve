@@ -34,6 +34,9 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - Fixed outbound TLS in the scratch container by copying a current CA bundle from
   the pinned Alpine build stage. The compose target remains an artifact smoke test,
   not an implicitly exposed gateway deployment.
+- Fixed oversized cache-candidate streaming so the buffered prefix is replayed to
+  the client without replacing the budgeted upstream reader. Regression coverage
+  verifies exact delivery/accounting at the hard byte limit.
 
 ### Latest local continuation — inventory lifecycle (2026-09-13)
 

@@ -239,6 +239,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = response.Body.Close() }()
 	cacheKey = cacheKeyFor(route, ctx, r)
 	download := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: r.Context(), Source: response.Body, Reserve: route.Reserve}}
+	responseBody := io.Reader(download)
 	responseHeaders := response.Header.Clone()
 	stripHopByHop(responseHeaders)
 	cacheEligibility := cachepkg.CheckResponse(response.StatusCode, response.Header, response.ContentLength, h.maxCacheBody, time.Now().UTC())
@@ -256,12 +257,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		download = &internaltraffic.Reader{Source: io.MultiReader(bytes.NewReader(body), response.Body)}
+		responseBody = io.MultiReader(bytes.NewReader(body), download)
 	}
 	copyHeader(w.Header(), responseHeaders)
 	w.WriteHeader(response.StatusCode)
 	delivered := &internaltraffic.Writer{Destination: w}
-	_, copyErr := io.Copy(delivered, download)
+	_, copyErr := io.Copy(delivered, responseBody)
 	recordHTTP(h.recorder, r, ctx, route, host, upload.Bytes(), download.Bytes(), delivered.Bytes(), response.StatusCode, 0)
 	if copyErr != nil {
 		panic(http.ErrAbortHandler)

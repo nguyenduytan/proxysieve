@@ -15,8 +15,10 @@ import (
 	"testing"
 	"time"
 
+	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
+	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/policy"
@@ -292,6 +294,48 @@ func TestCacheRejectsCookieResponses(t *testing.T) {
 	}
 	if hits != 2 {
 		t.Fatal("private response cached", hits)
+	}
+}
+
+func TestOversizedCacheCandidateKeepsBudgetEnforcement(t *testing.T) {
+	manager, err := internalbudget.New([]publicbudget.Config{{ID: "system", Name: "System", Limit: 7, Hard: true, Action: publicbudget.ActionReject}}, 64<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache, _ := internalcache.NewMemory(10, 1024)
+	recorded := make(eventRecorder, 1)
+	handler, err := New(Options{
+		Evaluator: Decider(direct),
+		Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{Action: "proxy", Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, ContentLength: -1, Header: http.Header{"Cache-Control": {"max-age=60"}}, Body: io.NopCloser(strings.NewReader("0123456789"))}, nil
+			}), Reserve: func(ctx context.Context, amount trafficpkg.Bytes) (publicbudget.Lease, error) {
+				return manager.Reserve(ctx, []model.ID{"system"}, amount)
+			}}, nil
+		}),
+		Recorder:      recorded,
+		ResponseCache: cache,
+		MaxCacheBody:  4,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://example.invalid/large", nil))
+	if response.Body.String() != "0123456" {
+		t.Fatalf("budgeted body = %q", response.Body.String())
+	}
+	event := <-recorded
+	if event.ClientDownload != 7 || event.UpstreamDownload != 7 {
+		t.Fatal(event)
+	}
+	usage, err := manager.Usage("system")
+	if err != nil || usage.Used != 7 || usage.Reserved != 0 {
+		t.Fatal(usage, err)
+	}
+	if stats := cache.Stats(time.Now().UTC()); stats.Entries != 0 {
+		t.Fatal("oversized response was cached", stats)
 	}
 }
 func TestRejectsUnsafeAndUnsupported(t *testing.T) {
