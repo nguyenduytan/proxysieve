@@ -86,6 +86,15 @@ Safe retry behavior is configured globally under `retry`. `max_attempts` accepts
 in the current adapters. ProxySieve never replays request bodies, retries after
 response delivery, or bypasses health and hard-budget checks.
 
+The response cache is off by default. Set `cache.response.enabled: true` and use
+`driver: memory` for process-local storage or `driver: disk` to preserve eligible
+entries across restarts. Both drivers enforce `max_entries` and `max_bytes`; the
+limits count response bodies. A missing response-cache path derives to
+`server.data_dir/response-cache`. A configured disk path must stay below
+`server.data_dir`, and ProxySieve creates cache directories/files with private
+permissions. Disk persistence does not weaken the request/response eligibility,
+freshness, client/session partitioning, or size checks.
+
 `budgets` accepts durable paid-route byte guards. Supported scopes are `system`,
 `client`, `pool`, and `proxy`; every non-system scope requires `scope_id`. Pool and
 proxy IDs must exist in the same configuration. A hard budget currently requires

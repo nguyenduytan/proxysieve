@@ -56,6 +56,8 @@ func NewMemory(maxEntries int, maxBytes int64) (*Memory, error) {
 	}
 	return &Memory{entries: map[string]Entry{}, maxEntries: maxEntries, maxBytes: maxBytes}, nil
 }
+func (*Memory) Kind() string { return "memory" }
+
 func (m *Memory) Get(key public.Key, now time.Time) (Entry, bool) {
 	if key.Validate() != nil {
 		return Entry{}, false

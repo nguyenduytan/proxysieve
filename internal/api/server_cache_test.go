@@ -29,7 +29,7 @@ func TestCacheStatsAndPurgeAuthorization(t *testing.T) {
 	viewerToken, _ := service.CreateSession(auth.User{ID: "viewer", Username: "viewer", Role: auth.RoleViewer, Enabled: true, CreatedAt: now})
 	viewerCookies := sessionCookie + "=" + viewerToken + "; " + csrfCookie + "=" + service.CSRFToken(viewerToken)
 	stats := request(handler, http.MethodGet, "/api/v1/cache/stats", nil, viewerCookies)
-	if stats.Code != http.StatusOK || stats.Body.String() != "{\"enabled\":true,\"stats\":{\"entries\":2,\"bytes_stored\":11,\"max_entries\":2,\"max_bytes\":32,\"hits\":0,\"misses\":0,\"bypasses\":0,\"expired\":0,\"evictions\":0,\"bytes_served\":0,\"hit_ratio\":0}}\n" {
+	if stats.Code != http.StatusOK || stats.Body.String() != "{\"enabled\":true,\"stats\":{\"entries\":2,\"bytes_stored\":11,\"max_entries\":2,\"max_bytes\":32,\"hits\":0,\"misses\":0,\"bypasses\":0,\"expired\":0,\"evictions\":0,\"bytes_served\":0,\"hit_ratio\":0},\"storage\":\"memory\"}\n" {
 		t.Fatal(stats.Code, stats.Body.String())
 	}
 	if forbidden := mutationRequest(handler, http.MethodPost, "/api/v1/cache/purge", nil, viewerCookies); forbidden.Code != http.StatusForbidden {

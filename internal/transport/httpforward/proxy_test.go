@@ -271,6 +271,34 @@ func TestSafeResponseCache(t *testing.T) {
 		t.Fatalf("unexpected cache stats: %+v", stats)
 	}
 }
+func TestDiskResponseCacheSurvivesHandlerRestart(t *testing.T) {
+	var upstreamHits int
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamHits++
+		w.Header().Set("Cache-Control", "max-age=60")
+		_, _ = io.WriteString(w, "persisted")
+	}))
+	defer target.Close()
+	dir := t.TempDir()
+	for range 2 {
+		responseCache, err := internalcache.NewDisk(dir, 10, 1024)
+		if err != nil {
+			t.Fatal(err)
+		}
+		handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(routeDirect), ResponseCache: responseCache, MaxCacheBody: 1024})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target.URL, nil))
+		if response.Code != http.StatusOK || response.Body.String() != "persisted" {
+			t.Fatal(response.Code, response.Body.String())
+		}
+	}
+	if upstreamHits != 1 {
+		t.Fatal("disk cache did not survive handler restart", upstreamHits)
+	}
+}
 func TestCacheRejectsCookieResponses(t *testing.T) {
 	var hits int
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

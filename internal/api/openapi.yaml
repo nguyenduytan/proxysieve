@@ -148,7 +148,7 @@ paths:
     get:
       tags: [Cache]
       responses:
-        '200': {description: Active in-memory response cache status, content: {application/json: {schema: {$ref: '#/components/schemas/CacheStatus'}}}}
+        '200': {description: Active response cache status, content: {application/json: {schema: {$ref: '#/components/schemas/CacheStatus'}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
   /api/v1/cache/purge:
     post:
@@ -835,11 +835,13 @@ components:
       required: [enabled]
       properties:
         enabled: {type: boolean}
+        storage: {type: string, enum: [memory, disk]}
         stats: {$ref: '#/components/schemas/CacheStats'}
     CachePurgeResponse:
       type: object
-      required: [purged, stats]
+      required: [storage, purged, stats]
       properties:
+        storage: {type: string, enum: [memory, disk]}
         purged:
           type: object
           required: [entries, bytes]

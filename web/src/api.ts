@@ -219,10 +219,12 @@ export interface CacheStats {
 }
 export interface CacheStatus {
   enabled: boolean;
+  storage?: "memory" | "disk";
   stats?: CacheStats;
 }
 export interface CachePurgeResult {
   domain?: string;
+  storage: "memory" | "disk";
   purged: { entries: number; bytes: number };
   stats: CacheStats;
 }

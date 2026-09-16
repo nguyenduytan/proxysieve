@@ -49,7 +49,7 @@ type Options struct {
 	Recorder             trafficpkg.Recorder
 	Authenticate         func(context.Context, string) (model.ID, error)
 	AuthenticatePassword func(context.Context, string, string) (model.ID, error)
-	ResponseCache        *internalcache.Memory
+	ResponseCache        internalcache.ResponseStore
 	MaxCacheBody         int64
 	MaxHeaderBytes       int
 }
@@ -59,7 +59,7 @@ type Handler struct {
 	recorder             trafficpkg.Recorder
 	authenticate         func(context.Context, string) (model.ID, error)
 	authenticatePassword func(context.Context, string, string) (model.ID, error)
-	responseCache        *internalcache.Memory
+	responseCache        internalcache.ResponseStore
 	maxCacheBody         int64
 	maxHeaderBytes       int
 }

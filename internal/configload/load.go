@@ -142,12 +142,19 @@ func Load(o Options) (Effective, error) {
 	if err != nil {
 		return Effective{}, config.ErrInvalid
 	}
-	if json.Unmarshal(raw, &c) != nil || c.Validate() != nil {
+	if json.Unmarshal(raw, &c) != nil {
 		return Effective{}, config.ErrInvalid
 	}
 	if sources["storage.path"] == "default" && sources["server.data_dir"] != "default" {
 		c.Storage.Path = filepath.Join(c.Server.DataDir, "proxysieve.db")
 		sources["storage.path"] = "derived:server.data_dir"
+	}
+	if sources["cache.response.path"] == "default" && sources["server.data_dir"] != "default" {
+		c.Cache.Response.Path = filepath.Join(c.Server.DataDir, "response-cache")
+		sources["cache.response.path"] = "derived:server.data_dir"
+	}
+	if c.Validate() != nil {
+		return Effective{}, config.ErrInvalid
 	}
 	return Effective{Config: c, Sources: sources}, nil
 }

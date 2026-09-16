@@ -140,9 +140,11 @@ type Cache struct {
 	DNS      DNSCache   `json:"dns" yaml:"dns"`
 }
 type CacheLimit struct {
-	Enabled    bool  `json:"enabled" yaml:"enabled"`
-	MaxEntries int   `json:"max_entries" yaml:"max_entries"`
-	MaxBytes   int64 `json:"max_bytes" yaml:"max_bytes"`
+	Enabled    bool   `json:"enabled" yaml:"enabled"`
+	MaxEntries int    `json:"max_entries" yaml:"max_entries"`
+	MaxBytes   int64  `json:"max_bytes" yaml:"max_bytes"`
+	Driver     string `json:"driver" yaml:"driver"`
+	Path       string `json:"path" yaml:"path"`
 }
 type DNSCache struct {
 	Enabled    bool     `json:"enabled" yaml:"enabled"`
@@ -176,7 +178,7 @@ func Defaults(home string) Config {
 		Traffic:  Traffic{RetentionDays: 30, MinuteRetentionDays: 90, HourRetentionDays: 365, DayRetentionDays: 3650, AggregationInterval: Duration(time.Minute)},
 		Health:   Health{FailureThreshold: 3, SuccessThreshold: 2, OpenDuration: Duration(time.Minute), InitialScore: 50, SuccessGain: 5, FailurePenalty: 15, Treat429AsFailure: true, Treat5xxAsFailure: true, CheckHost: "example.com", CheckPort: 443, CheckInterval: Duration(5 * time.Minute), CheckTimeout: Duration(15 * time.Second), GlobalCheckRate: 60, PoolCheckRate: 30},
 		Retry:    retrypkg.DefaultPolicy(),
-		Cache:    Cache{DNS: DNSCache{Enabled: true, MaxEntries: 4096, MaxBytes: 4 << 20, TTL: Duration(time.Minute)}, Response: CacheLimit{MaxEntries: 1024, MaxBytes: 64 << 20}},
+		Cache:    Cache{DNS: DNSCache{Enabled: true, MaxEntries: 4096, MaxBytes: 4 << 20, TTL: Duration(time.Minute)}, Response: CacheLimit{MaxEntries: 1024, MaxBytes: 64 << 20, Driver: "memory", Path: filepath.Join(dir, "response-cache")}},
 		Security: Security{DenyPrivate: true},
 		Logging:  Logging{Level: "info", Format: "json"},
 		Policies: []pspolicy.Policy{{Version: 1, ID: "default", Name: "Fail closed", Rules: []pspolicy.Rule{{ID: "deny", Name: "Deny requests until configured", Priority: 100, Enabled: true, StopProcessing: true, Actions: []pspolicy.Action{{Type: "reject"}}}}}},
@@ -252,6 +254,9 @@ func (c Config) Validate() error {
 		if v.MaxEntries < 1 || v.MaxEntries > 1_000_000 || v.MaxBytes < 1 || v.MaxBytes > 1<<40 {
 			return ErrInvalid
 		}
+	}
+	if c.Cache.Response.Driver != "memory" && c.Cache.Response.Driver != "disk" || c.Cache.Response.Path == "" || strings.ContainsRune(c.Cache.Response.Path, 0) || c.Cache.Response.Driver == "disk" && !pathWithin(c.Server.DataDir, c.Cache.Response.Path) {
+		return ErrInvalid
 	}
 	if c.Cache.DNS.TTL < Duration(time.Second) || c.Cache.DNS.TTL > Duration(24*time.Hour) {
 		return ErrInvalid
@@ -419,6 +424,11 @@ func hasPoolCycle(pools map[model.ID]routing.Pool) bool {
 		}
 	}
 	return false
+}
+
+func pathWithin(root, target string) bool {
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
+	return err == nil && relative != "." && relative != ".." && !filepath.IsAbs(relative) && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func (c Config) Clone() Config {

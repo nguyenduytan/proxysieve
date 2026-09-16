@@ -28,12 +28,14 @@ type cacheCLIStats struct {
 
 type cacheCLIStatus struct {
 	Enabled bool           `json:"enabled"`
+	Storage string         `json:"storage,omitempty"`
 	Stats   *cacheCLIStats `json:"stats,omitempty"`
 }
 
 type cacheCLIPurge struct {
-	Domain string `json:"domain,omitempty"`
-	Purged struct {
+	Domain  string `json:"domain,omitempty"`
+	Storage string `json:"storage"`
+	Purged  struct {
 		Entries int   `json:"entries"`
 		Bytes   int64 `json:"bytes"`
 	} `json:"purged"`
@@ -114,7 +116,7 @@ func runCache(args []string, stdout, stderr io.Writer, env map[string]string) in
 	if !value.Enabled {
 		_, err = io.WriteString(stdout, "Response cache disabled.\n")
 	} else {
-		_, err = fmt.Fprintf(stdout, "cache: %d/%d entries, %d/%d bytes, %.1f%% hit ratio\n", value.Stats.Entries, value.Stats.MaxEntries, value.Stats.Bytes, value.Stats.MaxBytes, value.Stats.HitRatio*100)
+		_, err = fmt.Fprintf(stdout, "cache (%s): %d/%d entries, %d/%d bytes, %.1f%% hit ratio\n", value.Storage, value.Stats.Entries, value.Stats.MaxEntries, value.Stats.Bytes, value.Stats.MaxBytes, value.Stats.HitRatio*100)
 	}
 	if err != nil {
 		return 1
@@ -127,23 +129,25 @@ func validateCachePayload(command string, body []byte) error {
 		document, ok := requiredJSONFields(body, "enabled")
 		stats, hasStats := document["stats"]
 		var value cacheCLIStatus
-		if !ok || json.Unmarshal(body, &value) != nil || value.Enabled && (!hasStats || value.Stats == nil || !validCacheStats(stats)) || !value.Enabled && hasStats {
+		if !ok || json.Unmarshal(body, &value) != nil || value.Enabled && (!hasStats || value.Stats == nil || !validCacheStorage(value.Storage) || !validCacheStats(stats)) || !value.Enabled && (hasStats || value.Storage != "") {
 			return errAdminCLI
 		}
 		return nil
 	}
-	required := []string{"purged", "stats"}
+	required := []string{"storage", "purged", "stats"}
 	if command == "purge-domain" {
 		required = append(required, "domain")
 	}
 	document, ok := requiredJSONFields(body, required...)
 	_, purgedOK := requiredJSONFields(document["purged"], "entries", "bytes")
 	var value cacheCLIPurge
-	if !ok || !purgedOK || json.Unmarshal(body, &value) != nil || command == "purge-domain" && !proxy.ValidHost(value.Domain) || value.Purged.Entries < 0 || value.Purged.Bytes < 0 || !validCacheStats(document["stats"]) {
+	if !ok || !purgedOK || json.Unmarshal(body, &value) != nil || !validCacheStorage(value.Storage) || command == "purge-domain" && !proxy.ValidHost(value.Domain) || value.Purged.Entries < 0 || value.Purged.Bytes < 0 || !validCacheStats(document["stats"]) {
 		return errAdminCLI
 	}
 	return nil
 }
+
+func validCacheStorage(value string) bool { return value == "memory" || value == "disk" }
 
 func validCacheStats(raw []byte) bool {
 	_, ok := requiredJSONFields(raw, "entries", "bytes_stored", "max_entries", "max_bytes", "hits", "misses", "bypasses", "expired", "evictions", "bytes_served", "hit_ratio")

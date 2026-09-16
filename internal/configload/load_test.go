@@ -74,6 +74,14 @@ func TestDNSCacheDefaultsAndTTLOverride(t *testing.T) {
 		t.Fatal(effective.Config.Cache.DNS, err)
 	}
 }
+func TestResponseCachePathFollowsDataDirectory(t *testing.T) {
+	home := t.TempDir()
+	dataDir := filepath.Join(home, "runtime")
+	effective, err := Load(Options{Home: home, File: strings.NewReader("version: 1\nserver:\n  data_dir: " + filepath.ToSlash(dataDir) + "\ncache:\n  response:\n    enabled: true\n    driver: disk\n")})
+	if err != nil || effective.Config.Cache.Response.Path != filepath.Join(dataDir, "response-cache") || effective.Sources["cache.response.path"] != "derived:server.data_dir" {
+		t.Fatal(effective.Config.Cache.Response, effective.Sources["cache.response.path"], err)
+	}
+}
 func TestInvalidDocuments(t *testing.T) {
 	for _, doc := range []string{
 		"", "logging: {}", "version: 2", "version: 1\nunknown: true", "version: 1\nversion: 1",
@@ -82,6 +90,7 @@ func TestInvalidDocuments(t *testing.T) {
 		"version: 1\nadmin:\n  bind: 0.0.0.0:9090", "version: 1\nadmin:\n  auth_required: false",
 		"version: 1\nsecurity:\n  allow_direct: true", "version: 1\ninspect:\n  enabled: true",
 		"version: 1\nlisteners: []", "version: 1\ncache:\n  dns:\n    max_bytes: 0",
+		"version: 1\ncache:\n  response:\n    driver: remote", "version: 1\ncache:\n  response:\n    path: ''",
 		"version: 1\nlisteners:\n  - name: http\n    type: http\n    bind: 127.0.0.1:8080\n    auth: local\n    policy: default\n    max_connections: 0",
 		strings.Repeat(" ", MaxDocumentBytes+1),
 	} {

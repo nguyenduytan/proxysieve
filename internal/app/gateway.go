@@ -661,9 +661,14 @@ func Build(c config.Config) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	var responseCache *internalcache.Memory
+	var responseCache internalcache.ResponseStore
 	if c.Cache.Response.Enabled {
-		responseCache, err = internalcache.NewMemory(c.Cache.Response.MaxEntries, c.Cache.Response.MaxBytes)
+		switch c.Cache.Response.Driver {
+		case "memory":
+			responseCache, err = internalcache.NewMemory(c.Cache.Response.MaxEntries, c.Cache.Response.MaxBytes)
+		case "disk":
+			responseCache, err = internalcache.NewDisk(c.Cache.Response.Path, c.Cache.Response.MaxEntries, c.Cache.Response.MaxBytes)
+		}
 		if err != nil {
 			return Runtime{}, err
 		}

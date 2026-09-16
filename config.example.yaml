@@ -54,6 +54,9 @@ inspect:
 cache:
   response:
     enabled: false
+    driver: memory
+    max_entries: 1024
+    max_bytes: 67108864
   dns:
     enabled: true
     max_entries: 4096

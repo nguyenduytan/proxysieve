@@ -74,6 +74,8 @@
   workspace, with operator/CSRF enforcement and dedicated audit records.
 - Added a bounded positive-result DNS cache with configurable TTL, deterministic
   expiry eviction and shared gateway, chain-test and health-check resolution.
+- Added an opt-in bounded disk response-cache backend with atomic private files,
+  restart recovery, corrupt/expired entry cleanup and shared Admin/CLI operations.
 - Added a tag-gated draft release workflow for six cross-platform archives,
   checksums, SPDX SBOM generation and GitHub build-provenance attestations.
 - Added CA roots to the non-root scratch container and refreshed stale bootstrap

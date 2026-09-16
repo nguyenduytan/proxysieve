@@ -67,7 +67,11 @@ export function CacheInventory({
           ...(targetDomain ? { body: { domain: targetDomain } } : {}),
         },
       );
-      setStatus({ enabled: true, stats: result.stats });
+      setStatus({
+        enabled: true,
+        storage: result.storage,
+        stats: result.stats,
+      });
       setMessage(
         `Purged ${result.purged.entries} entries${result.domain ? ` for ${result.domain}` : ""} (${formatBytes(result.purged.bytes)}).`,
       );
@@ -149,7 +153,7 @@ export function CacheInventory({
             <CacheMetric
               label="Stored"
               value={formatBytes(stats.bytes_stored)}
-              context={`${stats.entries} of ${stats.max_entries} entries`}
+              context={`${status.storage === "disk" ? "Disk" : "Memory"} · ${stats.entries} of ${stats.max_entries} entries`}
             />
             <CacheMetric
               label="Capacity"

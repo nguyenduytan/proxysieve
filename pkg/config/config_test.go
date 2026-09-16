@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -142,7 +143,7 @@ func TestSafeDefaultsAndManager(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if c.Inspect.Enabled || c.Security.AllowDirect || !c.Security.DenyPrivate || c.Cache.Response.Enabled || c.Logging.CaptureBodies {
+	if c.Inspect.Enabled || c.Security.AllowDirect || !c.Security.DenyPrivate || c.Cache.Response.Enabled || c.Cache.Response.Driver != "memory" || c.Cache.Response.Path == "" || c.Logging.CaptureBodies {
 		t.Fatal("unsafe defaults")
 	}
 	if c.Health.ActiveChecks || c.Health.RuntimeConfig().Validate() != nil || c.Health.GlobalCheckRate != 60 || c.Health.PoolCheckRate != 30 {
@@ -189,5 +190,17 @@ func TestSafeDefaultsAndManager(t *testing.T) {
 	snap.Config.Listeners[0].Bind = "mutated"
 	if m.Snapshot().Config.Listeners[0].Bind == "mutated" {
 		t.Fatal("snapshot aliased")
+	}
+}
+
+func TestDiskCacheStaysInsideDataDirectory(t *testing.T) {
+	for _, path := range []string{".", "..", filepath.Join("..", "outside")} {
+		configured := Defaults(t.TempDir())
+		configured.Cache.Response.Enabled = true
+		configured.Cache.Response.Driver = "disk"
+		configured.Cache.Response.Path = filepath.Join(configured.Server.DataDir, path)
+		if err := configured.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("accepted disk cache path %q: %v", configured.Cache.Response.Path, err)
+		}
 	}
 }

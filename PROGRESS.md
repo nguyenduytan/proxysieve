@@ -13,7 +13,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 - [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
 - [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/daily/weekly/monthly hard byte-budget enforcement with API/Admin observability locally implemented; transport framing, rolling windows, soft thresholds, cost budgets and budget CRUD pending)
-- [ ] M9 — Cache and advanced visible-HTTP actions (safe bounded memory response cache, explicit HTTP freshness, deterministic TTL eviction, bounded DNS cache, complete process-lifetime cache statistics, audited full/exact-host purge API/CLI and role-aware Admin workspace locally implemented; disk cache, CACHE action completion and remaining visible-HTTP actions pending)
+- [ ] M9 — Cache and advanced visible-HTTP actions (safe bounded memory/disk response cache, explicit HTTP freshness, deterministic TTL eviction, bounded DNS cache, complete process-lifetime cache statistics, audited full/exact-host purge API/CLI and role-aware Admin workspace locally implemented; CACHE action completion and remaining visible-HTTP actions pending)
 - [ ] M10 — Browser integrations
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key/cache lifecycle endpoints and embedded OpenAPI contract locally implemented; SSE pending)
 - [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including budget usage and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
@@ -416,8 +416,11 @@ public push or release was performed. Preserved the existing API/frontend edits.
   and health checks. Its configurable TTL is an upper bound because Go's resolver
   interface does not expose authoritative record TTLs; source refresh keeps its
   uncached resolver at the separate SSRF boundary.
-- Disk cache, full CACHE policy semantics and
-  THROTTLE/MOCK/REDIRECT/REWRITE completion remain pending, so M9 stays open.
+- Added an opt-in persistent disk response cache behind the same bounded cache
+  contract. Atomic private files survive restart; invalid, corrupt and expired
+  entries fail closed, while Admin and CLI stats/purge work for either backend.
+- Full CACHE policy semantics and THROTTLE/MOCK/REDIRECT/REWRITE completion remain
+  pending, so M9 stays open.
 
 ### Original milestone entry gate
 

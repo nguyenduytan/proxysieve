@@ -13,7 +13,7 @@ func (s *Server) cacheStats(w http.ResponseWriter) {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "stats": s.responseCache.Stats(s.now())})
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "storage": s.responseCache.Kind(), "stats": s.responseCache.Stats(s.now())})
 }
 
 func (s *Server) purgeCache(w http.ResponseWriter, r *http.Request, user auth.User) {
@@ -27,7 +27,7 @@ func (s *Server) purgeCache(w http.ResponseWriter, r *http.Request, user auth.Us
 	}
 	removed := s.responseCache.Purge()
 	s.record(r.Context(), user, "cache.purged", "cache", "response")
-	writeJSON(w, http.StatusOK, map[string]any{"purged": removed, "stats": s.responseCache.Stats(s.now())})
+	writeJSON(w, http.StatusOK, map[string]any{"storage": s.responseCache.Kind(), "purged": removed, "stats": s.responseCache.Stats(s.now())})
 }
 
 func (s *Server) purgeCacheDomain(w http.ResponseWriter, r *http.Request, user auth.User) {
@@ -52,5 +52,5 @@ func (s *Server) purgeCacheDomain(w http.ResponseWriter, r *http.Request, user a
 	}
 	removed := s.responseCache.PurgeDomain(input.Domain)
 	s.record(r.Context(), user, "cache.domain_purged", "domain", input.Domain)
-	writeJSON(w, http.StatusOK, map[string]any{"domain": input.Domain, "purged": removed, "stats": s.responseCache.Stats(s.now())})
+	writeJSON(w, http.StatusOK, map[string]any{"storage": s.responseCache.Kind(), "domain": input.Domain, "purged": removed, "stats": s.responseCache.Stats(s.now())})
 }

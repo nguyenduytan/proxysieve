@@ -71,6 +71,20 @@ func TestBuildSafety(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBuildCreatesConfiguredDiskResponseCache(t *testing.T) {
+	c := config.Defaults(t.TempDir())
+	c.Admin.Enabled = false
+	c.Listeners = c.Listeners[:1]
+	c.Cache.Response.Enabled = true
+	c.Cache.Response.Driver = "disk"
+	if _, err := Build(c); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(c.Cache.Response.Path); err != nil || !info.IsDir() {
+		t.Fatal("disk response cache directory missing", info, err)
+	}
+}
 func TestRunCancelled(t *testing.T) {
 	c := config.Defaults(t.TempDir())
 	c.Listeners = c.Listeners[:1]
