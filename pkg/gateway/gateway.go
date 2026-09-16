@@ -26,6 +26,8 @@ type Evaluator interface {
 // scoped to one normalized destination and must not cross credential boundaries.
 type Route struct {
 	Action       string
+	PolicyID     model.ID
+	RuleID       model.ID
 	PoolID       model.ID
 	ProxyID      model.ID
 	ChainID      model.ID

@@ -485,6 +485,48 @@ nav {
   min-height: 220px;
   margin-bottom: 20px;
 }
+.traffic-breakdowns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin-bottom: 20px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--line);
+  box-shadow: var(--shadow);
+}
+.traffic-breakdowns > div {
+  min-width: 0;
+  padding: 18px 20px;
+  background: var(--surface);
+}
+.traffic-breakdowns h2 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.traffic-breakdowns ol {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.traffic-breakdowns li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  font-size: 12px;
+}
+.traffic-breakdowns li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.traffic-breakdowns li strong {
+  flex: 0 0 auto;
+}
 .hour-bars {
   height: 118px;
   display: grid;
@@ -731,7 +773,7 @@ nav {
   display: flex;
   align-items: center;
   gap: 7px;
-  width: 154px;
+  width: 210px;
   border: 1px solid var(--line);
   height: 34px;
   padding: 0 9px;
@@ -955,7 +997,8 @@ tbody tr:last-child td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .analytics-grid,
-  .split-grid {
+  .split-grid,
+  .traffic-breakdowns {
     grid-template-columns: 1fr;
   }
   .actions-panel {

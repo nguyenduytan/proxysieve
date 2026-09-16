@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +29,8 @@ type TrafficQuery struct {
 	PoolID      model.ID
 	ProxyID     model.ID
 	ChainID     model.ID
+	PolicyID    model.ID
+	RuleID      model.ID
 	Action      string
 	Protocol    string
 }
@@ -52,7 +55,7 @@ func (q TrafficQuery) valid(summary bool) bool {
 		q.Until.Sub(q.From) > 10*365*24*time.Hour {
 		return false
 	}
-	for _, id := range []model.ID{q.ClientID, q.PoolID, q.ProxyID, q.ChainID} {
+	for _, id := range []model.ID{q.ClientID, q.PoolID, q.ProxyID, q.ChainID, q.PolicyID, q.RuleID} {
 		if id != "" && !id.Valid() {
 			return false
 		}
@@ -93,8 +96,8 @@ func (s *Store) RecordTrafficBatch(ctx context.Context, events []traffic.Event) 
 		return safeError(ctx, err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	statement, err := tx.PrepareContext(ctx, `INSERT INTO traffic_events(at,request_id,connection_id,client_id,pool_id,proxy_id,chain_id,host,protocol,action,status_code,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided,cost_currency,cost_micros,rate_price_micros,rate_unit_bytes,rate_download_only,rate_effective_at)
-	SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25 WHERE ?26 >= (SELECT before_ns FROM traffic_retention WHERE singleton=1)`)
+	statement, err := tx.PrepareContext(ctx, `INSERT INTO traffic_events(at,request_id,connection_id,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,host,protocol,action,status_code,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided,cost_currency,cost_micros,rate_price_micros,rate_unit_bytes,rate_download_only,rate_effective_at)
+	SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27 WHERE ?28 >= (SELECT before_ns FROM traffic_retention WHERE singleton=1)`)
 	if err != nil {
 		return safeError(ctx, err)
 	}
@@ -102,7 +105,7 @@ func (s *Store) RecordTrafficBatch(ctx context.Context, events []traffic.Event) 
 	for _, event := range events {
 		at := event.At.UTC().UnixNano()
 		currency, costMicros, priceMicros, unitBytes, downloadOnly, effectiveAt := trafficCostValues(event.ConfiguredCost)
-		result, err := statement.ExecContext(ctx, at, string(event.RequestID), string(event.ConnectionID), nullableID(event.ClientID), nullableID(event.PoolID), nullableID(event.ProxyID), nullableID(event.ChainID), event.Host, event.Protocol, event.Action, event.StatusCode, int64(event.ClientUpload), int64(event.ClientDownload), int64(event.UpstreamUpload), int64(event.UpstreamDownload), int64(event.Direct), int64(event.CacheServed), int64(event.HealthCheck), int64(event.EstimatedAvoided), currency, costMicros, priceMicros, unitBytes, downloadOnly, effectiveAt, at)
+		result, err := statement.ExecContext(ctx, at, string(event.RequestID), string(event.ConnectionID), nullableID(event.ClientID), nullableID(event.PoolID), nullableID(event.ProxyID), nullableID(event.ChainID), nullableID(event.PolicyID), nullableID(event.RuleID), event.Host, event.Protocol, event.Action, event.StatusCode, int64(event.ClientUpload), int64(event.ClientDownload), int64(event.UpstreamUpload), int64(event.UpstreamDownload), int64(event.Direct), int64(event.CacheServed), int64(event.HealthCheck), int64(event.EstimatedAvoided), currency, costMicros, priceMicros, unitBytes, downloadOnly, effectiveAt, at)
 		if err != nil {
 			return safeError(ctx, err)
 		}
@@ -119,7 +122,7 @@ func (s *Store) ListTraffic(ctx context.Context, page TrafficPage) ([]traffic.Ev
 		return nil, store.ErrInvalid
 	}
 	args := []any{}
-	query := `SELECT at,request_id,connection_id,client_id,pool_id,proxy_id,chain_id,host,protocol,action,status_code,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided,cost_currency,cost_micros,rate_price_micros,rate_unit_bytes,rate_download_only,rate_effective_at FROM traffic_events`
+	query := `SELECT at,request_id,connection_id,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,host,protocol,action,status_code,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided,cost_currency,cost_micros,rate_price_micros,rate_unit_bytes,rate_download_only,rate_effective_at FROM traffic_events`
 	if !page.Before.IsZero() {
 		query += ` WHERE at < ?`
 		args = append(args, page.Before.UTC().UnixNano())
@@ -179,11 +182,11 @@ func rollupHour(ctx context.Context, tx *sql.Tx, start, end int64) error {
 	(SELECT bucket_start FROM traffic_dirty_hours WHERE bucket_start>=? AND bucket_start<?)`, start, end); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_aggregates_hour(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided)
-SELECT (minute.bucket_start / ?) * ?,minute.action,minute.protocol,minute.client_id,minute.pool_id,minute.proxy_id,minute.chain_id,sum(minute.request_count),sum(minute.client_upload),sum(minute.client_download),sum(minute.upstream_upload),sum(minute.upstream_download),sum(minute.direct_bytes),sum(minute.cache_served),sum(minute.health_check),sum(minute.estimated_avoided)
+	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_aggregates_hour(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided)
+SELECT (minute.bucket_start / ?) * ?,minute.action,minute.protocol,minute.client_id,minute.pool_id,minute.proxy_id,minute.chain_id,minute.policy_id,minute.rule_id,sum(minute.request_count),sum(minute.client_upload),sum(minute.client_download),sum(minute.upstream_upload),sum(minute.upstream_download),sum(minute.direct_bytes),sum(minute.cache_served),sum(minute.health_check),sum(minute.estimated_avoided)
 FROM traffic_dirty_hours AS dirty JOIN traffic_aggregates_minute AS minute
 ON minute.bucket_start>=dirty.bucket_start AND minute.bucket_start<dirty.bucket_start+?
-WHERE dirty.bucket_start>=? AND dirty.bucket_start<? GROUP BY 1,2,3,4,5,6,7`, hourNanos, hourNanos, hourNanos, start, end)
+WHERE dirty.bucket_start>=? AND dirty.bucket_start<? GROUP BY 1,2,3,4,5,6,7,8,9`, hourNanos, hourNanos, hourNanos, start, end)
 	if err != nil {
 		return err
 	}
@@ -200,9 +203,9 @@ func compactHour(ctx context.Context, tx *sql.Tx, start, end int64) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM traffic_aggregates_hour WHERE bucket_start>=? AND bucket_start<?", start, end); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_aggregates_hour(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided)
-SELECT (bucket_start / ?) * ?,action,protocol,client_id,pool_id,proxy_id,chain_id,sum(request_count),sum(client_upload),sum(client_download),sum(upstream_upload),sum(upstream_download),sum(direct_bytes),sum(cache_served),sum(health_check),sum(estimated_avoided)
-FROM traffic_aggregates_minute WHERE bucket_start>=? AND bucket_start<? GROUP BY 1,2,3,4,5,6,7`, hourNanos, hourNanos, start, end)
+	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_aggregates_hour(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided)
+SELECT (bucket_start / ?) * ?,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,sum(request_count),sum(client_upload),sum(client_download),sum(upstream_upload),sum(upstream_download),sum(direct_bytes),sum(cache_served),sum(health_check),sum(estimated_avoided)
+FROM traffic_aggregates_minute WHERE bucket_start>=? AND bucket_start<? GROUP BY 1,2,3,4,5,6,7,8,9`, hourNanos, hourNanos, start, end)
 	if err != nil {
 		return err
 	}
@@ -229,11 +232,11 @@ func rollupDay(ctx context.Context, tx *sql.Tx, start, end int64) error {
 	(SELECT bucket_start FROM traffic_dirty_days WHERE bucket_start>=? AND bucket_start<?)`, start, end); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_aggregates_day(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided)
-SELECT (hour.bucket_start / ?) * ?,hour.action,hour.protocol,hour.client_id,hour.pool_id,hour.proxy_id,hour.chain_id,sum(hour.request_count),sum(hour.client_upload),sum(hour.client_download),sum(hour.upstream_upload),sum(hour.upstream_download),sum(hour.direct_bytes),sum(hour.cache_served),sum(hour.health_check),sum(hour.estimated_avoided)
+	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_aggregates_day(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided)
+SELECT (hour.bucket_start / ?) * ?,hour.action,hour.protocol,hour.client_id,hour.pool_id,hour.proxy_id,hour.chain_id,hour.policy_id,hour.rule_id,sum(hour.request_count),sum(hour.client_upload),sum(hour.client_download),sum(hour.upstream_upload),sum(hour.upstream_download),sum(hour.direct_bytes),sum(hour.cache_served),sum(hour.health_check),sum(hour.estimated_avoided)
 FROM traffic_dirty_days AS dirty JOIN traffic_aggregates_hour AS hour
 ON hour.bucket_start>=dirty.bucket_start AND hour.bucket_start<dirty.bucket_start+?
-WHERE dirty.bucket_start>=? AND dirty.bucket_start<? GROUP BY 1,2,3,4,5,6,7`, dayNanos, dayNanos, dayNanos, start, end)
+WHERE dirty.bucket_start>=? AND dirty.bucket_start<? GROUP BY 1,2,3,4,5,6,7,8,9`, dayNanos, dayNanos, dayNanos, start, end)
 	if err != nil {
 		return err
 	}
@@ -250,9 +253,9 @@ func compactDay(ctx context.Context, tx *sql.Tx, start, end int64) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM traffic_aggregates_day WHERE bucket_start>=? AND bucket_start<?", start, end); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_aggregates_day(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided)
-SELECT (bucket_start / ?) * ?,action,protocol,client_id,pool_id,proxy_id,chain_id,sum(request_count),sum(client_upload),sum(client_download),sum(upstream_upload),sum(upstream_download),sum(direct_bytes),sum(cache_served),sum(health_check),sum(estimated_avoided)
-FROM traffic_aggregates_hour WHERE bucket_start>=? AND bucket_start<? GROUP BY 1,2,3,4,5,6,7`, dayNanos, dayNanos, start, end)
+	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_aggregates_day(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided)
+SELECT (bucket_start / ?) * ?,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,sum(request_count),sum(client_upload),sum(client_download),sum(upstream_upload),sum(upstream_download),sum(direct_bytes),sum(cache_served),sum(health_check),sum(estimated_avoided)
+FROM traffic_aggregates_hour WHERE bucket_start>=? AND bucket_start<? GROUP BY 1,2,3,4,5,6,7,8,9`, dayNanos, dayNanos, start, end)
 	if err != nil {
 		return err
 	}
@@ -280,11 +283,11 @@ func rollupMinute(ctx context.Context, tx *sql.Tx, start, end int64) error {
 	(SELECT bucket_start FROM traffic_dirty_minutes WHERE bucket_start>=? AND bucket_start<?)`, start, end); err != nil {
 		return safeError(ctx, err)
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO traffic_aggregates_minute(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided)
-SELECT (at / ?) * ?,action,protocol,coalesce(client_id,''),coalesce(pool_id,''),coalesce(proxy_id,''),coalesce(chain_id,''),count(*),sum(client_upload),sum(client_download),sum(upstream_upload),sum(upstream_download),sum(direct_bytes),sum(cache_served),sum(health_check),sum(estimated_avoided)
+	_, err = tx.ExecContext(ctx, `INSERT INTO traffic_aggregates_minute(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided)
+SELECT (at / ?) * ?,action,protocol,coalesce(client_id,''),coalesce(pool_id,''),coalesce(proxy_id,''),coalesce(chain_id,''),coalesce(policy_id,''),coalesce(rule_id,''),count(*),sum(client_upload),sum(client_download),sum(upstream_upload),sum(upstream_download),sum(direct_bytes),sum(cache_served),sum(health_check),sum(estimated_avoided)
 FROM traffic_dirty_minutes AS dirty JOIN traffic_events AS events
 ON events.at>=dirty.bucket_start AND events.at<dirty.bucket_start+?
-WHERE dirty.bucket_start>=? AND dirty.bucket_start<? GROUP BY 1,2,3,4,5,6,7`, minuteNanos, minuteNanos, minuteNanos, start, end)
+WHERE dirty.bucket_start>=? AND dirty.bucket_start<? GROUP BY 1,2,3,4,5,6,7,8,9`, minuteNanos, minuteNanos, minuteNanos, start, end)
 	if err != nil {
 		return safeError(ctx, err)
 	}
@@ -300,11 +303,11 @@ func rollupCostMinute(ctx context.Context, tx *sql.Tx, start, end int64) error {
 (SELECT bucket_start FROM traffic_dirty_minutes WHERE bucket_start>=? AND bucket_start<?)`, start, end); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_cost_aggregates_minute(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download)
-SELECT (at / ?) * ?,action,protocol,coalesce(client_id,''),coalesce(pool_id,''),coalesce(proxy_id,''),coalesce(chain_id,''),cost_currency,sum(cost_micros),sum(upstream_upload),sum(upstream_download)
+	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_cost_aggregates_minute(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download)
+SELECT (at / ?) * ?,action,protocol,coalesce(client_id,''),coalesce(pool_id,''),coalesce(proxy_id,''),coalesce(chain_id,''),coalesce(policy_id,''),coalesce(rule_id,''),cost_currency,sum(cost_micros),sum(upstream_upload),sum(upstream_download)
 FROM traffic_dirty_minutes AS dirty JOIN traffic_events AS events
 ON events.at>=dirty.bucket_start AND events.at<dirty.bucket_start+?
-WHERE dirty.bucket_start>=? AND dirty.bucket_start<? AND cost_currency<>'' GROUP BY 1,2,3,4,5,6,7,8`, minuteNanos, minuteNanos, minuteNanos, start, end)
+WHERE dirty.bucket_start>=? AND dirty.bucket_start<? AND cost_currency<>'' GROUP BY 1,2,3,4,5,6,7,8,9,10`, minuteNanos, minuteNanos, minuteNanos, start, end)
 	return err
 }
 
@@ -313,11 +316,11 @@ func rollupCostHour(ctx context.Context, tx *sql.Tx, start, end int64) error {
 (SELECT bucket_start FROM traffic_dirty_hours WHERE bucket_start>=? AND bucket_start<?)`, start, end); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_cost_aggregates_hour(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download)
-SELECT (minute.bucket_start / ?) * ?,minute.action,minute.protocol,minute.client_id,minute.pool_id,minute.proxy_id,minute.chain_id,minute.currency,sum(minute.configured_cost_micros),sum(minute.priced_upstream_upload),sum(minute.priced_upstream_download)
+	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_cost_aggregates_hour(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download)
+SELECT (minute.bucket_start / ?) * ?,minute.action,minute.protocol,minute.client_id,minute.pool_id,minute.proxy_id,minute.chain_id,minute.policy_id,minute.rule_id,minute.currency,sum(minute.configured_cost_micros),sum(minute.priced_upstream_upload),sum(minute.priced_upstream_download)
 FROM traffic_dirty_hours AS dirty JOIN traffic_cost_aggregates_minute AS minute
 ON minute.bucket_start>=dirty.bucket_start AND minute.bucket_start<dirty.bucket_start+?
-WHERE dirty.bucket_start>=? AND dirty.bucket_start<? GROUP BY 1,2,3,4,5,6,7,8`, hourNanos, hourNanos, hourNanos, start, end)
+WHERE dirty.bucket_start>=? AND dirty.bucket_start<? GROUP BY 1,2,3,4,5,6,7,8,9,10`, hourNanos, hourNanos, hourNanos, start, end)
 	return err
 }
 
@@ -325,9 +328,9 @@ func compactCostHour(ctx context.Context, tx *sql.Tx, start, end int64) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM traffic_cost_aggregates_hour WHERE bucket_start>=? AND bucket_start<?", start, end); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_cost_aggregates_hour(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download)
-SELECT (bucket_start / ?) * ?,action,protocol,client_id,pool_id,proxy_id,chain_id,currency,sum(configured_cost_micros),sum(priced_upstream_upload),sum(priced_upstream_download)
-FROM traffic_cost_aggregates_minute WHERE bucket_start>=? AND bucket_start<? GROUP BY 1,2,3,4,5,6,7,8`, hourNanos, hourNanos, start, end)
+	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_cost_aggregates_hour(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download)
+SELECT (bucket_start / ?) * ?,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,currency,sum(configured_cost_micros),sum(priced_upstream_upload),sum(priced_upstream_download)
+FROM traffic_cost_aggregates_minute WHERE bucket_start>=? AND bucket_start<? GROUP BY 1,2,3,4,5,6,7,8,9,10`, hourNanos, hourNanos, start, end)
 	return err
 }
 
@@ -336,11 +339,11 @@ func rollupCostDay(ctx context.Context, tx *sql.Tx, start, end int64) error {
 (SELECT bucket_start FROM traffic_dirty_days WHERE bucket_start>=? AND bucket_start<?)`, start, end); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_cost_aggregates_day(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download)
-SELECT (hour.bucket_start / ?) * ?,hour.action,hour.protocol,hour.client_id,hour.pool_id,hour.proxy_id,hour.chain_id,hour.currency,sum(hour.configured_cost_micros),sum(hour.priced_upstream_upload),sum(hour.priced_upstream_download)
+	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_cost_aggregates_day(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download)
+SELECT (hour.bucket_start / ?) * ?,hour.action,hour.protocol,hour.client_id,hour.pool_id,hour.proxy_id,hour.chain_id,hour.policy_id,hour.rule_id,hour.currency,sum(hour.configured_cost_micros),sum(hour.priced_upstream_upload),sum(hour.priced_upstream_download)
 FROM traffic_dirty_days AS dirty JOIN traffic_cost_aggregates_hour AS hour
 ON hour.bucket_start>=dirty.bucket_start AND hour.bucket_start<dirty.bucket_start+?
-WHERE dirty.bucket_start>=? AND dirty.bucket_start<? GROUP BY 1,2,3,4,5,6,7,8`, dayNanos, dayNanos, dayNanos, start, end)
+WHERE dirty.bucket_start>=? AND dirty.bucket_start<? GROUP BY 1,2,3,4,5,6,7,8,9,10`, dayNanos, dayNanos, dayNanos, start, end)
 	return err
 }
 
@@ -348,9 +351,9 @@ func compactCostDay(ctx context.Context, tx *sql.Tx, start, end int64) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM traffic_cost_aggregates_day WHERE bucket_start>=? AND bucket_start<?", start, end); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_cost_aggregates_day(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download)
-SELECT (bucket_start / ?) * ?,action,protocol,client_id,pool_id,proxy_id,chain_id,currency,sum(configured_cost_micros),sum(priced_upstream_upload),sum(priced_upstream_download)
-FROM traffic_cost_aggregates_hour WHERE bucket_start>=? AND bucket_start<? GROUP BY 1,2,3,4,5,6,7,8`, dayNanos, dayNanos, start, end)
+	_, err := tx.ExecContext(ctx, `INSERT INTO traffic_cost_aggregates_day(bucket_start,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download)
+SELECT (bucket_start / ?) * ?,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,currency,sum(configured_cost_micros),sum(priced_upstream_upload),sum(priced_upstream_download)
+FROM traffic_cost_aggregates_hour WHERE bucket_start>=? AND bucket_start<? GROUP BY 1,2,3,4,5,6,7,8,9,10`, dayNanos, dayNanos, start, end)
 	return err
 }
 func (s *Store) RetainTraffic(ctx context.Context, before time.Time) (int64, error) {
@@ -559,6 +562,102 @@ func (s *Store) TrafficTimeseries(ctx context.Context, query TrafficQuery) (traf
 	return traffic.Series{From: query.From.UTC(), Until: query.Until.UTC(), Granularity: granularityName(query.Granularity), Points: points}, nil
 }
 
+func (s *Store) TrafficBreakdown(ctx context.Context, query TrafficQuery, dimension string, limit int) (traffic.Breakdown, error) {
+	column, ok := breakdownColumn(dimension)
+	if !query.ValidSummary() || !ok || limit < 1 || limit > 100 {
+		return traffic.Breakdown{}, store.ErrInvalid
+	}
+	args, conditions := analyticsArgsAndConditions(query)
+	conditions = append(conditions, column+"<>''")
+	statement := canonicalTraffic + "SELECT " + column + ` AS value,
+coalesce(sum(request_count),0),coalesce(sum(client_upload),0),coalesce(sum(client_download),0),
+coalesce(sum(upstream_upload),0),coalesce(sum(upstream_download),0),coalesce(sum(direct_bytes),0),
+coalesce(sum(cache_served),0),coalesce(sum(health_check),0),coalesce(sum(estimated_avoided),0)
+FROM canonical WHERE ` + strings.Join(conditions, " AND ") + " GROUP BY " + column +
+		" ORDER BY sum(upstream_upload)+sum(upstream_download) DESC,sum(request_count) DESC,value LIMIT ?"
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, statement, args...)
+	if err != nil {
+		return traffic.Breakdown{}, safeError(ctx, err)
+	}
+	defer func() { _ = rows.Close() }()
+	items := make([]traffic.BreakdownItem, 0, limit)
+	indexes := map[string]int{}
+	for rows.Next() {
+		var value string
+		var values [9]int64
+		if err = rows.Scan(&value, &values[0], &values[1], &values[2], &values[3], &values[4], &values[5], &values[6], &values[7], &values[8]); err != nil {
+			return traffic.Breakdown{}, safeError(ctx, err)
+		}
+		totals, totalsErr := trafficTotals(values)
+		if totalsErr != nil {
+			return traffic.Breakdown{}, totalsErr
+		}
+		indexes[value] = len(items)
+		items = append(items, traffic.BreakdownItem{Value: value, Totals: totals, Costs: []traffic.CostTotal{}})
+	}
+	if err = rows.Err(); err != nil {
+		return traffic.Breakdown{}, safeError(ctx, err)
+	}
+	if err = rows.Close(); err != nil {
+		return traffic.Breakdown{}, safeError(ctx, err)
+	}
+	if len(items) > 0 {
+		if err = s.addBreakdownCosts(ctx, query, column, indexes, items); err != nil {
+			return traffic.Breakdown{}, err
+		}
+	}
+	return traffic.Breakdown{From: query.From.UTC(), Until: query.Until.UTC(), Dimension: dimension, Items: items}, nil
+}
+
+func (s *Store) addBreakdownCosts(ctx context.Context, query TrafficQuery, column string, indexes map[string]int, items []traffic.BreakdownItem) error {
+	args, conditions := analyticsArgsAndConditions(query)
+	values := make([]string, 0, len(indexes))
+	placeholders := make([]string, 0, len(indexes))
+	for value := range indexes {
+		values = append(values, value)
+	}
+	slices.Sort(values)
+	for _, value := range values {
+		placeholders = append(placeholders, "?")
+		args = append(args, value)
+	}
+	conditions = append(conditions, column+" IN ("+strings.Join(placeholders, ",")+")")
+	statement := canonicalCost + "SELECT " + column + ` AS value,currency,sum(configured_cost_micros),sum(priced_upstream_upload),sum(priced_upstream_download)
+FROM canonical_cost WHERE ` + strings.Join(conditions, " AND ") + " GROUP BY " + column + ",currency ORDER BY value,currency"
+	rows, err := s.db.QueryContext(ctx, statement, args...)
+	if err != nil {
+		return safeError(ctx, err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var value, currency string
+		var micros, upload, download int64
+		if err = rows.Scan(&value, &currency, &micros, &upload, &download); err != nil {
+			return safeError(ctx, err)
+		}
+		amount := traffic.Money{Currency: currency, Micros: micros}
+		index, exists := indexes[value]
+		if !exists || amount.Validate() != nil || upload < 0 || download < 0 {
+			return store.ErrSchema
+		}
+		items[index].Costs = append(items[index].Costs, traffic.CostTotal{Amount: amount, PricedUpstreamUpload: traffic.Bytes(upload), PricedUpstreamDownload: traffic.Bytes(download)})
+	}
+	if err = rows.Err(); err != nil {
+		return safeError(ctx, err)
+	}
+	return nil
+}
+
+func breakdownColumn(dimension string) (string, bool) {
+	columns := map[string]string{
+		"client": "client_id", "pool": "pool_id", "proxy": "proxy_id", "chain": "chain_id",
+		"policy": "policy_id", "rule": "rule_id", "action": "action", "protocol": "protocol",
+	}
+	column, ok := columns[dimension]
+	return column, ok
+}
+
 func trafficCosts(ctx context.Context, db *sql.DB, query TrafficQuery, series bool) (map[int64][]traffic.CostTotal, error) {
 	statement, args := costAnalyticsQuery(query, series)
 	rows, err := db.QueryContext(ctx, statement, args...)
@@ -596,92 +695,84 @@ func trafficCosts(ctx context.Context, db *sql.DB, query TrafficQuery, series bo
 	return result, nil
 }
 
-func costAnalyticsQuery(query TrafficQuery, series bool) (string, []any) {
-	const canonical = `WITH canonical_cost AS (
-SELECT at AS sample_at,action,protocol,coalesce(client_id,'') AS client_id,coalesce(pool_id,'') AS pool_id,coalesce(proxy_id,'') AS proxy_id,coalesce(chain_id,'') AS chain_id,cost_currency AS currency,cost_micros AS configured_cost_micros,upstream_upload AS priced_upstream_upload,upstream_download AS priced_upstream_download
+const canonicalCost = `WITH canonical_cost AS (
+SELECT at AS sample_at,action,protocol,coalesce(client_id,'') AS client_id,coalesce(pool_id,'') AS pool_id,coalesce(proxy_id,'') AS proxy_id,coalesce(chain_id,'') AS chain_id,coalesce(policy_id,'') AS policy_id,coalesce(rule_id,'') AS rule_id,cost_currency AS currency,cost_micros AS configured_cost_micros,upstream_upload AS priced_upstream_upload,upstream_download AS priced_upstream_download
 FROM traffic_events WHERE at>=? AND at<? AND at>=(SELECT before_ns FROM traffic_retention WHERE singleton=1) AND cost_currency<>''
 UNION ALL
-SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download
+SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download
 FROM traffic_cost_aggregates_minute WHERE bucket_start>=? AND bucket_start<? AND bucket_start>=(SELECT minute_before_ns FROM traffic_aggregate_retention WHERE singleton=1) AND bucket_start<(SELECT before_ns FROM traffic_retention WHERE singleton=1)
 UNION ALL
-SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download
+SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download
 FROM traffic_cost_aggregates_hour WHERE bucket_start>=? AND bucket_start<? AND bucket_start>=(SELECT hour_before_ns FROM traffic_aggregate_retention WHERE singleton=1) AND bucket_start<(SELECT minute_before_ns FROM traffic_aggregate_retention WHERE singleton=1)
 UNION ALL
-SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download
+SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,currency,configured_cost_micros,priced_upstream_upload,priced_upstream_download
 FROM traffic_cost_aggregates_day WHERE bucket_start>=? AND bucket_start<? AND bucket_start>=(SELECT day_before_ns FROM traffic_aggregate_retention WHERE singleton=1) AND bucket_start<(SELECT hour_before_ns FROM traffic_aggregate_retention WHERE singleton=1)
 ) `
+
+const canonicalTraffic = `WITH canonical AS (
+SELECT at AS sample_at,action,protocol,coalesce(client_id,'') AS client_id,coalesce(pool_id,'') AS pool_id,coalesce(proxy_id,'') AS proxy_id,coalesce(chain_id,'') AS chain_id,coalesce(policy_id,'') AS policy_id,coalesce(rule_id,'') AS rule_id,1 AS request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided
+FROM traffic_events WHERE at>=? AND at<? AND at>=(SELECT before_ns FROM traffic_retention WHERE singleton=1)
+UNION ALL
+SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided
+FROM traffic_aggregates_minute WHERE bucket_start>=? AND bucket_start<? AND bucket_start>=(SELECT minute_before_ns FROM traffic_aggregate_retention WHERE singleton=1) AND bucket_start<(SELECT before_ns FROM traffic_retention WHERE singleton=1)
+UNION ALL
+SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided
+FROM traffic_aggregates_hour WHERE bucket_start>=? AND bucket_start<? AND bucket_start>=(SELECT hour_before_ns FROM traffic_aggregate_retention WHERE singleton=1) AND bucket_start<(SELECT minute_before_ns FROM traffic_aggregate_retention WHERE singleton=1)
+UNION ALL
+SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,policy_id,rule_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided
+FROM traffic_aggregates_day WHERE bucket_start>=? AND bucket_start<? AND bucket_start>=(SELECT day_before_ns FROM traffic_aggregate_retention WHERE singleton=1) AND bucket_start<(SELECT hour_before_ns FROM traffic_aggregate_retention WHERE singleton=1)
+) `
+
+func analyticsArgsAndConditions(query TrafficQuery) ([]any, []string) {
 	args := []any{
 		query.From.UTC().UnixNano(), query.Until.UTC().UnixNano(),
 		query.From.UTC().UnixNano(), query.Until.UTC().UnixNano(),
 		query.From.UTC().UnixNano(), query.Until.UTC().UnixNano(),
 		query.From.UTC().UnixNano(), query.Until.UTC().UnixNano(),
 	}
-	conditions := make([]string, 0, 6)
+	conditions := make([]string, 0, 8)
 	for _, filter := range []struct {
 		column string
 		value  string
-	}{{"client_id", string(query.ClientID)}, {"pool_id", string(query.PoolID)}, {"proxy_id", string(query.ProxyID)}, {"chain_id", string(query.ChainID)}, {"action", query.Action}, {"protocol", query.Protocol}} {
+	}{{"client_id", string(query.ClientID)}, {"pool_id", string(query.PoolID)}, {"proxy_id", string(query.ProxyID)}, {"chain_id", string(query.ChainID)}, {"policy_id", string(query.PolicyID)}, {"rule_id", string(query.RuleID)}, {"action", query.Action}, {"protocol", query.Protocol}} {
 		if filter.value != "" {
 			conditions = append(conditions, filter.column+"=?")
 			args = append(args, filter.value)
 		}
 	}
+	return args, conditions
+}
+
+func costAnalyticsQuery(query TrafficQuery, series bool) (string, []any) {
+	args, conditions := analyticsArgsAndConditions(query)
 	where := ""
 	if len(conditions) > 0 {
 		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
 	columns := `currency,sum(configured_cost_micros),sum(priced_upstream_upload),sum(priced_upstream_download)`
 	if !series {
-		return canonical + "SELECT " + columns + " FROM canonical_cost" + where + " GROUP BY currency ORDER BY currency", args
+		return canonicalCost + "SELECT " + columns + " FROM canonical_cost" + where + " GROUP BY currency ORDER BY currency", args
 	}
 	bucket := int64(query.Granularity)
 	args = append(args[:8], append([]any{bucket, bucket}, args[8:]...)...)
-	return canonical + "SELECT (sample_at / ?) * ? AS bucket_start," + columns + " FROM canonical_cost" + where + " GROUP BY 1,currency ORDER BY 1,currency", args
+	return canonicalCost + "SELECT (sample_at / ?) * ? AS bucket_start," + columns + " FROM canonical_cost" + where + " GROUP BY 1,currency ORDER BY 1,currency", args
 }
 
 func analyticsQuery(query TrafficQuery, mode string) (string, []any) {
-	const canonical = `WITH canonical AS (
-SELECT at AS sample_at,action,protocol,coalesce(client_id,'') AS client_id,coalesce(pool_id,'') AS pool_id,coalesce(proxy_id,'') AS proxy_id,coalesce(chain_id,'') AS chain_id,1 AS request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided
-FROM traffic_events WHERE at>=? AND at<? AND at>=(SELECT before_ns FROM traffic_retention WHERE singleton=1)
-UNION ALL
-SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided
-FROM traffic_aggregates_minute WHERE bucket_start>=? AND bucket_start<? AND bucket_start>=(SELECT minute_before_ns FROM traffic_aggregate_retention WHERE singleton=1) AND bucket_start<(SELECT before_ns FROM traffic_retention WHERE singleton=1)
-UNION ALL
-SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided
-FROM traffic_aggregates_hour WHERE bucket_start>=? AND bucket_start<? AND bucket_start>=(SELECT hour_before_ns FROM traffic_aggregate_retention WHERE singleton=1) AND bucket_start<(SELECT minute_before_ns FROM traffic_aggregate_retention WHERE singleton=1)
-UNION ALL
-SELECT bucket_start AS sample_at,action,protocol,client_id,pool_id,proxy_id,chain_id,request_count,client_upload,client_download,upstream_upload,upstream_download,direct_bytes,cache_served,health_check,estimated_avoided
-FROM traffic_aggregates_day WHERE bucket_start>=? AND bucket_start<? AND bucket_start>=(SELECT day_before_ns FROM traffic_aggregate_retention WHERE singleton=1) AND bucket_start<(SELECT hour_before_ns FROM traffic_aggregate_retention WHERE singleton=1)
-) `
-	args := []any{
-		query.From.UTC().UnixNano(), query.Until.UTC().UnixNano(),
-		query.From.UTC().UnixNano(), query.Until.UTC().UnixNano(),
-		query.From.UTC().UnixNano(), query.Until.UTC().UnixNano(),
-		query.From.UTC().UnixNano(), query.Until.UTC().UnixNano(),
-	}
-	conditions := make([]string, 0, 6)
-	for _, filter := range []struct {
-		column string
-		value  string
-	}{{"client_id", string(query.ClientID)}, {"pool_id", string(query.PoolID)}, {"proxy_id", string(query.ProxyID)}, {"chain_id", string(query.ChainID)}, {"action", query.Action}, {"protocol", query.Protocol}} {
-		if filter.value != "" {
-			conditions = append(conditions, filter.column+"=?")
-			args = append(args, filter.value)
-		}
-	}
+	args, conditions := analyticsArgsAndConditions(query)
 	where := ""
 	if len(conditions) > 0 {
 		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
 	columns := `coalesce(sum(request_count),0),coalesce(sum(client_upload),0),coalesce(sum(client_download),0),coalesce(sum(upstream_upload),0),coalesce(sum(upstream_download),0),coalesce(sum(direct_bytes),0),coalesce(sum(cache_served),0),coalesce(sum(health_check),0),coalesce(sum(estimated_avoided),0)`
 	if mode != "series" {
-		return canonical + "SELECT " + columns + " FROM canonical" + where, args
+		return canonicalTraffic + "SELECT " + columns + " FROM canonical" + where, args
 	}
 	bucket := int64(query.Granularity)
 	// Bucket parameters occur after the canonical CTE parameters but before the
 	// optional filters in SQL, so insert them at the matching argument position.
 	args = append(args[:8], append([]any{bucket, bucket}, args[8:]...)...)
-	return canonical + "SELECT (sample_at / ?) * ? AS bucket_start," + columns + " FROM canonical" + where + " GROUP BY 1 ORDER BY 1", args
+	return canonicalTraffic + "SELECT (sample_at / ?) * ? AS bucket_start," + columns + " FROM canonical" + where + " GROUP BY 1 ORDER BY 1", args
 }
 
 func trafficTotals(values [9]int64) (traffic.Totals, error) {
@@ -714,12 +805,12 @@ func validTrafficTime(at time.Time) bool {
 func scanTraffic(scanner interface{ Scan(...any) error }) (traffic.Event, error) {
 	var event traffic.Event
 	var at int64
-	var client, pool, proxy, chain sql.NullString
+	var client, pool, proxy, chain, policyID, ruleID sql.NullString
 	var upload, download, upstreamUpload, upstreamDownload, direct, cacheServed, health, avoided int64
 	var currency string
 	var costMicros, priceMicros, unitBytes, effectiveAt int64
 	var downloadOnly bool
-	err := scanner.Scan(&at, &event.RequestID, &event.ConnectionID, &client, &pool, &proxy, &chain, &event.Host, &event.Protocol, &event.Action, &event.StatusCode, &upload, &download, &upstreamUpload, &upstreamDownload, &direct, &cacheServed, &health, &avoided, &currency, &costMicros, &priceMicros, &unitBytes, &downloadOnly, &effectiveAt)
+	err := scanner.Scan(&at, &event.RequestID, &event.ConnectionID, &client, &pool, &proxy, &chain, &policyID, &ruleID, &event.Host, &event.Protocol, &event.Action, &event.StatusCode, &upload, &download, &upstreamUpload, &upstreamDownload, &direct, &cacheServed, &health, &avoided, &currency, &costMicros, &priceMicros, &unitBytes, &downloadOnly, &effectiveAt)
 	if err != nil {
 		return traffic.Event{}, err
 	}
@@ -735,6 +826,12 @@ func scanTraffic(scanner interface{ Scan(...any) error }) (traffic.Event, error)
 	}
 	if chain.Valid {
 		event.ChainID = model.ID(chain.String)
+	}
+	if policyID.Valid {
+		event.PolicyID = model.ID(policyID.String)
+	}
+	if ruleID.Valid {
+		event.RuleID = model.ID(ruleID.String)
 	}
 	event.ClientUpload = traffic.Bytes(upload)
 	event.ClientDownload = traffic.Bytes(download)

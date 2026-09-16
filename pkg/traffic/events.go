@@ -18,6 +18,8 @@ type Event struct {
 	RequestID        model.ID      `json:"request_id"`
 	ConnectionID     model.ID      `json:"connection_id"`
 	ClientID         model.ID      `json:"client_id"`
+	PolicyID         model.ID      `json:"policy_id"`
+	RuleID           model.ID      `json:"rule_id"`
 	PoolID           model.ID      `json:"pool_id"`
 	ProxyID          model.ID      `json:"proxy_id"`
 	ChainID          model.ID      `json:"chain_id"`
@@ -70,11 +72,24 @@ type Series struct {
 	Points      []SeriesPoint `json:"points"`
 }
 
+type BreakdownItem struct {
+	Value  string      `json:"value"`
+	Totals Totals      `json:"totals"`
+	Costs  []CostTotal `json:"configured_costs"`
+}
+
+type Breakdown struct {
+	From      time.Time       `json:"from"`
+	Until     time.Time       `json:"until"`
+	Dimension string          `json:"dimension"`
+	Items     []BreakdownItem `json:"items"`
+}
+
 func (e Event) Validate() error {
 	if e.At.Before(time.Unix(0, 0)) || !time.Unix(0, e.At.UnixNano()).Equal(e.At) || !e.RequestID.Valid() || !e.ConnectionID.Valid() || len(e.Host) > 253 || len(e.Protocol) > 32 || len(e.Action) > 32 || e.StatusCode < 0 || e.StatusCode > 999 {
 		return ErrInvalidEvent
 	}
-	if e.ClientID != "" && !e.ClientID.Valid() || e.PoolID != "" && !e.PoolID.Valid() || e.ProxyID != "" && !e.ProxyID.Valid() || e.ChainID != "" && !e.ChainID.Valid() {
+	if e.ClientID != "" && !e.ClientID.Valid() || e.PolicyID != "" && !e.PolicyID.Valid() || e.RuleID != "" && !e.RuleID.Valid() || e.PoolID != "" && !e.PoolID.Valid() || e.ProxyID != "" && !e.ProxyID.Valid() || e.ChainID != "" && !e.ChainID.Valid() {
 		return ErrInvalidEvent
 	}
 	for _, value := range []Bytes{e.ClientUpload, e.ClientDownload, e.UpstreamUpload, e.UpstreamDownload, e.Direct, e.CacheServed, e.HealthCheck, e.EstimatedAvoided} {

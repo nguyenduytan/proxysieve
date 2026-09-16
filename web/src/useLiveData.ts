@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, errorMessage } from "./api";
 import type {
   BuildInfo,
+  TrafficBreakdown,
   TrafficHistory,
   TrafficPage,
   TrafficSeries,
@@ -43,26 +44,37 @@ export function useLiveData(paused: boolean, onExpired: () => void) {
           from: from.toISOString(),
           until: until.toISOString(),
         });
-        const [live, history, summary, series] = await Promise.all([
-          api<TrafficPage>("/api/v1/traffic/live", {
-            signal: controller.signal,
-          }),
-          api<TrafficHistory>("/api/v1/traffic/history?limit=100", {
-            signal: controller.signal,
-          }),
-          api<TrafficSummary>(`/api/v1/traffic/summary?${range}`, {
-            signal: controller.signal,
-          }),
-          api<TrafficSeries>(
-            `/api/v1/traffic/timeseries?${range}&granularity=hour`,
-            { signal: controller.signal },
-          ),
-        ]);
+        const [live, history, summary, series, poolBreakdown, blockedRules] =
+          await Promise.all([
+            api<TrafficPage>("/api/v1/traffic/live", {
+              signal: controller.signal,
+            }),
+            api<TrafficHistory>("/api/v1/traffic/history?limit=100", {
+              signal: controller.signal,
+            }),
+            api<TrafficSummary>(`/api/v1/traffic/summary?${range}`, {
+              signal: controller.signal,
+            }),
+            api<TrafficSeries>(
+              `/api/v1/traffic/timeseries?${range}&granularity=hour`,
+              { signal: controller.signal },
+            ),
+            api<TrafficBreakdown>(
+              `/api/v1/traffic/breakdown?${range}&dimension=pool&limit=5`,
+              { signal: controller.signal },
+            ),
+            api<TrafficBreakdown>(
+              `/api/v1/traffic/breakdown?${range}&dimension=rule&action=block&limit=5`,
+              { signal: controller.signal },
+            ),
+          ]);
         const next: TrafficPage = {
           events: mergeTraffic(history.items, live.events ?? []),
           dropped: live.dropped,
           summary,
           series,
+          pool_breakdown: poolBreakdown,
+          blocked_rule_breakdown: blockedRules,
           ...(live.durable ? { durable: live.durable } : {}),
         };
         if (!controller.signal.aborted) {

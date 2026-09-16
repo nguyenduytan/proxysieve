@@ -39,8 +39,10 @@ type Trace struct {
 	UnknownFields []string
 }
 type Result struct {
+	PolicyID        model.ID
 	Actions         []Action
 	MatchedRuleIDs  []model.ID
+	TerminalRuleID  model.ID
 	Trace           Trace
 	RuntimeRevision int64
 }
@@ -62,7 +64,7 @@ func Evaluate(document Policy, request RequestContext, visibility Visibility, tr
 		}
 		return 0
 	})
-	var result Result
+	result := Result{PolicyID: document.ID}
 	for _, rule := range rules {
 		if !rule.Enabled {
 			continue
@@ -80,6 +82,9 @@ func Evaluate(document Policy, request RequestContext, visibility Visibility, tr
 			continue
 		}
 		result.MatchedRuleIDs = append(result.MatchedRuleIDs, rule.ID)
+		if result.TerminalRuleID == "" && hasTerminal(rule.Actions) {
+			result.TerminalRuleID = rule.ID
+		}
 		result.Actions = append(result.Actions, rule.Actions...)
 		if rule.StopProcessing {
 			break

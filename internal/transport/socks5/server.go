@@ -82,11 +82,12 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 	request := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "socks", Protocol: "socks5", Host: host, Port: port, Timestamp: time.Now().UTC()}
 	result, err := s.evaluator.Evaluate(ctx, request, policy.Visibility{Host: true})
 	if err != nil {
-		recordTunnel(s.recorder, ctx, request, gateway.Route{Action: "reject"}, 2, 0, 0, 0, 0)
+		recordTunnel(s.recorder, ctx, request, gateway.Route{Action: "reject", PolicyID: result.PolicyID, RuleID: result.TerminalRuleID}, 2, 0, 0, 0, 0)
 		writeReply(conn, 2)
 		return
 	}
 	route, err := s.router.Route(ctx, request, result)
+	route.PolicyID, route.RuleID = result.PolicyID, result.TerminalRuleID
 	if err != nil || route.Dial == nil {
 		if route.Action != "block" && route.Action != "reject" {
 			route.Action = "reject"
@@ -133,6 +134,7 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 		if retryErr != nil || next.Dial == nil || internalbudget.Available(ctx, next.Reserve) != nil || next.Acquire != nil && !next.Acquire() {
 			break
 		}
+		next.PolicyID, next.RuleID = result.PolicyID, result.TerminalRuleID
 		route = next
 		attempt++
 	}
@@ -187,7 +189,7 @@ func recordTunnel(recorder trafficpkg.Recorder, ctx context.Context, request pol
 	cost, _ := trafficpkg.NewCostSnapshot(route.Rate, proxyUpload, proxyDownload)
 	_ = recorder.Record(context.WithoutCancel(ctx), trafficpkg.Event{
 		At: time.Now().UTC(), RequestID: request.RequestID, ConnectionID: request.ConnectionID,
-		ClientID: request.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID,
+		ClientID: request.ClientID, PolicyID: route.PolicyID, RuleID: route.RuleID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID,
 		Host: request.Host, Protocol: "socks5", Action: route.Action, StatusCode: status,
 		ClientUpload: clientUpload, ClientDownload: clientDownload,
 		UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, ConfiguredCost: cost,

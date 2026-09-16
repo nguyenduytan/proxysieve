@@ -44,7 +44,7 @@ func TestConnect(t *testing.T) {
 	recorded := make(eventRecorder, 1)
 	s, err := New(Options{Evaluator: eval(func(_ context.Context, r policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
 		done <- r
-		return policy.Result{Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
+		return policy.Result{PolicyID: "policy", TerminalRuleID: "rule", Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
 		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(observation publichealth.Observation) { observed <- observation.Success }}, nil
 	}), Recorder: recorded})
@@ -87,7 +87,7 @@ func TestConnect(t *testing.T) {
 	_ = client.Close()
 	select {
 	case event := <-recorded:
-		if event.Protocol != "socks5" || event.Action != "proxy" || event.PoolID != model.ID("pool") || event.ProxyID != model.ID("proxy") || event.ClientUpload != 4 || event.ClientDownload != 2 || event.UpstreamUpload != 4 || event.UpstreamDownload != 2 || event.Direct != 0 || event.ConfiguredCost == nil || event.ConfiguredCost.Amount != (trafficpkg.Money{Currency: "USD", Micros: 6}) {
+		if event.PolicyID != "policy" || event.RuleID != "rule" || event.Protocol != "socks5" || event.Action != "proxy" || event.PoolID != model.ID("pool") || event.ProxyID != model.ID("proxy") || event.ClientUpload != 4 || event.ClientDownload != 2 || event.UpstreamUpload != 4 || event.UpstreamDownload != 2 || event.Direct != 0 || event.ConfiguredCost == nil || event.ConfiguredCost.Amount != (trafficpkg.Money{Currency: "USD", Micros: 6}) {
 			t.Fatal(event)
 		}
 	case <-time.After(5 * time.Second):
@@ -101,7 +101,7 @@ func TestConnectRetriesBeforeReply(t *testing.T) {
 	observed := make(chan bool, 2)
 	recorded := make(eventRecorder, 2)
 	s, err := New(Options{Evaluator: eval(func(context.Context, policy.RequestContext, policy.Visibility) (policy.Result, error) {
-		return policy.Result{Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
+		return policy.Result{PolicyID: "policy", TerminalRuleID: "rule", Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
 		return gateway.Route{
 			Action: "proxy", PoolID: "pool", ProxyID: "first", Dial: func(context.Context, string) (net.Conn, error) { return nil, errors.New("first proxy failed") },
@@ -142,7 +142,7 @@ func TestConnectRetriesBeforeReply(t *testing.T) {
 		t.Fatal("retry tunnel did not close")
 	}
 	first, second := <-recorded, <-recorded
-	if first.ProxyID != "first" || first.StatusCode != 5 || second.ProxyID != "second" || second.StatusCode != 0 || first.RequestID != second.RequestID || first.ConnectionID != second.ConnectionID {
+	if first.PolicyID != "policy" || first.RuleID != "rule" || second.PolicyID != "policy" || second.RuleID != "rule" || first.ProxyID != "first" || first.StatusCode != 5 || second.ProxyID != "second" || second.StatusCode != 0 || first.RequestID != second.RequestID || first.ConnectionID != second.ConnectionID {
 		t.Fatal(first, second)
 	}
 }

@@ -13,6 +13,8 @@ function event(
     request_id: request,
     connection_id: connection,
     client_id: "",
+    policy_id: "",
+    rule_id: "",
     host: "example.invalid",
     protocol: "http",
     action: "proxy",

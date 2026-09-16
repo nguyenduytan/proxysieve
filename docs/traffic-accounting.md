@@ -57,10 +57,14 @@ not be treated as lossless provider-billed usage.
 
 ## Bounded analytics API
 
-`GET /api/v1/traffic/summary` and `GET /api/v1/traffic/timeseries` are
-authenticated. Both accept `from` and `until` RFC 3339 timestamps plus optional
-`client_id`, `pool_id`, `proxy_id`, `chain_id`, `action` and `protocol` filters. Timeseries
-also accepts `granularity=minute|hour|day`.
+`GET /api/v1/traffic/summary`, `GET /api/v1/traffic/timeseries`, and
+`GET /api/v1/traffic/breakdown` are authenticated. All accept `from` and
+`until` RFC 3339 timestamps plus optional `client_id`, `pool_id`, `proxy_id`,
+`chain_id`, `policy_id`, `rule_id`, `action`, and `protocol` filters. Timeseries
+also accepts `granularity=minute|hour|day`. Breakdown requires one bounded
+dimension (`client`, `pool`, `proxy`, `chain`, `policy`, `rule`, `action`, or
+`protocol`) and returns at most 100 non-empty values, ordered by paid stream
+bytes, request count, then stable value.
 
 Ranges are half-open, must align to the chosen bucket (one minute for summary),
 and cannot exceed ten years. Timeseries is additionally limited to 2,000 buckets.
@@ -88,6 +92,14 @@ Chain routes record one end-to-end byte stream, not one duplicate event per hop.
 Per-hop configured costs remain unpriced because the current event model stores
 one rate snapshot; presenting the last hop's rate as the whole chain would be
 misleading.
+
+Schema 18 adds policy and terminal-rule attribution to raw traffic plus every
+traffic and cost aggregate tier. Existing rows upgrade with empty attribution.
+HTTP, CONNECT, and SOCKS5 events retain the policy and first matched rule that
+provided the terminal route action. The Admin Traffic workspace exposes these
+IDs on each event, the highest paid-stream pools, and rules responsible for
+explicit `block` actions. Attribution and breakdown totals remain continuous
+after raw retention and tier compaction.
 
 Verified regression cases include schema-5 upgrade through schema 9, restart, late arrival,
 idempotent rollup/retention, partial cutoff preservation, aggregate overflow

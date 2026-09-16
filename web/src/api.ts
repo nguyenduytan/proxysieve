@@ -352,6 +352,8 @@ export interface TrafficEvent {
   request_id: string;
   connection_id: string;
   client_id: string;
+  policy_id: string;
+  rule_id: string;
   host: string;
   protocol: string;
   action: string;
@@ -394,6 +396,8 @@ export interface TrafficPage {
   durable?: TrafficDurableStatus;
   summary?: TrafficSummary;
   series?: TrafficSeries;
+  pool_breakdown?: TrafficBreakdown;
+  blocked_rule_breakdown?: TrafficBreakdown;
 }
 export interface TrafficDurableStatus {
   accepted: number;
@@ -434,6 +438,25 @@ export interface TrafficSeries {
   until: string;
   granularity: "minute" | "hour" | "day";
   points: TrafficPoint[];
+}
+export interface TrafficBreakdownItem {
+  value: string;
+  totals: TrafficTotals;
+  configured_costs: CostTotal[];
+}
+export interface TrafficBreakdown {
+  from: string;
+  until: string;
+  dimension:
+    | "client"
+    | "pool"
+    | "proxy"
+    | "chain"
+    | "policy"
+    | "rule"
+    | "action"
+    | "protocol";
+  items: TrafficBreakdownItem[];
 }
 export interface Preview {
   valid: number;

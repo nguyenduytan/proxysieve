@@ -120,15 +120,21 @@ paths:
   /api/v1/traffic/summary:
     get:
       tags: [Traffic]
-      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/ChainID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}]
+      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/ChainID'}, {$ref: '#/components/parameters/PolicyID'}, {$ref: '#/components/parameters/RuleID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}]
       responses:
-        '200': {description: Bounded traffic summary}
+        '200': {description: Bounded traffic summary, content: {application/json: {schema: {$ref: '#/components/schemas/TrafficSummary'}}}}
   /api/v1/traffic/timeseries:
     get:
       tags: [Traffic]
-      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/ChainID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}, {name: granularity, in: query, required: true, schema: {type: string, enum: [minute, hour, day]}}]
+      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/ChainID'}, {$ref: '#/components/parameters/PolicyID'}, {$ref: '#/components/parameters/RuleID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}, {name: granularity, in: query, required: true, schema: {type: string, enum: [minute, hour, day]}}]
       responses:
-        '200': {description: Bounded traffic series}
+        '200': {description: Bounded traffic series, content: {application/json: {schema: {$ref: '#/components/schemas/TrafficSeries'}}}}
+  /api/v1/traffic/breakdown:
+    get:
+      tags: [Traffic]
+      parameters: [{$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/Until'}, {$ref: '#/components/parameters/ClientID'}, {$ref: '#/components/parameters/PoolID'}, {$ref: '#/components/parameters/ProxyID'}, {$ref: '#/components/parameters/ChainID'}, {$ref: '#/components/parameters/PolicyID'}, {$ref: '#/components/parameters/RuleID'}, {$ref: '#/components/parameters/Action'}, {$ref: '#/components/parameters/Protocol'}, {name: dimension, in: query, required: true, schema: {type: string, enum: [client, pool, proxy, chain, policy, rule, action, protocol]}}, {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 10}}]
+      responses:
+        '200': {description: Top traffic values for one bounded dimension, content: {application/json: {schema: {$ref: '#/components/schemas/TrafficBreakdown'}}}}
   /api/v1/health/proxies:
     get:
       tags: [Health]
@@ -652,6 +658,8 @@ components:
     PoolID: {name: pool_id, in: query, schema: {type: string}}
     ProxyID: {name: proxy_id, in: query, schema: {type: string}}
     ChainID: {name: chain_id, in: query, schema: {type: string}}
+    PolicyID: {name: policy_id, in: query, schema: {type: string}}
+    RuleID: {name: rule_id, in: query, schema: {type: string}}
     Action: {name: action, in: query, schema: {type: string}}
     Protocol: {name: protocol, in: query, schema: {type: string}}
   requestBodies:
@@ -681,6 +689,64 @@ components:
       type: object
       required: [setup_required]
       properties: {setup_required: {type: boolean}}
+    TrafficTotals:
+      type: object
+      required: [request_count, client_upload_bytes, client_download_bytes, upstream_upload_bytes, upstream_download_bytes, direct_bytes, cache_served_bytes, health_check_bytes, estimated_avoided_bytes]
+      properties:
+        request_count: {type: integer, minimum: 0}
+        client_upload_bytes: {type: integer, minimum: 0}
+        client_download_bytes: {type: integer, minimum: 0}
+        upstream_upload_bytes: {type: integer, minimum: 0}
+        upstream_download_bytes: {type: integer, minimum: 0}
+        direct_bytes: {type: integer, minimum: 0}
+        cache_served_bytes: {type: integer, minimum: 0}
+        health_check_bytes: {type: integer, minimum: 0}
+        estimated_avoided_bytes: {type: integer, minimum: 0}
+    CostTotal:
+      type: object
+      required: [amount, priced_upstream_upload_bytes, priced_upstream_download_bytes]
+      properties:
+        amount: {type: object, required: [currency, micros], properties: {currency: {type: string}, micros: {type: integer, minimum: 0}}}
+        priced_upstream_upload_bytes: {type: integer, minimum: 0}
+        priced_upstream_download_bytes: {type: integer, minimum: 0}
+    TrafficSummary:
+      type: object
+      required: [from, until, totals, configured_costs]
+      properties:
+        from: {type: string, format: date-time}
+        until: {type: string, format: date-time}
+        totals: {$ref: '#/components/schemas/TrafficTotals'}
+        configured_costs: {type: array, items: {$ref: '#/components/schemas/CostTotal'}}
+    TrafficPoint:
+      type: object
+      required: [bucket_start, totals, configured_costs]
+      properties:
+        bucket_start: {type: string, format: date-time}
+        totals: {$ref: '#/components/schemas/TrafficTotals'}
+        configured_costs: {type: array, items: {$ref: '#/components/schemas/CostTotal'}}
+    TrafficSeries:
+      type: object
+      required: [from, until, granularity, points]
+      properties:
+        from: {type: string, format: date-time}
+        until: {type: string, format: date-time}
+        granularity: {type: string, enum: [minute, hour, day]}
+        points: {type: array, maxItems: 2000, items: {$ref: '#/components/schemas/TrafficPoint'}}
+    TrafficBreakdownItem:
+      type: object
+      required: [value, totals, configured_costs]
+      properties:
+        value: {type: string}
+        totals: {$ref: '#/components/schemas/TrafficTotals'}
+        configured_costs: {type: array, items: {$ref: '#/components/schemas/CostTotal'}}
+    TrafficBreakdown:
+      type: object
+      required: [from, until, dimension, items]
+      properties:
+        from: {type: string, format: date-time}
+        until: {type: string, format: date-time}
+        dimension: {type: string, enum: [client, pool, proxy, chain, policy, rule, action, protocol]}
+        items: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/TrafficBreakdownItem'}}
     User:
       type: object
       required: [id, username, role, enabled, created_at]

@@ -127,11 +127,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "http", Scheme: r.URL.Scheme, Host: host, SessionKey: r.Header.Get(sessionHeader), Port: port, Method: model.Optional[string]{Known: true, Value: r.Method}, Path: model.Optional[string]{Known: true, Value: r.URL.EscapedPath()}, Headers: model.Optional[map[string][]string]{Known: true, Value: visibleHeaders}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true, Path: true, Headers: true})
 	if err != nil {
-		recordHTTP(h.recorder, r, ctx, gateway.Route{Action: "reject"}, host, 0, 0, 0, http.StatusForbidden, 0)
+		recordHTTP(h.recorder, r, ctx, gateway.Route{Action: "reject", PolicyID: result.PolicyID, RuleID: result.TerminalRuleID}, host, 0, 0, 0, http.StatusForbidden, 0)
 		http.Error(w, "POLICY_REJECTED", http.StatusForbidden)
 		return
 	}
 	route, err := h.router.Route(r.Context(), ctx, result)
+	route.PolicyID, route.RuleID = result.PolicyID, result.TerminalRuleID
 	if err != nil || route.Action == "block" || route.Action == "reject" || route.Action == "" {
 		if route.Action != "block" && route.Action != "reject" {
 			route.Action = "reject"
@@ -164,7 +165,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_, copyErr := delivered.Write(cached.Body)
 			completeRoute(r.Context(), route, 0, 0)
 			if h.recorder != nil {
-				_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID, Host: host, Protocol: "http", Action: "cache", StatusCode: cached.Status, ClientDownload: delivered.Bytes(), CacheServed: delivered.Bytes()})
+				_ = h.recorder.Record(context.WithoutCancel(r.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PolicyID: route.PolicyID, RuleID: route.RuleID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID, Host: host, Protocol: "http", Action: "cache", StatusCode: cached.Status, ClientDownload: delivered.Bytes(), CacheServed: delivered.Bytes()})
 			}
 			if copyErr != nil {
 				panic(http.ErrAbortHandler)
@@ -223,6 +224,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if retryErr != nil || next.Transport == nil || internalbudget.Available(r.Context(), next.Reserve) != nil || next.Acquire != nil && !next.Acquire() {
 			break
 		}
+		next.PolicyID, next.RuleID = result.PolicyID, result.TerminalRuleID
 		route = next
 		attempt++
 	}
@@ -280,11 +282,12 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "connect", Host: host, SessionKey: r.Header.Get(sessionHeader), Port: uint16(port64), Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true})
 	if err != nil {
-		recordTunnel(h.recorder, r.Context(), ctx, gateway.Route{Action: "reject"}, host, "connect", http.StatusForbidden, 0, 0, 0, 0)
+		recordTunnel(h.recorder, r.Context(), ctx, gateway.Route{Action: "reject", PolicyID: result.PolicyID, RuleID: result.TerminalRuleID}, host, "connect", http.StatusForbidden, 0, 0, 0, 0)
 		http.Error(w, "POLICY_BLOCKED", http.StatusForbidden)
 		return
 	}
 	route, err := h.router.Route(r.Context(), ctx, result)
+	route.PolicyID, route.RuleID = result.PolicyID, result.TerminalRuleID
 	if err != nil || route.Dial == nil {
 		if route.Action != "block" && route.Action != "reject" {
 			route.Action = "reject"
@@ -335,6 +338,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		if retryErr != nil || next.Dial == nil || internalbudget.Available(r.Context(), next.Reserve) != nil || next.Acquire != nil && !next.Acquire() {
 			break
 		}
+		next.PolicyID, next.RuleID = result.PolicyID, result.TerminalRuleID
 		route = next
 		attempt++
 	}
@@ -451,7 +455,7 @@ func recordHTTP(recorder trafficpkg.Recorder, request *http.Request, ctx policy.
 		proxyUpload, proxyDownload = upload, download
 	}
 	cost, _ := trafficpkg.NewCostSnapshot(route.Rate, proxyUpload, proxyDownload)
-	_ = recorder.Record(context.WithoutCancel(request.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID, Host: host, Protocol: "http", Action: route.Action, StatusCode: status, ClientUpload: upload, ClientDownload: delivered, UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, CacheServed: cacheServed, ConfiguredCost: cost})
+	_ = recorder.Record(context.WithoutCancel(request.Context()), trafficpkg.Event{At: time.Now().UTC(), RequestID: ctx.RequestID, ConnectionID: ctx.ConnectionID, ClientID: ctx.ClientID, PolicyID: route.PolicyID, RuleID: route.RuleID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID, Host: host, Protocol: "http", Action: route.Action, StatusCode: status, ClientUpload: upload, ClientDownload: delivered, UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, CacheServed: cacheServed, ConfiguredCost: cost})
 }
 
 func recordTunnel(recorder trafficpkg.Recorder, recordContext context.Context, request policy.RequestContext, route gateway.Route, host, protocol string, status int, clientUpload, clientDownload, routeUpload, routeDownload trafficpkg.Bytes) {
@@ -470,7 +474,7 @@ func recordTunnel(recorder trafficpkg.Recorder, recordContext context.Context, r
 	cost, _ := trafficpkg.NewCostSnapshot(route.Rate, proxyUpload, proxyDownload)
 	_ = recorder.Record(context.WithoutCancel(recordContext), trafficpkg.Event{
 		At: time.Now().UTC(), RequestID: request.RequestID, ConnectionID: request.ConnectionID,
-		ClientID: request.ClientID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID, Host: host,
+		ClientID: request.ClientID, PolicyID: route.PolicyID, RuleID: route.RuleID, PoolID: route.PoolID, ProxyID: route.ProxyID, ChainID: route.ChainID, Host: host,
 		Protocol: protocol, Action: route.Action, StatusCode: status,
 		ClientUpload: clientUpload, ClientDownload: clientDownload,
 		UpstreamUpload: proxyUpload, UpstreamDownload: proxyDownload, Direct: direct, ConfiguredCost: cost,

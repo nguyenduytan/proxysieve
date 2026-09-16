@@ -88,6 +88,7 @@ type TrafficStore interface {
 	ListTraffic(context.Context, sqlite.TrafficPage) ([]publictraffic.Event, error)
 	TrafficSummary(context.Context, sqlite.TrafficQuery) (publictraffic.Summary, error)
 	TrafficTimeseries(context.Context, sqlite.TrafficQuery) (publictraffic.Series, error)
+	TrafficBreakdown(context.Context, sqlite.TrafficQuery, string, int) (publictraffic.Breakdown, error)
 }
 type TrafficStatus interface {
 	Stats() internaltraffic.AsyncStats
@@ -225,6 +226,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficSummary(w, r) })
 	case "/api/v1/traffic/timeseries":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficTimeseries(w, r) })
+	case "/api/v1/traffic/breakdown":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficBreakdown(w, r) })
 	case "/api/v1/health/proxies":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.proxyHealth(w, r) })
 	case "/api/v1/health/pools":
@@ -732,6 +735,44 @@ func (s *Server) trafficTimeseries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, series)
 }
 
+func (s *Server) trafficBreakdown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	query, ok := s.parseTrafficQuery(r, false)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "INVALID_RANGE", "The traffic query range or filters were not accepted.")
+		return
+	}
+	dimension := r.URL.Query().Get("dimension")
+	switch dimension {
+	case "client", "pool", "proxy", "chain", "policy", "rule", "action", "protocol":
+	default:
+		writeError(w, http.StatusBadRequest, "INVALID_DIMENSION", "The traffic breakdown dimension was not accepted.")
+		return
+	}
+	limit := 10
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 100 {
+			writeError(w, http.StatusBadRequest, "INVALID_LIMIT", "The traffic breakdown limit was not accepted.")
+			return
+		}
+		limit = value
+	}
+	if s.trafficStore == nil {
+		writeError(w, http.StatusServiceUnavailable, "TRAFFIC_UNAVAILABLE", "Traffic storage is unavailable.")
+		return
+	}
+	breakdown, err := s.trafficStore.TrafficBreakdown(r.Context(), query, dimension, limit)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "TRAFFIC_UNAVAILABLE", "Traffic storage is unavailable.")
+		return
+	}
+	writeJSON(w, http.StatusOK, breakdown)
+}
+
 func (s *Server) parseTrafficQuery(r *http.Request, series bool) (sqlite.TrafficQuery, bool) {
 	values := r.URL.Query()
 	granularity := time.Duration(0)
@@ -771,7 +812,7 @@ func (s *Server) parseTrafficQuery(r *http.Request, series bool) (sqlite.Traffic
 	query := sqlite.TrafficQuery{
 		From: from.UTC(), Until: until.UTC(), Granularity: granularity,
 		ClientID: model.ID(values.Get("client_id")), PoolID: model.ID(values.Get("pool_id")), ProxyID: model.ID(values.Get("proxy_id")), ChainID: model.ID(values.Get("chain_id")),
-		Action: values.Get("action"), Protocol: values.Get("protocol"),
+		PolicyID: model.ID(values.Get("policy_id")), RuleID: model.ID(values.Get("rule_id")), Action: values.Get("action"), Protocol: values.Get("protocol"),
 	}
 	if series {
 		return query, query.ValidSeries()

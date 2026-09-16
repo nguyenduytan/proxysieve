@@ -1027,7 +1027,7 @@ func TestTrafficAnalyticsAreBoundedAndAuthenticated(t *testing.T) {
 	server, _ := New(service, nil, durable, nil)
 	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	server.now = func() time.Time { return base.Add(30 * time.Minute) }
-	event := publictraffic.Event{At: base.Add(5 * time.Minute), RequestID: "request", ConnectionID: "connection", ClientID: "client-a", Host: "example.invalid", Protocol: "http", Action: "proxy", StatusCode: 200, UpstreamDownload: 8}
+	event := publictraffic.Event{At: base.Add(5 * time.Minute), RequestID: "request", ConnectionID: "connection", ClientID: "client-a", PolicyID: "policy-a", RuleID: "rule-a", PoolID: "pool-a", Host: "example.invalid", Protocol: "http", Action: "proxy", StatusCode: 200, UpstreamDownload: 8}
 	if err = durable.RecordTraffic(t.Context(), event); err != nil {
 		t.Fatal(err)
 	}
@@ -1046,6 +1046,22 @@ func TestTrafficAnalyticsAreBoundedAndAuthenticated(t *testing.T) {
 	series := request(server.Handler(), http.MethodGet, "/api/v1/traffic/timeseries"+query+"&granularity=hour", nil, cookies)
 	if series.Code != http.StatusOK || !bytes.Contains(series.Body.Bytes(), []byte(`"granularity":"hour"`)) || !bytes.Contains(series.Body.Bytes(), []byte(`"bucket_start":"2026-09-01T00:00:00Z"`)) {
 		t.Fatal(series.Code, series.Body.String())
+	}
+	breakdown := request(server.Handler(), http.MethodGet, "/api/v1/traffic/breakdown"+query+"&dimension=pool&policy_id=policy-a&rule_id=rule-a&limit=5", nil, cookies)
+	if breakdown.Code != http.StatusOK || !bytes.Contains(breakdown.Body.Bytes(), []byte(`"dimension":"pool"`)) || !bytes.Contains(breakdown.Body.Bytes(), []byte(`"value":"pool-a"`)) || !bytes.Contains(breakdown.Body.Bytes(), []byte(`"upstream_download_bytes":8`)) {
+		t.Fatal(breakdown.Code, breakdown.Body.String())
+	}
+	for _, path := range []string{"/api/v1/traffic/breakdown?dimension=host", "/api/v1/traffic/breakdown?dimension=pool&limit=101"} {
+		invalidBreakdown := request(server.Handler(), http.MethodGet, path, nil, cookies)
+		if invalidBreakdown.Code != http.StatusBadRequest {
+			t.Fatal(path, invalidBreakdown.Code, invalidBreakdown.Body.String())
+		}
+	}
+	if unauthenticatedBreakdown := request(server.Handler(), http.MethodGet, "/api/v1/traffic/breakdown?dimension=pool", nil, ""); unauthenticatedBreakdown.Code != http.StatusUnauthorized {
+		t.Fatal(unauthenticatedBreakdown.Code, unauthenticatedBreakdown.Body.String())
+	}
+	if postBreakdown := request(server.Handler(), http.MethodPost, "/api/v1/traffic/breakdown?dimension=pool", nil, cookies); postBreakdown.Code != http.StatusMethodNotAllowed {
+		t.Fatal(postBreakdown.Code, postBreakdown.Body.String())
 	}
 	invalid := request(server.Handler(), http.MethodGet, "/api/v1/traffic/timeseries?granularity=week", nil, cookies)
 	if invalid.Code != http.StatusBadRequest {

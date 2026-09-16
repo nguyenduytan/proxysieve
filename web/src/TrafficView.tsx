@@ -10,7 +10,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { formatBytes, formatConfiguredCosts } from "./api";
-import type { TrafficEvent, TrafficPage } from "./api";
+import type { TrafficBreakdown, TrafficEvent, TrafficPage } from "./api";
 
 const hourMilliseconds = 60 * 60 * 1000;
 
@@ -57,7 +57,7 @@ export function TrafficView({
   const rows = useMemo(
     () =>
       (data?.events ?? []).filter((row) =>
-        `${row.host} ${row.protocol} ${row.action} ${row.pool_id} ${row.proxy_id} ${row.chain_id}`
+        `${row.host} ${row.protocol} ${row.action} ${row.pool_id} ${row.proxy_id} ${row.chain_id} ${row.policy_id} ${row.rule_id}`
           .toLowerCase()
           .includes(filter.toLowerCase()),
       ),
@@ -144,6 +144,28 @@ export function TrafficView({
       {overview && (
         <TrafficChart buckets={hourly} total={totals?.request_count ?? null} />
       )}
+      {!overview && (
+        <section
+          className="traffic-breakdowns"
+          aria-label="Traffic attribution"
+        >
+          <BreakdownList
+            title="Paid traffic by pool"
+            data={data?.pool_breakdown}
+            value={(item) =>
+              formatBytes(
+                item.totals.upstream_upload_bytes +
+                  item.totals.upstream_download_bytes,
+              )
+            }
+          />
+          <BreakdownList
+            title="Blocked requests by rule"
+            data={data?.blocked_rule_breakdown}
+            value={(item) => eventCountLabel(item.totals.request_count)}
+          />
+        </section>
+      )}
       <section className="table-panel" aria-label="Recorded gateway traffic">
         <div className="section-header">
           <div>
@@ -159,7 +181,7 @@ export function TrafficView({
               <Search size={15} />
               <input
                 aria-label="Search live traffic"
-                placeholder="Host, action, pool, chain…"
+                placeholder="Host, action, policy, rule…"
                 value={filter}
                 onChange={(event) => setFilter(event.target.value)}
               />
@@ -184,7 +206,7 @@ export function TrafficView({
             <h3>{filter ? "No matching events" : "No gateway events yet"}</h3>
             <p>
               {filter
-                ? "Try another host, protocol, action, pool or chain."
+                ? "Try another host, protocol, action, policy or rule."
                 : "Configure an explicit route and send HTTP, CONNECT or SOCKS5 traffic through the gateway."}
             </p>
           </div>
@@ -197,6 +219,8 @@ export function TrafficView({
                   <th>Action</th>
                   <th>Protocol</th>
                   <th>Host</th>
+                  <th>Policy</th>
+                  <th>Rule</th>
                   <th>Pool</th>
                   <th>Chain</th>
                   <th>Proxy</th>
@@ -278,6 +302,36 @@ function TrafficChart({
   );
 }
 
+function BreakdownList({
+  title,
+  data,
+  value,
+}: {
+  title: string;
+  data: TrafficBreakdown | undefined;
+  value: (item: TrafficBreakdown["items"][number]) => string;
+}) {
+  return (
+    <div>
+      <h2>{title}</h2>
+      {!data ? (
+        <p className="muted">Loading…</p>
+      ) : data.items.length === 0 ? (
+        <p className="muted">No attributed traffic</p>
+      ) : (
+        <ol>
+          {data.items.map((item) => (
+            <li key={item.value}>
+              <span className="mono">{item.value}</span>
+              <strong>{value(item)}</strong>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function eventCountLabel(count: number) {
   return `${count} ${count === 1 ? "event" : "events"}`;
 }
@@ -323,6 +377,8 @@ function TrafficLine({ row }: { row: TrafficEvent }) {
       </td>
       <td className="mono">{row.protocol.toUpperCase()}</td>
       <td className="host-cell">{row.host}</td>
+      <td>{row.policy_id || "—"}</td>
+      <td>{row.rule_id || "—"}</td>
       <td>{row.pool_id || "—"}</td>
       <td>{row.chain_id || "—"}</td>
       <td>{row.proxy_id || "—"}</td>

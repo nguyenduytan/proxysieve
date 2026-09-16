@@ -289,7 +289,7 @@ func TestSchemaSeventeenUpgradePreservesTrafficAndCostAggregates(t *testing.T) {
 	old := &Store{db: database}
 	files := fstest.MapFS{}
 	names, err := fs.Glob(migrations, "migrations/*.sql")
-	if err != nil || len(names) != 17 {
+	if err != nil || len(names) != 18 {
 		t.Fatal(names, err)
 	}
 	for _, name := range names[:16] {
@@ -324,17 +324,17 @@ func TestSchemaSeventeenUpgradePreservesTrafficAndCostAggregates(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = repository.Close() })
 	for _, table := range []string{"traffic_aggregates_minute", "traffic_aggregates_hour", "traffic_aggregates_day"} {
-		var chain string
+		var chain, policyID, ruleID string
 		var requests, download int64
-		if err = repository.db.QueryRow(`SELECT chain_id,request_count,upstream_download FROM `+table).Scan(&chain, &requests, &download); err != nil || chain != "" || requests != 2 || download != 6 {
-			t.Fatal(table, chain, requests, download, err)
+		if err = repository.db.QueryRow(`SELECT chain_id,policy_id,rule_id,request_count,upstream_download FROM `+table).Scan(&chain, &policyID, &ruleID, &requests, &download); err != nil || chain != "" || policyID != "" || ruleID != "" || requests != 2 || download != 6 {
+			t.Fatal(table, chain, policyID, ruleID, requests, download, err)
 		}
 	}
 	for _, table := range []string{"traffic_cost_aggregates_minute", "traffic_cost_aggregates_hour", "traffic_cost_aggregates_day"} {
-		var chain, currency string
+		var chain, policyID, ruleID, currency string
 		var cost int64
-		if err = repository.db.QueryRow(`SELECT chain_id,currency,configured_cost_micros FROM `+table).Scan(&chain, &currency, &cost); err != nil || chain != "" || currency != "USD" || cost != 11 {
-			t.Fatal(table, chain, currency, cost, err)
+		if err = repository.db.QueryRow(`SELECT chain_id,policy_id,rule_id,currency,configured_cost_micros FROM `+table).Scan(&chain, &policyID, &ruleID, &currency, &cost); err != nil || chain != "" || policyID != "" || ruleID != "" || currency != "USD" || cost != 11 {
+			t.Fatal(table, chain, policyID, ruleID, currency, cost, err)
 		}
 	}
 }
@@ -582,5 +582,64 @@ func TestConfiguredCostsKeepCurrenciesAndSurviveTierRetention(t *testing.T) {
 	filtered, err := s.TrafficSummary(t.Context(), TrafficQuery{From: query.From, Until: query.Until, ProxyID: "proxy-usd"})
 	if err != nil || len(filtered.Costs) != 1 || filtered.Costs[0].Amount.Currency != "USD" {
 		t.Fatal(filtered, err)
+	}
+}
+
+func TestTrafficPolicyRuleDimensionsAndBreakdownSurviveRetention(t *testing.T) {
+	s, err := Open(t.Context(), tempDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	rate := traffic.Rate{Price: traffic.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: traffic.GB, EffectiveAt: base}
+	cost, err := traffic.NewCostSnapshot(&rate, 0, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := []traffic.Event{
+		{At: base.Add(time.Second), RequestID: "paid-a", ConnectionID: "connection-a", PolicyID: "policy-a", RuleID: "proxy-rule", PoolID: "paid-pool", ProxyID: "proxy-a", Protocol: "http", Action: "proxy", UpstreamDownload: 300, ConfiguredCost: cost},
+		{At: base.Add(2 * time.Second), RequestID: "paid-b", ConnectionID: "connection-b", PolicyID: "policy-b", RuleID: "other-rule", PoolID: "other-pool", ProxyID: "proxy-b", Protocol: "http", Action: "proxy", UpstreamDownload: 100},
+		{At: base.Add(3 * time.Second), RequestID: "blocked-a", ConnectionID: "connection-c", PolicyID: "policy-a", RuleID: "block-rule", Protocol: "http", Action: "block"},
+		{At: base.Add(4 * time.Second), RequestID: "blocked-b", ConnectionID: "connection-d", PolicyID: "policy-a", RuleID: "block-rule", Protocol: "socks5", Action: "block"},
+	}
+	if err = s.RecordTrafficBatch(t.Context(), events); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := s.ListTraffic(t.Context(), TrafficPage{Limit: 10})
+	if err != nil || len(stored) != 4 || stored[0].PolicyID != "policy-a" || stored[0].RuleID != "block-rule" {
+		t.Fatal(stored, err)
+	}
+	query := TrafficQuery{From: base, Until: base.Add(time.Hour)}
+	filtered, err := s.TrafficSummary(t.Context(), TrafficQuery{From: query.From, Until: query.Until, PolicyID: "policy-a", RuleID: "block-rule", Action: "block"})
+	if err != nil || filtered.Totals.RequestCount != 2 {
+		t.Fatal(filtered, err)
+	}
+	assertBreakdowns := func() {
+		t.Helper()
+		pools, breakdownErr := s.TrafficBreakdown(t.Context(), query, "pool", 1)
+		if breakdownErr != nil || len(pools.Items) != 1 || pools.Items[0].Value != "paid-pool" || pools.Items[0].Totals.UpstreamDownload != 300 || len(pools.Items[0].Costs) != 1 || pools.Items[0].Costs[0].Amount.Micros != 300 {
+			t.Fatal(pools, breakdownErr)
+		}
+		blocked, breakdownErr := s.TrafficBreakdown(t.Context(), TrafficQuery{From: query.From, Until: query.Until, Action: "block"}, "rule", 10)
+		if breakdownErr != nil || len(blocked.Items) != 1 || blocked.Items[0].Value != "block-rule" || blocked.Items[0].Totals.RequestCount != 2 {
+			t.Fatal(blocked, breakdownErr)
+		}
+	}
+	assertBreakdowns()
+	if err = s.RollupMinute(t.Context(), base, base.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.RetainTraffic(t.Context(), base.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	assertBreakdowns()
+	for _, invalid := range []struct {
+		dimension string
+		limit     int
+	}{{"host", 10}, {"pool", 0}, {"pool", 101}} {
+		if _, err = s.TrafficBreakdown(t.Context(), query, invalid.dimension, invalid.limit); !errors.Is(err, store.ErrInvalid) {
+			t.Fatal(invalid, err)
+		}
 	}
 }

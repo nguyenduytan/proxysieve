@@ -15,7 +15,7 @@ func TestEvaluatePriorityUnknownAndTrace(t *testing.T) {
 	p := Policy{Version: 1, ID: "policy", Name: "p", Rules: []Rule{rule("low", 1, Condition{Field: "host", Operator: "suffix", Values: []string{"example.invalid"}}, Action{Type: "direct"}, true), rule("high", 10, Condition{Field: "path", Operator: "equals", Values: []string{"/hidden"}}, Action{Type: "block"}, true)}}
 	r := RequestContext{Host: "a.example.invalid", Method: model.Optional[string]{Known: true, Value: "GET"}, Timestamp: time.Now()}
 	got, err := Evaluate(p, r, Visibility{Host: true, Method: true}, true)
-	if err != nil || len(got.Actions) != 1 || got.Actions[0].Type != "direct" || len(got.MatchedRuleIDs) != 1 || got.MatchedRuleIDs[0] != "low" {
+	if err != nil || got.PolicyID != "policy" || got.TerminalRuleID != "low" || len(got.Actions) != 1 || got.Actions[0].Type != "direct" || len(got.MatchedRuleIDs) != 1 || got.MatchedRuleIDs[0] != "low" {
 		t.Fatalf("%+v %v", got, err)
 	}
 	if len(got.Trace.UnknownFields) != 1 || got.Trace.UnknownFields[0] != "path" {
