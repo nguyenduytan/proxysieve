@@ -1,6 +1,6 @@
 # ProxySieve milestone tracker
 
-Maintainer: **Tony Nguyen**. Updated: 2026-09-17.
+Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
 
 ## Status
 
@@ -19,11 +19,16 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-17.
 - [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including revisioned budget management and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
 - [ ] M13 — Shadow policies, events, alerts, extensions
 - [ ] M14 — Optional HTTPS Inspect
-- [ ] M15 — Backup, restore, import/export, operations (doctor command checks effective config, data directory, SQLite schema and listener availability; safe local SQLite backup/restore and versioned secret-free config import/export are implemented)
+- [x] M15 — Backup, restore, import/export, operations (doctor diagnostics, SQLite status/migration/offline compaction, WAL-consistent validated backup/restore, versioned secret-free portable config and restore acceptance for inventory/runtime/analytics complete locally)
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
 
 ### Release engineering continuation — 2026-09-16
 
+- Completed M15 operator workflows. Added SQLite status, explicit migration and
+  offline compaction commands using the existing store boundary. Restore acceptance
+  now proves proxy/pool/policy inventory, the active runtime snapshot and traffic
+  analytics survive a fresh restore; portable config import/export separately
+  reproduces validated settings without copying secret values.
 - Completed M3 tunnel lifecycle coverage. HTTP CONNECT and SOCKS5 relays now refresh
   configured idle deadlines during real I/O and close both directions on runtime or
   request cancellation while retaining TCP half-close behavior. Regression coverage

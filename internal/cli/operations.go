@@ -2,18 +2,77 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/configload"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 )
+
+func runDB(args []string, stdout, stderr io.Writer, home string, env map[string]string) int {
+	if len(args) == 0 || (args[0] != "status" && args[0] != "migrate" && args[0] != "compact") {
+		return usageError(stderr)
+	}
+	f := flag.NewFlagSet("db "+args[0], flag.ContinueOnError)
+	f.SetOutput(io.Discard)
+	file := f.String("file", "", "Configuration file")
+	jsonOutput := false
+	if args[0] == "status" {
+		f.BoolVar(&jsonOutput, "json", false, "Output machine-readable JSON")
+	}
+	if f.Parse(args[1:]) != nil || f.NArg() != 0 {
+		return usageError(stderr)
+	}
+	effective, err := loadEffectiveConfig(*file, home, env)
+	if err != nil {
+		_, _ = io.WriteString(stderr, "CONFIG_INVALID\n")
+		return 1
+	}
+	if effective.Config.Storage.Driver != "sqlite" {
+		_, _ = io.WriteString(stderr, "STORAGE_UNSUPPORTED: database operations require SQLite.\n")
+		return 1
+	}
+	repository, err := sqlite.Open(context.Background(), effective.Config.Storage.Path)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "DB_%s_FAILED: %s\n", strings.ToUpper(args[0]), operationError(err))
+		return 1
+	}
+	defer func() { _ = repository.Close() }()
+	if args[0] == "compact" {
+		if err = repository.Compact(context.Background()); err != nil {
+			_, _ = fmt.Fprintf(stderr, "DB_COMPACT_FAILED: %s\n", operationError(err))
+			return 1
+		}
+	}
+	status, err := repository.Status(context.Background())
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "DB_%s_FAILED: %s\n", strings.ToUpper(args[0]), operationError(err))
+		return 1
+	}
+	if args[0] == "status" && jsonOutput {
+		if err = json.NewEncoder(stdout).Encode(status); err != nil {
+			return 1
+		}
+		return 0
+	}
+	if args[0] == "status" {
+		_, err = fmt.Fprintf(stdout, "schema=%d journal=%s endpoints=%d sources=%d pools=%d chains=%d policies=%d\n", status.SchemaVersion, status.JournalMode, status.EndpointCount, status.SourceCount, status.PoolCount, status.ChainCount, status.PolicyCount)
+	} else {
+		_, err = fmt.Fprintf(stdout, "database %s complete: schema %d\n", args[0], status.SchemaVersion)
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
+}
 
 func runOperations(args []string, stdout, stderr io.Writer, home string, env map[string]string) int {
 	if len(args) == 0 || (args[0] != "backup" && args[0] != "restore") {

@@ -4,6 +4,9 @@
 
 ### Added
 
+- Added `db status`, `db migrate` and offline `db compact` commands, plus
+  restore acceptance coverage for routing inventory, active runtime state and
+  traffic analytics.
 - Added activity-based tunnel idle deadlines and cancellation shutdown for HTTP
   CONNECT and SOCKS5 relays, with large-stream accounting coverage.
 - Added configured listener identity to HTTP, CONNECT and SOCKS5 policy contexts,

@@ -82,6 +82,9 @@ go test ./...
 go build -trimpath -o bin/ ./cmd/proxysieve
 ./bin/proxysieve start --file config.example.yaml
 ./bin/proxysieve doctor --file config.example.yaml
+./bin/proxysieve db status --file config.example.yaml
+./bin/proxysieve db migrate --file config.example.yaml
+./bin/proxysieve db compact --file config.example.yaml
 ./bin/proxysieve backup --file config.example.yaml --path ./proxysieve-backup.db
 ./bin/proxysieve restore --file config.example.yaml --path ./proxysieve-backup.db
 PSV_ADMIN_PASSWORD=... ./bin/proxysieve cache stats --username admin
@@ -111,7 +114,10 @@ Operational backup and portable configuration workflows are described in
 SQLite schema and listener-bind readiness without starting the gateway. Add `--json`
 for automation; a failed critical check returns a non-zero exit code.
 
-Stop the running ProxySieve process before running `backup` or `restore`. Backup
+Stop the running ProxySieve process before running `backup`, `restore`, `db migrate`
+or `db compact`. `db status` reports the current schema, journal mode and inventory
+counts; add `--json` for automation. `db migrate` applies the embedded migration
+history, while `db compact` uses SQLite `VACUUM` to reclaim unused pages. Backup
 creates a consistent SQLite snapshot, including WAL state, and never overwrites an
 existing destination. Restore validates the backup schema, archives the current
 database and any WAL/SHM sidecars as a timestamped pre-restore copy, then installs

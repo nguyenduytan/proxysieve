@@ -25,6 +25,9 @@ go build -trimpath -o bin/ ./cmd/proxysieve
 go run ./cmd/proxysieve version --json
 go run ./cmd/proxysieve config validate --file config.example.yaml
 go run ./cmd/proxysieve doctor --file config.example.yaml
+go run ./cmd/proxysieve db status --file config.example.yaml --json
+go run ./cmd/proxysieve db migrate --file config.example.yaml
+go run ./cmd/proxysieve db compact --file config.example.yaml
 go run ./cmd/proxysieve backup --file config.example.yaml --path ./proxysieve-backup.db
 go run ./cmd/proxysieve restore --file config.example.yaml --path ./proxysieve-backup.db
 pnpm --dir web install --frozen-lockfile

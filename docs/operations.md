@@ -1,8 +1,42 @@
 # Operations
 
-ProxySieve provides two bounded, local-only workflows for moving configuration
-between installations. Both commands validate the effective configuration before
-writing and refuse to overwrite an existing destination.
+ProxySieve provides bounded, local-only workflows for database maintenance,
+recovery and moving configuration between installations. Commands validate the
+effective configuration and never print raw secrets.
+
+## Database Status and Maintenance
+
+Stop ProxySieve before migration or compaction. Status may be queried for human or
+machine-readable output:
+
+```sh
+proxysieve db status [--file CONFIG.yaml]
+proxysieve db status [--file CONFIG.yaml] --json
+proxysieve db migrate [--file CONFIG.yaml]
+proxysieve db compact [--file CONFIG.yaml]
+```
+
+Status reports the schema version, journal mode and inventory row counts. Migration
+opens the configured SQLite database and applies the embedded, checksum-verified
+migration history. Compaction runs SQLite `VACUUM` to reclaim unused pages.
+
+## Backup and Restore
+
+Stop ProxySieve before backup or restore:
+
+```sh
+proxysieve backup --file CONFIG.yaml --path proxysieve-backup.db
+proxysieve restore --file CONFIG.yaml --path proxysieve-backup.db
+```
+
+Backup creates a WAL-consistent SQLite snapshot and refuses to overwrite a file.
+Restore validates the embedded migration history before replacing anything, then
+archives the previous database and WAL/SHM sidecars with a timestamp. The database
+snapshot preserves routing inventory, active runtime revisions and analytics state.
+
+For a fresh installation, restore the database and import the portable config below.
+The config archive reproduces settings and secret references, while operators must
+provision the referenced secret values separately.
 
 ## Portable Export
 

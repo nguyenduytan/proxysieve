@@ -57,6 +57,14 @@ func (s *Store) BackupTo(ctx context.Context, destination string) error {
 	return nil
 }
 
+// Compact reclaims unused pages in an offline database.
+func (s *Store) Compact(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, "VACUUM"); err != nil {
+		return safeError(ctx, err)
+	}
+	return nil
+}
+
 // ValidateBackup checks the embedded migration history without opening the
 // backup through Open, which would migrate and mutate an older or empty file.
 // A valid older schema is accepted because the normal application open path can
