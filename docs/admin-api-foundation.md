@@ -24,6 +24,8 @@ GET  /api/v1/traffic/history
 GET  /api/v1/traffic/summary
 GET  /api/v1/traffic/timeseries
 GET  /api/v1/traffic/breakdown
+GET  /api/v1/events
+GET  /api/v1/events/stream
 GET  /api/v1/budgets
 POST /api/v1/budgets
 GET  /api/v1/budgets/{id}
@@ -100,6 +102,10 @@ gateway buffer plus asynchronous persistence health. The authenticated
 `GET /api/v1/traffic/stream` SSE feed publishes new traffic events through bounded
 per-viewer buffers; a slow subscriber is disconnected instead of blocking gateway
 accounting, and the Admin polling path remains the recovery mechanism.
+`GET /api/v1/events` returns the newest sanitized process-lifetime control-plane
+events and a dropped-event counter. `GET /api/v1/events/stream` publishes new events
+through the same bounded, slow-subscriber-safe SSE pattern. Both endpoints require at
+least viewer access. They do not replace the durable administrator-only audit trail.
 `GET /api/v1/traffic/history` returns recent SQLite events. `traffic/summary`,
 `traffic/timeseries`, and `traffic/breakdown` return bounded analytics over aligned
 UTC ranges with optional client, pool, proxy, chain, policy, rule, action, and
@@ -110,7 +116,7 @@ grouped by currency and includes rated upstream-byte coverage; these values are
 configured estimates, not provider-billed amounts.
 
 The embedded Admin Panel deliberately lists only API-backed destinations:
-Overview, Traffic, Budgets, Cache, Proxies, Sources, Pools, Chains, Health, Sessions,
+Overview, Traffic, Events, Budgets, Cache, Proxies, Sources, Pools, Chains, Health, Sessions,
 Policies, Clients, Users, Audit and System. Planned
 workspaces such as Alerts are not rendered as disabled navigation. This avoids
 duplicate or inert menu surfaces while features are still under development.

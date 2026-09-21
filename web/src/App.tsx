@@ -5,6 +5,7 @@ import { ApiError, api, discoverSession, errorMessage } from "./api";
 import type { User, SessionState } from "./api";
 import { ClientAccess } from "./ClientAccess";
 import { AuditLog } from "./AuditLog";
+import { EventLog } from "./EventLog";
 import { ProxyInventory } from "./ProxyInventory";
 import { PoolInventory } from "./PoolInventory";
 import { ChainInventory } from "./ChainInventory";
@@ -221,6 +222,7 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
             onToggle={() => setPaused((value) => !value)}
           />
         )}
+        {page === "Events" && <EventLog onExpired={onExpired} />}
         {page === "Budgets" && (
           <BudgetInventory role={user.role} onExpired={onExpired} />
         )}

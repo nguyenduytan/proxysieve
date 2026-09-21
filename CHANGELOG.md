@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added bounded sanitized control-plane operational events with viewer-readable
+  snapshot/SSE APIs, slow-subscriber isolation and a responsive live Events workspace.
+
 ### Added
 
 - Added admin-only user account lifecycle APIs and a responsive Users workspace,

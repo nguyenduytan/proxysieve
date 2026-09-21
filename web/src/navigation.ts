@@ -15,12 +15,14 @@ import {
   HeartPulse,
   Gauge,
   HardDrive,
+  RadioTower,
 } from "lucide-react";
 import type { Role } from "./api";
 
 export type Page =
   | "Overview"
   | "Traffic"
+  | "Events"
   | "Budgets"
   | "Cache"
   | "Proxies"
@@ -57,6 +59,12 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Traffic",
     description: "Live and retained gateway events",
     icon: Activity,
+  },
+  {
+    page: "Events",
+    label: "Events",
+    description: "Live control-plane activity",
+    icon: RadioTower,
   },
   {
     page: "Budgets",

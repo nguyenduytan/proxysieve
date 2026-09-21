@@ -10,6 +10,7 @@ describe("admin navigation", () => {
     expect(pages).toEqual([
       "Overview",
       "Traffic",
+      "Events",
       "Budgets",
       "Cache",
       "Proxies",

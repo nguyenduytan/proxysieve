@@ -418,6 +418,20 @@ export interface AuditPage {
   next_before: string;
   next_before_id: string;
 }
+export interface OperationalEvent {
+  id: string;
+  at: string;
+  type: string;
+  severity: "info" | "warning" | "error";
+  source: string;
+  actor_id?: string;
+  target_type?: string;
+  target_id?: string;
+}
+export interface EventPage {
+  items: OperationalEvent[];
+  dropped: number;
+}
 export interface APIKeyCreation {
   api_key: APIKeyRecord;
   token: string;

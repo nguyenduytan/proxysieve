@@ -26,6 +26,7 @@ import (
 	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	"github.com/nguyenduytan/proxysieve/internal/downstreamauth"
+	internalevents "github.com/nguyenduytan/proxysieve/internal/events"
 	internalhealth "github.com/nguyenduytan/proxysieve/internal/health"
 	"github.com/nguyenduytan/proxysieve/internal/scheduler"
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
@@ -810,6 +811,12 @@ func Build(c config.Config) (Runtime, error) {
 			_ = controlStore.Close()
 			return Runtime{}, err
 		}
+		eventBus, err := internalevents.New(10_000)
+		if err != nil {
+			_ = controlStore.Close()
+			return Runtime{}, err
+		}
+		server.SetEvents(eventBus)
 		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: runtimeResolver, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}}, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout), globalPace: checkPace(c.Health.GlobalCheckRate), poolPace: checkPace(c.Health.PoolCheckRate)}
 		server.SetTrafficStatus(durableRecorder)
 		server.SetBrowserRecorder(internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}})

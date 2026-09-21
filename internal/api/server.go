@@ -24,6 +24,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/buildinfo"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	"github.com/nguyenduytan/proxysieve/internal/downstreamauth"
+	internalevents "github.com/nguyenduytan/proxysieve/internal/events"
 	"github.com/nguyenduytan/proxysieve/internal/keys"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
@@ -31,6 +32,7 @@ import (
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
+	publicevent "github.com/nguyenduytan/proxysieve/pkg/event"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
@@ -65,6 +67,7 @@ type Server struct {
 	budgets         *internalbudget.Manager
 	responseCache   internalcache.ResponseStore
 	audit           audit.Writer
+	events          *internalevents.Bus
 	now             func() time.Time
 	sourceResolver  internalsource.Resolver
 	sourcePolicy    security.DestinationPolicy
@@ -176,6 +179,7 @@ func (sourceResolver) LookupNetIP(ctx context.Context, host string) ([]netip.Add
 }
 func (s *Server) Handler() http.Handler                              { return securityHeaders(http.HandlerFunc(s.handle)) }
 func (s *Server) SetTrafficStatus(status TrafficStatus)              { s.trafficStatus = status }
+func (s *Server) SetEvents(events *internalevents.Bus)               { s.events = events }
 func (s *Server) SetRuntimeControl(control RuntimeControl)           { s.runtimeControl = control }
 func (s *Server) SetBrowserRecorder(recorder publictraffic.Recorder) { s.browserRecorder = recorder }
 func (s *Server) SetSessions(sessions SessionStore)                  { s.sessions = sessions }
@@ -264,6 +268,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.liveTraffic(w) })
 	case "/api/v1/traffic/stream":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.streamTraffic(w, r) })
+	case "/api/v1/events":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.listEvents(w, r) })
+	case "/api/v1/events/stream":
+		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.streamEvents(w, r) })
 	case "/api/v1/traffic/history":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficHistory(w, r) })
 	case "/api/v1/traffic/summary":
@@ -1238,10 +1246,14 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": events, "next_before": nextBefore, "next_before_id": nextBeforeID})
 }
 func (s *Server) record(ctx context.Context, user auth.User, action, targetType, targetID string) {
-	if s.audit == nil {
-		return
+	id, at := model.NewID(), s.now()
+	ctx = context.WithoutCancel(ctx)
+	if s.audit != nil {
+		_ = s.audit.Record(ctx, audit.Event{ID: id, At: at, ActorID: user.ID, Action: action, TargetType: targetType, TargetID: targetID})
 	}
-	_ = s.audit.Record(context.WithoutCancel(ctx), audit.Event{ID: model.NewID(), At: s.now(), ActorID: user.ID, Action: action, TargetType: targetType, TargetID: targetID})
+	if s.events != nil {
+		_ = s.events.Publish(ctx, publicevent.Event{ID: id, At: at, Type: action, Severity: publicevent.Info, Source: "admin", ActorID: user.ID, TargetType: targetType, TargetID: targetID})
+	}
 }
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 	return decodeBounded(w, r, target, maxBodyBytes)
