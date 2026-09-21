@@ -29,6 +29,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/downstreamauth"
 	internalevents "github.com/nguyenduytan/proxysieve/internal/events"
 	internalhealth "github.com/nguyenduytan/proxysieve/internal/health"
+	internalinspect "github.com/nguyenduytan/proxysieve/internal/inspect"
 	"github.com/nguyenduytan/proxysieve/internal/scheduler"
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
@@ -724,6 +725,20 @@ func Build(c config.Config) (Runtime, error) {
 	if err := os.MkdirAll(c.Server.DataDir, 0700); err != nil {
 		return Runtime{}, err
 	}
+	var inspector *internalinspect.Manager
+	inspectInfo := api.InspectInfo{Enabled: c.Inspect.Enabled, IncludeCount: len(c.Inspect.Include), ExcludeCount: len(c.Inspect.Exclude), OnFailure: c.Inspect.OnFailure}
+	if c.Inspect.Enabled {
+		loadedInspector, inspectErr := internalinspect.Open(c.Server.DataDir, c.Inspect.Include, c.Inspect.Exclude, c.Logging.CaptureHeaders)
+		if inspectErr != nil {
+			return Runtime{}, inspectErr
+		}
+		inspector = loadedInspector
+		caInfo, inspectErr := internalinspect.ReadInfo(c.Server.DataDir)
+		if inspectErr != nil {
+			return Runtime{}, inspectErr
+		}
+		inspectInfo.Fingerprint, inspectInfo.NotAfter = caInfo.Fingerprint, &caInfo.NotAfter
+	}
 	configuredBundle := store.RuntimeBundle{Proxies: c.Proxies, Pools: c.Pools, Chains: c.Chains, Policies: c.Policies}.Clone()
 	trafficRecorder, err := internaltraffic.NewMemory(10_000)
 	if err != nil {
@@ -835,6 +850,7 @@ func Build(c config.Config) (Runtime, error) {
 			return Runtime{}, err
 		}
 		server.SetEvents(eventBus)
+		server.SetInspectInfo(inspectInfo, inspector)
 		alertDispatcher, err := internalalert.New(eventBus, controlStore, internalalert.Sender{Resolver: resolver{}, Policy: security.DestinationPolicy{DenyPrivate: true}, Secrets: secrets.Environment{}})
 		if err != nil {
 			_ = controlStore.Close()
@@ -941,7 +957,7 @@ func Build(c config.Config) (Runtime, error) {
 			}
 			runtime.HTTPMetric = &security.ListenerMetrics{}
 			listenerMetrics = append(listenerMetrics, api.ListenerMetric{Name: listener.Name, Type: listener.Type, Bind: listener.Bind, MaxConnections: listener.MaxConnections, Metrics: runtime.HTTPMetric})
-			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: recorder, Authenticate: authenticate, AuthenticatePassword: authenticatePassword, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20), ListenerName: listener.Name, IdleTimeout: time.Duration(listener.IdleTimeout)})
+			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: recorder, Authenticate: authenticate, AuthenticatePassword: authenticatePassword, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20), ListenerName: listener.Name, IdleTimeout: time.Duration(listener.IdleTimeout), Inspector: inspector, InspectFailureTunnel: c.Inspect.OnFailure == "tunnel"})
 			if err != nil {
 				return Runtime{}, err
 			}

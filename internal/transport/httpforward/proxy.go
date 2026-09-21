@@ -2,6 +2,7 @@
 package httpforward
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -11,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +20,7 @@ import (
 
 	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
+	internalinspect "github.com/nguyenduytan/proxysieve/internal/inspect"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	internaltransport "github.com/nguyenduytan/proxysieve/internal/transport"
 	cachepkg "github.com/nguyenduytan/proxysieve/pkg/cache"
@@ -55,6 +58,8 @@ type Options struct {
 	MaxHeaderBytes       int
 	ListenerName         string
 	IdleTimeout          time.Duration
+	Inspector            *internalinspect.Manager
+	InspectFailureTunnel bool
 }
 type Handler struct {
 	evaluator            gateway.Evaluator
@@ -67,6 +72,8 @@ type Handler struct {
 	maxHeaderBytes       int
 	listenerName         string
 	idleTimeout          time.Duration
+	inspector            *internalinspect.Manager
+	inspectFailureTunnel bool
 }
 
 func New(options Options) (*Handler, error) {
@@ -97,7 +104,7 @@ func New(options Options) (*Handler, error) {
 	if options.IdleTimeout > 24*time.Hour {
 		return nil, errors.New("invalid idle timeout")
 	}
-	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, authenticate: options.Authenticate, authenticatePassword: options.AuthenticatePassword, responseCache: options.ResponseCache, maxCacheBody: options.MaxCacheBody, maxHeaderBytes: options.MaxHeaderBytes, listenerName: options.ListenerName, idleTimeout: options.IdleTimeout}, nil
+	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, authenticate: options.Authenticate, authenticatePassword: options.AuthenticatePassword, responseCache: options.ResponseCache, maxCacheBody: options.MaxCacheBody, maxHeaderBytes: options.MaxHeaderBytes, listenerName: options.ListenerName, idleTimeout: options.IdleTimeout, inspector: options.Inspector, inspectFailureTunnel: options.InspectFailureTunnel}, nil
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	clientID, ok := h.authenticateRequest(w, r)
@@ -108,6 +115,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.connect(w, r, clientID)
 		return
 	}
+	h.forward(w, r, clientID)
+}
+
+func (h *Handler) forward(w http.ResponseWriter, r *http.Request, clientID model.ID) {
 	if len(r.Header.Get(sessionHeader)) > 4096 {
 		http.Error(w, "INVALID_SESSION_KEY", http.StatusBadRequest)
 		return
@@ -371,6 +382,20 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		http.Error(w, "DESTINATION_DENIED", http.StatusForbidden)
 		return
 	}
+	if h.inspector != nil {
+		configuration, selected, inspectErr := h.inspector.TLSConfig(host)
+		if selected {
+			if inspectErr != nil {
+				if !h.inspectFailureTunnel {
+					http.Error(w, "INSPECT_UNAVAILABLE", http.StatusBadGateway)
+					return
+				}
+			} else {
+				h.inspectConnect(w, r, clientID, host, port, configuration)
+				return
+			}
+		}
+	}
 	if err = internalbudget.Available(r.Context(), route.Reserve); err != nil {
 		route.Action = "budget_reject"
 		recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusTooManyRequests, 0, 0, 0, 0)
@@ -464,6 +489,183 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 	}()
 	copies.Wait()
 	recordTunnel(h.recorder, r.Context(), ctx, route, host, "connect", http.StatusOK, clientUpload.Bytes(), clientDownload.Bytes(), upstreamUpload.Bytes(), upstreamDownload.Bytes())
+}
+
+func (h *Handler) inspectConnect(w http.ResponseWriter, request *http.Request, clientID model.ID, host string, port uint16, configuration *tls.Config) {
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "CONNECT_UNAVAILABLE", http.StatusInternalServerError)
+		return
+	}
+	client, buffer, err := hijacker.Hijack()
+	if err != nil {
+		return
+	}
+	defer func() { _ = client.Close() }()
+	if _, err = buffer.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil || buffer.Flush() != nil {
+		return
+	}
+	secured := tls.Server(&bufferedConn{Conn: client, reader: buffer.Reader}, configuration)
+	handshakeContext, cancel := context.WithTimeout(request.Context(), min(h.idleTimeout, 15*time.Second))
+	err = secured.HandshakeContext(handshakeContext)
+	cancel()
+	if err != nil {
+		return
+	}
+	listener := newSingleConnListener(secured)
+	cancelDone := make(chan struct{})
+	go func() {
+		select {
+		case <-request.Context().Done():
+			_ = listener.Close()
+		case <-cancelDone:
+		}
+	}()
+	defer close(cancelDone)
+	server := &http.Server{
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       h.idleTimeout,
+		MaxHeaderBytes:    h.maxHeaderBytes,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, inner *http.Request) {
+			if inner.Method == http.MethodConnect {
+				http.Error(w, "NESTED_CONNECT_UNAVAILABLE", http.StatusMethodNotAllowed)
+				return
+			}
+			innerHost, innerPort, valid := inspectAuthority(inner.Host)
+			if !valid || innerPort != port || !sameHost(innerHost, host) {
+				http.Error(w, "INSPECT_HOST_MISMATCH", http.StatusMisdirectedRequest)
+				return
+			}
+			inner.URL.Scheme = "https"
+			inner.URL.Host = net.JoinHostPort(host, strconv.Itoa(int(port)))
+			if session := request.Header.Get(sessionHeader); session != "" && inner.Header.Get(sessionHeader) == "" {
+				inner.Header.Set(sessionHeader, session)
+			}
+			requestHeaders := inner.Header.Clone()
+			requestBody := &internaltraffic.Reader{Source: inner.Body}
+			inner.Body = &countedBody{Reader: requestBody, Closer: inner.Body}
+			observed := &inspectionResponseWriter{ResponseWriter: w}
+			defer func() {
+				h.inspector.Record(inner.Method, inner.URL.String(), observed.statusCode(), requestHeaders, observed.Header().Clone(), uint64(requestBody.Bytes()), uint64(observed.bytes))
+			}()
+			h.forward(observed, inner, clientID)
+		}),
+	}
+	_ = server.Serve(listener)
+}
+
+func inspectAuthority(authority string) (string, uint16, bool) {
+	if len(authority) == 0 || len(authority) > 512 {
+		return "", 0, false
+	}
+	host, portRaw, err := net.SplitHostPort(authority)
+	if err != nil {
+		if strings.Contains(authority, ":") {
+			if strings.HasPrefix(authority, "[") && strings.HasSuffix(authority, "]") {
+				host = strings.TrimSuffix(strings.TrimPrefix(authority, "["), "]")
+			} else {
+				return "", 0, false
+			}
+		} else {
+			host = authority
+		}
+		portRaw = "443"
+	}
+	port, err := strconv.ParseUint(portRaw, 10, 16)
+	if err != nil || port == 0 || !proxy.ValidHost(host) {
+		return "", 0, false
+	}
+	return host, uint16(port), true
+}
+
+func sameHost(left, right string) bool {
+	leftIP, leftErr := netip.ParseAddr(left)
+	rightIP, rightErr := netip.ParseAddr(right)
+	if leftErr == nil && rightErr == nil {
+		return leftIP.Unmap() == rightIP.Unmap()
+	}
+	return strings.EqualFold(strings.TrimSuffix(left, "."), strings.TrimSuffix(right, "."))
+}
+
+type bufferedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (connection *bufferedConn) Read(value []byte) (int, error) { return connection.reader.Read(value) }
+
+type singleConnListener struct {
+	connection net.Conn
+	done       chan struct{}
+	mu         sync.Mutex
+	accepted   bool
+	closed     bool
+}
+
+func newSingleConnListener(connection net.Conn) *singleConnListener {
+	return &singleConnListener{connection: connection, done: make(chan struct{})}
+}
+
+func (listener *singleConnListener) Accept() (net.Conn, error) {
+	listener.mu.Lock()
+	if !listener.accepted {
+		listener.accepted = true
+		connection := &notifyingConn{Conn: listener.connection, close: listener.Close}
+		listener.mu.Unlock()
+		return connection, nil
+	}
+	done := listener.done
+	listener.mu.Unlock()
+	<-done
+	return nil, io.EOF
+}
+
+func (listener *singleConnListener) Close() error {
+	listener.mu.Lock()
+	if !listener.closed {
+		listener.closed = true
+		close(listener.done)
+	}
+	listener.mu.Unlock()
+	return listener.connection.Close()
+}
+
+func (listener *singleConnListener) Addr() net.Addr { return listener.connection.LocalAddr() }
+
+type notifyingConn struct {
+	net.Conn
+	close func() error
+}
+
+func (connection *notifyingConn) Close() error { return connection.close() }
+
+type inspectionResponseWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (writer *inspectionResponseWriter) WriteHeader(status int) {
+	if writer.status == 0 {
+		writer.status = status
+		writer.ResponseWriter.WriteHeader(status)
+	}
+}
+
+func (writer *inspectionResponseWriter) Write(value []byte) (int, error) {
+	if writer.status == 0 {
+		writer.WriteHeader(http.StatusOK)
+	}
+	written, err := writer.ResponseWriter.Write(value)
+	writer.bytes += written
+	return written, err
+}
+
+func (writer *inspectionResponseWriter) statusCode() int {
+	if writer.status == 0 {
+		return http.StatusOK
+	}
+	return writer.status
 }
 
 func parseConnectTarget(raw string) (string, uint16, bool) {

@@ -26,6 +26,7 @@ import (
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	"github.com/nguyenduytan/proxysieve/internal/downstreamauth"
 	internalevents "github.com/nguyenduytan/proxysieve/internal/events"
+	internalinspect "github.com/nguyenduytan/proxysieve/internal/inspect"
 	"github.com/nguyenduytan/proxysieve/internal/keys"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
@@ -86,6 +87,8 @@ type Server struct {
 	chainHealth     map[model.ID]chainHealthRecord
 	chainTester     ChainTester
 	listenerMetrics []ListenerMetric
+	inspectInfo     InspectInfo
+	inspectControl  *internalinspect.Manager
 	windowStart     time.Time
 	authAttempts    int
 }
@@ -145,6 +148,16 @@ type listenerStatus struct {
 	Bind           string `json:"bind"`
 	MaxConnections int    `json:"max_connections"`
 	security.ListenerStats
+}
+
+type InspectInfo struct {
+	Enabled      bool                          `json:"enabled"`
+	IncludeCount int                           `json:"include_count"`
+	ExcludeCount int                           `json:"exclude_count"`
+	OnFailure    string                        `json:"on_failure"`
+	Fingerprint  string                        `json:"fingerprint,omitempty"`
+	NotAfter     *time.Time                    `json:"not_after,omitempty"`
+	Recent       []internalinspect.Observation `json:"recent"`
 }
 
 func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints store.Endpoints, auditWriter audit.Writer, clientStores ...ClientStore) (*Server, error) {
@@ -218,6 +231,9 @@ func (s *Server) SetChainTester(tester ChainTester)                  { s.chainTe
 func (s *Server) SetListenerMetrics(metrics []ListenerMetric) {
 	s.listenerMetrics = append([]ListenerMetric(nil), metrics...)
 }
+func (s *Server) SetInspectInfo(info InspectInfo, control *internalinspect.Manager) {
+	s.inspectInfo, s.inspectControl = info, control
+}
 func (s *Server) SetSourceRefresher(refresher *internalsource.Refresher) {
 	if refresher != nil {
 		s.sourceRefresh = refresher
@@ -272,7 +288,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			for _, metric := range s.listenerMetrics {
 				listeners = append(listeners, listenerStatus{Name: metric.Name, Type: metric.Type, Bind: metric.Bind, MaxConnections: metric.MaxConnections, ListenerStats: metric.Metrics.Snapshot()})
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"build": buildinfo.Current(), "user": user, "listeners": listeners})
+			inspectInfo := s.inspectInfo
+			inspectInfo.Recent = []internalinspect.Observation{}
+			if s.inspectControl != nil {
+				inspectInfo.Recent = s.inspectControl.Recent(20)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"build": buildinfo.Current(), "user": user, "listeners": listeners, "inspect": inspectInfo})
 		})
 	case "/api/v1/auth/setup-status":
 		s.setupStatus(w, r)

@@ -53,14 +53,14 @@ Client
 Encrypted CONNECT and SOCKS tunnels expose only connection metadata such as target
 host and port. ProxySieve does not claim path, header, MIME, or resource visibility
 inside those tunnels. The optional Playwright/Puppeteer adapters can block known
-browser resources before they enter a tunnel; optional HTTPS inspection remains a
-separate, explicitly scoped feature.
+browser resources before they enter a tunnel. HTTPS inspection remains off by
+default and requires explicit host scopes plus a locally trusted ProxySieve CA.
 
 ## Current Capabilities
 
 | Area | Available locally | Still in progress |
 | --- | --- | --- |
-| Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, HTTP Basic/SOCKS5 password auth, graceful shutdown, listener-specific policy identity, limits and runtime metrics | UDP, transport-framing accounting |
+| Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, explicitly scoped optional HTTPS Inspect for HTTP/1.1, HTTP Basic/SOCKS5 password auth, graceful shutdown, listener-specific policy identity, limits and runtime metrics | UDP, HTTP/2/3 inspection, transport-framing accounting |
 | Routing | Deterministic policies, atomic revisioned inventory activation/rollback, simulation, health/latency-aware selection, durable bounded sticky affinity, ordered HTTP/HTTPS/SOCKS proxy chains with active probes, configurable bounded safe retry, endpoint/pool/alternative-chain failover, configured upstream HTTP/HTTPS/SOCKS, policy cache/rewrite, stream throttling and visible-HTTP mock/redirect responses | Per-hop chain cost |
 | Safety | Loopback defaults, private destination checks, pinned DIRECT DNS, no implicit DIRECT, source fetch guard | Persistent encrypted secret store, TLS remote admin |
 | Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited user/proxy/source/pool/policy/client/API-key APIs, authenticated bounded traffic and operational-event SSE, signed SSRF-safe webhook alerts, revisioned shadow-policy comparison, out-of-process Extension API v1 and examples, cache stats/full/exact-host purge API and CLI, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore, versioned safe config import/export and published OpenAPI contract | Broader cost and policy authoring views |
@@ -110,7 +110,8 @@ Operational backup and portable configuration workflows are described in
 [operations](docs/operations.md). Playwright, Puppeteer and Selenium setup is in
 [browser integrations](docs/browser-integrations.md). Trusted local extension
 manifests, protocol limits and examples are documented in
-[external extensions](docs/extensions.md).
+[external extensions](docs/extensions.md). Optional CA setup, host scopes and
+privacy behavior are in [HTTPS Inspect](docs/https-inspect.md).
 
 `proxysieve doctor` validates the effective configuration and reports data-directory,
 SQLite schema and listener-bind readiness without starting the gateway. Add `--json`
@@ -179,6 +180,7 @@ paste proxy credentials, cookies, API keys, setup tokens, or user traffic in iss
 - [Policy inventory and simulation](docs/policies.md)
 - [Browser integrations](docs/browser-integrations.md)
 - [External extensions](docs/extensions.md)
+- [Optional HTTPS Inspect](docs/https-inspect.md)
 - [Runtime activation and rollback](docs/runtime-activation.md)
 - [Proxy source security](docs/proxy-sources.md)
 - [Traffic accounting](docs/traffic-accounting.md)

@@ -10,7 +10,7 @@ import (
 
 func sensitiveKey(key string) bool {
 	k := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "_", ""), "-", ""))
-	return strings.Contains(k, "token") || strings.Contains(k, "secret") || strings.Contains(k, "password") || strings.Contains(k, "credential") || k == "authorization" || k == "proxyauthorization" || k == "cookie" || k == "setcookie" || strings.Contains(k, "apikey") || k == "key" || k == "signature" || k == "sig"
+	return strings.HasPrefix(k, "xproxysieve") || strings.Contains(k, "token") || strings.Contains(k, "secret") || strings.Contains(k, "password") || strings.Contains(k, "credential") || k == "authorization" || k == "proxyauthorization" || k == "cookie" || k == "setcookie" || strings.Contains(k, "apikey") || k == "key" || k == "signature" || k == "sig"
 }
 
 // RedactHeaders returns an independent copy; input data is never mutated.

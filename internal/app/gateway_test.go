@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	internalinspect "github.com/nguyenduytan/proxysieve/internal/inspect"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internalsession "github.com/nguyenduytan/proxysieve/internal/session"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
@@ -84,6 +85,23 @@ func TestBuildCreatesConfiguredDiskResponseCache(t *testing.T) {
 	}
 	if info, err := os.Stat(c.Cache.Response.Path); err != nil || !info.IsDir() {
 		t.Fatal("disk response cache directory missing", info, err)
+	}
+}
+
+func TestBuildRequiresConfiguredInspectCA(t *testing.T) {
+	c := config.Defaults(t.TempDir())
+	c.Admin.Enabled = false
+	c.Listeners = c.Listeners[:1]
+	c.Inspect.Enabled = true
+	c.Inspect.Include = []string{"*.example.invalid"}
+	if _, err := Build(c); !errors.Is(err, internalinspect.ErrNotFound) {
+		t.Fatalf("missing CA error = %v", err)
+	}
+	if _, err := internalinspect.Create(c.Server.DataDir, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(c); err != nil {
+		t.Fatal(err)
 	}
 }
 func TestRunCancelled(t *testing.T) {

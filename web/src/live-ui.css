@@ -798,6 +798,26 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+.inspect-recent {
+  border-top: 1px solid var(--line);
+}
+.inspect-url {
+  min-width: 260px;
+  max-width: 440px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.inspect-headers summary {
+  cursor: pointer;
+  white-space: nowrap;
+}
+.inspect-headers div {
+  max-width: 360px;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 11px;
+}
 .action-badge.direct {
   background: #f0eafe;
   color: #68469d;

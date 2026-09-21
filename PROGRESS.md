@@ -18,7 +18,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, audited user/proxy/source/pool/policy/client/API-key/cache lifecycle endpoints, protected local API, bounded authenticated traffic SSE and embedded OpenAPI contract locally implemented; broader API/event completion pending)
 - [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including user access, revisioned budget management and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
 - [x] M13 — Shadow policies, events, alerts, extensions (bounded operational events, signed webhook alerts, shadow comparison and external Extension API v1 complete locally)
-- [ ] M14 — Optional HTTPS Inspect
+- [x] M14 — Optional HTTPS Inspect (default-off scoped HTTP/1.1 interception, restrictive CA lifecycle, canonical routing and privacy-bounded Admin visibility complete locally)
 - [x] M15 — Backup, restore, import/export, operations (doctor diagnostics, SQLite status/migration/offline compaction, WAL-consistent validated backup/restore, versioned secret-free portable config and restore acceptance for inventory/runtime/analytics complete locally)
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
 
@@ -61,6 +61,24 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
   provider, selector and alert-sink examples. Lifecycle tests cover version and
   capability mismatch, crash loops, timeout, oversized frames, structured errors,
   stderr bounds and path escape. M13 acceptance is complete locally.
+
+### M14 optional HTTPS Inspect continuation — 2026-09-21
+
+- Added default-off exact/wildcard include scopes with exclude priority and explicit
+  reject or pre-interception tunnel failure behavior. Pinned clients and failures
+  after interception starts always close instead of silently downgrading security.
+- Added local CA init, fingerprint, public-certificate export and rotation commands.
+  The combined CA bundle is atomically replaced, uses Unix `0600` or a protected
+  current-user/Local-System Windows DACL, never enters config export and generates
+  bounded cached host certificates with stdlib TLS/x509.
+- Inspected HTTP/1.1 requests re-enter the canonical policy, routing, budget, cache,
+  shadow and accounting pipeline. Inner Host must match CONNECT; SOCKS, nested
+  CONNECT, HTTP/2/3, QUIC, upgrades and excluded hosts are not intercepted.
+- Added a bounded process-local System view for method, redacted URL/path, optional
+  sanitized headers, response status/content type and exact application-stream
+  sizes. Query values, secret headers and all bodies remain uncaptured. End-to-end
+  tests prove trusted CA negotiation and path/header-aware policy visibility. M14
+  acceptance is complete locally.
 
 ### Release engineering continuation — 2026-09-16
 

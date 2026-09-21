@@ -54,6 +54,9 @@ budgets: []
 #         timeout: 20s
 inspect:
   enabled: false
+  include: []
+  exclude: []
+  on_failure: reject
 cache:
   response:
     enabled: false

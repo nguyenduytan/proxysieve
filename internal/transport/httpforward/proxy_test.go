@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 
 	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
+	internalinspect "github.com/nguyenduytan/proxysieve/internal/inspect"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
 	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
@@ -66,6 +68,103 @@ func routeCachedDirect(ctx context.Context, request policy.RequestContext, resul
 	route, err := routeDirect(ctx, request, result)
 	route.Cache = true
 	return route, err
+}
+
+func TestInspectCONNECTUsesVisibleHTTPSPipeline(t *testing.T) {
+	dataDir := t.TempDir()
+	if _, err := internalinspect.Create(dataDir, false); err != nil {
+		t.Fatal(err)
+	}
+	inspector, err := internalinspect.Open(dataDir, []string{"api.example.invalid"}, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := make(chan policy.RequestContext, 1)
+	handler, err := New(Options{
+		Evaluator: Decider(func(_ context.Context, request policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
+			if request.Protocol == "http" {
+				visible <- request
+			}
+			return policy.Result{PolicyID: "policy", TerminalRuleID: "rule", Actions: []policy.Action{{Type: "direct"}}}, nil
+		}),
+		Router: RouterFunc(func(_ context.Context, request policy.RequestContext, _ policy.Result) (gateway.Route, error) {
+			if request.Protocol == "connect" {
+				return gateway.Route{Action: "direct", Dial: func(context.Context, string) (net.Conn, error) {
+					return nil, errors.New("inspect must not open a tunnel")
+				}}, nil
+			}
+			return gateway.Route{Action: "direct", Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/plain"}}, Body: io.NopCloser(strings.NewReader("inspected:" + request.URL.RequestURI()))}, nil
+			})}, nil
+		}),
+		Inspector: inspector,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyServer := httptest.NewServer(handler)
+	defer proxyServer.Close()
+	connection, err := net.Dial("tcp", strings.TrimPrefix(proxyServer.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = connection.Close() }()
+	if _, err = io.WriteString(connection, "CONNECT api.example.invalid:443 HTTP/1.1\r\nHost: api.example.invalid:443\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(connection)
+	connectResponse, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+	if err != nil || connectResponse.StatusCode != http.StatusOK {
+		t.Fatalf("CONNECT response=%v error=%v", connectResponse, err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(inspector.CertificatePEM()) {
+		t.Fatal("inspect root was not parsed")
+	}
+	tlsConnection := tls.Client(&bufferedConn{Conn: connection, reader: reader}, &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: "api.example.invalid", NextProtos: []string{"http/1.1"}})
+	if err = tlsConnection.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = io.WriteString(tlsConnection, "GET /private?item=1 HTTP/1.1\r\nHost: api.example.invalid\r\nX-Test: visible\r\nConnection: close\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(tlsConnection), &http.Request{Method: http.MethodGet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK || string(body) != "inspected:/private?item=1" {
+		t.Fatalf("response=%d body=%q", response.StatusCode, body)
+	}
+	select {
+	case request := <-visible:
+		if request.Scheme != "https" || request.Host != "api.example.invalid" || !request.Path.Known || request.Path.Value != "/private" || http.Header(request.Headers.Value).Get("X-Test") != "visible" {
+			t.Fatalf("visible request mismatch: %+v", request)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("inspected request did not reach policy evaluation")
+	}
+}
+
+func TestInspectAuthority(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		host  string
+		port  uint16
+		valid bool
+	}{
+		{"example.invalid", "example.invalid", 443, true},
+		{"example.invalid:8443", "example.invalid", 8443, true},
+		{"[::1]:443", "::1", 443, true},
+		{"other.invalid:", "", 0, false},
+		{"bad host", "", 0, false},
+	} {
+		host, port, valid := inspectAuthority(test.value)
+		if host != test.host || port != test.port || valid != test.valid {
+			t.Fatalf("%q = %q %d %v", test.value, host, port, valid)
+		}
+	}
 }
 func TestDirectForwardAndCredentialStripping(t *testing.T) {
 	var sawProxyAuth string

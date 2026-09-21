@@ -29,6 +29,26 @@ export interface ListenerStatus {
   active: number;
   rejected: number;
 }
+export interface InspectStatus {
+  enabled: boolean;
+  include_count: number;
+  exclude_count: number;
+  on_failure: "reject" | "tunnel";
+  fingerprint?: string;
+  not_after?: string;
+  recent: InspectObservation[];
+}
+export interface InspectObservation {
+  at: string;
+  method: string;
+  url: string;
+  status_code: number;
+  content_type?: string;
+  request_bytes: number;
+  response_bytes: number;
+  request_headers?: Record<string, string[]>;
+  response_headers?: Record<string, string[]>;
+}
 export interface Endpoint {
   id: string;
   name: string;

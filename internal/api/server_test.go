@@ -224,7 +224,7 @@ func TestSetupAndAuthenticatedAPI(t *testing.T) {
 		t.Fatal(me.Code, me.Body.String())
 	}
 	system := request(handler, http.MethodGet, "/api/v1/system/info", nil, cookies)
-	if system.Code != http.StatusOK || !bytes.Contains(system.Body.Bytes(), []byte(`"name":"edge"`)) || !bytes.Contains(system.Body.Bytes(), []byte(`"max_connections":128`)) || !bytes.Contains(system.Body.Bytes(), []byte(`"accepted":0`)) {
+	if system.Code != http.StatusOK || !bytes.Contains(system.Body.Bytes(), []byte(`"name":"edge"`)) || !bytes.Contains(system.Body.Bytes(), []byte(`"max_connections":128`)) || !bytes.Contains(system.Body.Bytes(), []byte(`"accepted":0`)) || !bytes.Contains(system.Body.Bytes(), []byte(`"inspect":{"enabled":false`)) || bytes.Contains(system.Body.Bytes(), []byte(`"not_after"`)) {
 		t.Fatal(system.Code, system.Body.String())
 	}
 	traffic := request(handler, http.MethodGet, "/api/v1/traffic/live", nil, cookies)

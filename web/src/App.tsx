@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { LogOut, Menu, Moon, ShieldCheck, Sun, X } from "lucide-react";
 import { AuthGate } from "./AuthGate";
-import { ApiError, api, discoverSession, errorMessage } from "./api";
+import {
+  ApiError,
+  api,
+  discoverSession,
+  errorMessage,
+  formatBytes,
+} from "./api";
 import type { User, SessionState } from "./api";
 import { ClientAccess } from "./ClientAccess";
 import { AuditLog } from "./AuditLog";
@@ -299,6 +305,124 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
               ) : (
                 <p className="empty-state">Loading system information…</p>
               )}
+            </section>
+            <section className="table-panel system-panel">
+              <div className="section-header">
+                <div>
+                  <h2>HTTPS Inspect</h2>
+                  <span>Explicitly scoped TLS visibility</span>
+                </div>
+              </div>
+              {system.inspect ? (
+                <dl className="system-list">
+                  <div>
+                    <dt>Status</dt>
+                    <dd>
+                      <span
+                        className={`client-state ${system.inspect.enabled ? "enabled" : "disabled"}`}
+                      >
+                        {system.inspect.enabled ? "Enabled" : "Off"}
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Host scopes</dt>
+                    <dd>
+                      {system.inspect.include_count} included,{" "}
+                      {system.inspect.exclude_count} excluded
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Failure behavior</dt>
+                    <dd>
+                      {system.inspect.on_failure === "tunnel"
+                        ? "Tunnel only when setup fails before interception"
+                        : "Reject"}
+                    </dd>
+                  </div>
+                  {system.inspect.fingerprint ? (
+                    <div>
+                      <dt>CA fingerprint</dt>
+                      <dd className="mono">{system.inspect.fingerprint}</dd>
+                    </div>
+                  ) : null}
+                  {system.inspect.not_after ? (
+                    <div>
+                      <dt>CA expires</dt>
+                      <dd>
+                        {new Date(system.inspect.not_after).toLocaleString()}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              ) : (
+                <p className="empty-state">Loading inspect status…</p>
+              )}
+              {system.inspect?.recent.length ? (
+                <div className="table-scroll inspect-recent">
+                  <table className="listener-table">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Request</th>
+                        <th>Status</th>
+                        <th>Content type</th>
+                        <th>Request / response</th>
+                        <th>Headers</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {system.inspect.recent.map((observation) => {
+                        const requestHeaders = Object.entries(
+                          observation.request_headers ?? {},
+                        );
+                        const responseHeaders = Object.entries(
+                          observation.response_headers ?? {},
+                        );
+                        return (
+                          <tr
+                            key={`${observation.at}:${observation.method}:${observation.url}`}
+                          >
+                            <td>
+                              {new Date(observation.at).toLocaleTimeString()}
+                            </td>
+                            <td className="mono inspect-url">
+                              <strong>{observation.method}</strong>{" "}
+                              {observation.url}
+                            </td>
+                            <td>{observation.status_code}</td>
+                            <td>{observation.content_type || "—"}</td>
+                            <td>
+                              {formatBytes(observation.request_bytes)} /{" "}
+                              {formatBytes(observation.response_bytes)}
+                            </td>
+                            <td>
+                              {requestHeaders.length +
+                              responseHeaders.length ? (
+                                <details className="inspect-headers">
+                                  <summary>
+                                    {requestHeaders.length} req ·{" "}
+                                    {responseHeaders.length} res
+                                  </summary>
+                                  {[...requestHeaders, ...responseHeaders].map(
+                                    ([name, values], index) => (
+                                      <div key={`${index}:${name}`}>
+                                        <b>{name}</b>: {values.join(", ")}
+                                      </div>
+                                    ),
+                                  )}
+                                </details>
+                              ) : (
+                                "Not captured"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </section>
             <section className="table-panel system-panel">
               <div className="section-header">

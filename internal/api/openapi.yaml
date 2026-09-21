@@ -1019,11 +1019,36 @@ components:
         error: {type: object, required: [code, message], properties: {code: {type: string}, message: {type: string}}}
     SystemInfo:
       type: object
-      required: [build, user, listeners]
+      required: [build, user, listeners, inspect]
       properties:
         build: {$ref: '#/components/schemas/BuildInfo'}
         user: {$ref: '#/components/schemas/User'}
         listeners: {type: array, items: {$ref: '#/components/schemas/ListenerStatus'}}
+        inspect: {$ref: '#/components/schemas/InspectStatus'}
+    InspectStatus:
+      type: object
+      required: [enabled, include_count, exclude_count, on_failure, recent]
+      properties:
+        enabled: {type: boolean}
+        include_count: {type: integer, minimum: 0}
+        exclude_count: {type: integer, minimum: 0}
+        on_failure: {type: string, enum: [reject, tunnel]}
+        fingerprint: {type: string}
+        not_after: {type: string, format: date-time}
+        recent: {type: array, maxItems: 20, items: {$ref: '#/components/schemas/InspectObservation'} }
+    InspectObservation:
+      type: object
+      required: [at, method, url, status_code, request_bytes, response_bytes]
+      properties:
+        at: {type: string, format: date-time}
+        method: {type: string}
+        url: {type: string}
+        status_code: {type: integer}
+        content_type: {type: string}
+        request_bytes: {type: integer, format: int64}
+        response_bytes: {type: integer, format: int64}
+        request_headers: {type: object, additionalProperties: {type: array, items: {type: string}}}
+        response_headers: {type: object, additionalProperties: {type: array, items: {type: string}}}
     BuildInfo:
       type: object
       required: [name, version, commit, build_date, go_version, platform, author, license]

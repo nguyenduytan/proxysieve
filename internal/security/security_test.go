@@ -52,7 +52,7 @@ func TestCipher(t *testing.T) {
 	}
 }
 func TestRedaction(t *testing.T) {
-	h := http.Header{"authorization": {"fake-auth"}, "Proxy-Authorization": {"fake-proxy"}, "X_API_KEY": {"fake-api"}, "Cookie": {"fake-cookie"}, "Accept": {"application/json"}}
+	h := http.Header{"authorization": {"fake-auth"}, "Proxy-Authorization": {"fake-proxy"}, "X_API_KEY": {"fake-api"}, "X-ProxySieve-Session": {"fake-session"}, "Cookie": {"fake-cookie"}, "Accept": {"application/json"}}
 	r := RedactHeaders(h)
 	for k, v := range r {
 		if k != "Accept" && v[0] != secret.Redacted {

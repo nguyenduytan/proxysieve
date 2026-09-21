@@ -14,6 +14,10 @@
   capability negotiation, root-confined manifests/executables, sanitized child
   environments, deadlines, bounded crash retries and provider/selector/alert-sink
   examples callable through the explicit local CLI.
+- Added optional, default-off HTTPS Inspect for explicitly scoped HTTP/1.1 CONNECT
+  hosts, with restrictive local CA lifecycle commands, bounded host-certificate
+  caching, exact inner-host enforcement, canonical policy/routing reuse and a
+  privacy-bounded recent metadata view in the existing System workspace.
 
 ### Added
 

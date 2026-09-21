@@ -1,6 +1,6 @@
 # 0005 — Non-MITM Default and Destination Controls
 
-Status: accepted, 2026-09-11. Maintainer: Tony Nguyen.
+Status: accepted, updated 2026-09-21. Maintainer: Tony Nguyen.
 
 ## Context
 
@@ -9,8 +9,9 @@ must not claim visibility it does not have or leak host traffic on upstream fail
 
 ## Decision
 
-HTTPS inspection is disabled and not implemented in the normal gateway. CONNECT and
-SOCKS evaluate only observable host/port/client/listener metadata. Direct routes
+HTTPS inspection is disabled in the normal gateway and remains a separate optional
+module with explicit host scopes and local CA trust. Opaque CONNECT and SOCKS
+evaluate only observable host/port/client/listener metadata. Direct routes
 resolve first, reject unsafe result sets for untrusted traffic, then dial a validated
 IP rather than allowing a second hostname lookup. This prevents local DNS check/dial
 races. Private, loopback, link-local, unspecified and multicast destinations are
@@ -24,5 +25,6 @@ responsibility for its documented upstream enforcement contract.
 ## Consequences
 
 Proxy failures reject rather than route direct. Not all commercial proxies can be
-used under the strict default until their remote DNS behavior is assessed. Optional
-inspect mode will be a later explicitly scoped module with its own CA handling.
+used under the strict default until their remote DNS behavior is assessed. Inspect
+never activates without both configuration and a restrictively stored CA; excluded,
+SOCKS and unsupported traffic keeps the documented opaque or fail-closed behavior.

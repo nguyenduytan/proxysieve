@@ -127,10 +127,14 @@ explicit zero is invalid. Binds must be literal IP:port, with brackets for IPv6.
 Unauthenticated non-loopback listeners are rejected. Admin authentication is required;
 remote admin needs TLS certificate/key references. No permissive dev bypass exists.
 
-DIRECT requires an explicit nonempty allowlist; inspect requires an include scope.
-Validation does not imply the corresponding feature has shipped. Domain patterns,
-policy links, actual key access, occupied ports, and runtime capabilities will be
-validated by their owning services when those are implemented.
+DIRECT requires an explicit nonempty allowlist. HTTPS Inspect requires an include
+scope, accepts exact hosts or a leading `*.` wildcard, and gives exclude rules
+priority. Its explicit `on_failure` value is `reject` or the narrowly scoped
+pre-interception `tunnel` fallback. The runtime also requires a local CA created by
+the inspect CLI. See [Optional HTTPS Inspect](https-inspect.md).
+
+Domain resolution, policy links, actual key access and occupied ports are validated
+by their owning runtime services rather than the syntax-only config package.
 
 `config.Manager` atomically stores validated immutable revisions and rejects stale
 updates. It does not itself restart listeners, persist revisions, or apply effects.

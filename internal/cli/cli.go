@@ -40,6 +40,10 @@ Usage:
   proxysieve cache purge --username USER [--admin URL] [--json]
   proxysieve cache purge-domain --domain DOMAIN --username USER [--admin URL] [--json]
   proxysieve extension call --root DIR --manifest PATH --capability NAME --method NAME [--input JSON] [--timeout DURATION] [--attempts N]
+  proxysieve inspect ca init [--file PATH]
+  proxysieve inspect ca fingerprint [--file PATH]
+  proxysieve inspect ca export --path CERTIFICATE [--file PATH]
+  proxysieve inspect ca rotate [--file PATH]
   proxysieve config validate [--file PATH] [--set dotted.path=value]
   proxysieve config print-effective [--file PATH] [--set dotted.path=value]
 
@@ -102,6 +106,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runCache(args[1:], stdout, stderr, environment())
 	case "extension":
 		return runExtension(args[1:], stdout, stderr)
+	case "inspect":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			_, _ = io.WriteString(stderr, "CONFIG_HOME_UNAVAILABLE\n")
+			return 1
+		}
+		return runInspect(args[1:], stdout, stderr, home, environment())
 	case "help", "--help", "-h":
 		if len(args) != 1 {
 			return usageError(stderr)

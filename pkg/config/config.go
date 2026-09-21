@@ -134,9 +134,10 @@ func (h Health) RuntimeConfig() publichealth.Config {
 }
 
 type Inspect struct {
-	Enabled bool     `json:"enabled" yaml:"enabled"`
-	Include []string `json:"include" yaml:"include"`
-	Exclude []string `json:"exclude" yaml:"exclude"`
+	Enabled   bool     `json:"enabled" yaml:"enabled"`
+	Include   []string `json:"include" yaml:"include"`
+	Exclude   []string `json:"exclude" yaml:"exclude"`
+	OnFailure string   `json:"on_failure" yaml:"on_failure"`
 }
 type Cache struct {
 	Response CacheLimit `json:"response" yaml:"response"`
@@ -181,6 +182,7 @@ func Defaults(home string) Config {
 		Traffic:  Traffic{RetentionDays: 30, MinuteRetentionDays: 90, HourRetentionDays: 365, DayRetentionDays: 3650, AggregationInterval: Duration(time.Minute), QueueCapacity: 4096, BatchSize: 128, FlushInterval: Duration(250 * time.Millisecond)},
 		Health:   Health{FailureThreshold: 3, SuccessThreshold: 2, OpenDuration: Duration(time.Minute), InitialScore: 50, SuccessGain: 5, FailurePenalty: 15, Treat429AsFailure: true, Treat5xxAsFailure: true, CheckHost: "example.com", CheckPort: 443, CheckInterval: Duration(5 * time.Minute), CheckTimeout: Duration(15 * time.Second), GlobalCheckRate: 60, PoolCheckRate: 30},
 		Retry:    retrypkg.DefaultPolicy(),
+		Inspect:  Inspect{OnFailure: "reject"},
 		Cache:    Cache{DNS: DNSCache{Enabled: true, MaxEntries: 4096, MaxBytes: 4 << 20, TTL: Duration(time.Minute)}, Response: CacheLimit{MaxEntries: 1024, MaxBytes: 64 << 20, Driver: "memory", Path: filepath.Join(dir, "response-cache")}},
 		Security: Security{DenyPrivate: true},
 		Logging:  Logging{Level: "info", Format: "json"},
@@ -268,6 +270,9 @@ func (c Config) Validate() error {
 		return ErrInvalid
 	}
 	if c.Inspect.Enabled && len(c.Inspect.Include) == 0 {
+		return ErrInvalid
+	}
+	if c.Inspect.OnFailure != "reject" && c.Inspect.OnFailure != "tunnel" || !validInspectPatterns(c.Inspect.Include) || !validInspectPatterns(c.Inspect.Exclude) {
 		return ErrInvalid
 	}
 	if c.Security.AllowDirect && len(c.Security.DirectAllowlist) == 0 {
@@ -435,6 +440,19 @@ func hasPoolCycle(pools map[model.ID]routing.Pool) bool {
 func pathWithin(root, target string) bool {
 	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
 	return err == nil && relative != "." && relative != ".." && !filepath.IsAbs(relative) && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func validInspectPatterns(patterns []string) bool {
+	seen := map[string]bool{}
+	for _, pattern := range patterns {
+		pattern = strings.ToLower(strings.TrimSuffix(pattern, "."))
+		base := strings.TrimPrefix(pattern, "*.")
+		if len(pattern) > 253 || !proxy.ValidHost(base) || seen[pattern] {
+			return false
+		}
+		seen[pattern] = true
+	}
+	return true
 }
 
 func (c Config) Clone() Config {

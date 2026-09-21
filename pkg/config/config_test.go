@@ -69,6 +69,29 @@ func TestDNSCacheConfigurationValidation(t *testing.T) {
 	}
 }
 
+func TestInspectConfigurationValidation(t *testing.T) {
+	configured := Defaults(t.TempDir())
+	configured.Inspect.Enabled = true
+	configured.Inspect.Include = []string{"*.example.invalid"}
+	configured.Inspect.Exclude = []string{"private.example.invalid"}
+	configured.Inspect.OnFailure = "tunnel"
+	if err := configured.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, pattern := range []string{"", "*", "bad host", "foo.*.invalid", "../example.invalid"} {
+		invalid := configured.Clone()
+		invalid.Inspect.Include = []string{pattern}
+		if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("pattern %q accepted: %v", pattern, err)
+		}
+	}
+	invalid := configured.Clone()
+	invalid.Inspect.OnFailure = "silent"
+	if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatal(err)
+	}
+}
+
 func TestChainConfigurationReferencesAndIsolation(t *testing.T) {
 	configured := Defaults(t.TempDir())
 	configured.Proxies = []proxy.Endpoint{
@@ -143,7 +166,7 @@ func TestSafeDefaultsAndManager(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if c.Inspect.Enabled || c.Security.AllowDirect || !c.Security.DenyPrivate || c.Cache.Response.Enabled || c.Cache.Response.Driver != "memory" || c.Cache.Response.Path == "" || c.Logging.CaptureBodies {
+	if c.Inspect.Enabled || c.Inspect.OnFailure != "reject" || c.Security.AllowDirect || !c.Security.DenyPrivate || c.Cache.Response.Enabled || c.Cache.Response.Driver != "memory" || c.Cache.Response.Path == "" || c.Logging.CaptureBodies {
 		t.Fatal("unsafe defaults")
 	}
 	if c.Health.ActiveChecks || c.Health.RuntimeConfig().Validate() != nil || c.Health.GlobalCheckRate != 60 || c.Health.PoolCheckRate != 30 {

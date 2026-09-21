@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, errorMessage } from "./api";
 import type {
   BuildInfo,
+  InspectStatus,
   ListenerStatus,
   TrafficBreakdown,
   TrafficEvent,
@@ -138,19 +139,22 @@ export function useLiveData(paused: boolean, onExpired: () => void) {
 export function useSystem(onExpired: () => void) {
   const [build, setBuild] = useState<BuildInfo | null>(null);
   const [listeners, setListeners] = useState<ListenerStatus[] | null>(null);
+  const [inspect, setInspect] = useState<InspectStatus | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
-    void api<{ build: BuildInfo; listeners: ListenerStatus[] }>(
-      "/api/v1/system/info",
-      {
-        signal: controller.signal,
-      },
-    )
+    void api<{
+      build: BuildInfo;
+      listeners: ListenerStatus[];
+      inspect: InspectStatus;
+    }>("/api/v1/system/info", {
+      signal: controller.signal,
+    })
       .then((value) => {
         if (!controller.signal.aborted) {
           setBuild(value.build);
           setListeners(value.listeners);
+          setInspect(value.inspect);
         }
       })
       .catch((error: unknown) => {
@@ -160,5 +164,5 @@ export function useSystem(onExpired: () => void) {
       });
     return () => controller.abort();
   }, [onExpired]);
-  return { build, listeners, error };
+  return { build, listeners, inspect, error };
 }
