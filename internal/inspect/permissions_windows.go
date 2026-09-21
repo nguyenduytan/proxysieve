@@ -7,19 +7,13 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
-	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
 func createPrivateTemp(directory string) (*os.File, error) {
-	token := windows.GetCurrentProcessToken()
-	user, err := token.GetTokenUser()
-	if err != nil {
-		return nil, err
-	}
-	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;;FA;;;SY)(A;;FA;;;" + user.User.Sid.String() + ")")
+	descriptor, err := privateSecurityDescriptor()
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +43,14 @@ func createPrivateTemp(directory string) (*os.File, error) {
 		return file, nil
 	}
 	return nil, ErrUnavailable
+}
+
+func privateSecurityDescriptor() (*windows.SECURITY_DESCRIPTOR, error) {
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return nil, err
+	}
+	return windows.SecurityDescriptorFromString("D:P(A;;FA;;;SY)(A;;FA;;;" + user.User.Sid.String() + ")")
 }
 
 func installFile(source, target string) error {
@@ -83,14 +85,57 @@ func verifySecureFile(path string) error {
 		}
 		return ErrUnavailable
 	}
-	token := windows.GetCurrentProcessToken()
-	user, err := token.GetTokenUser()
+	control, _, err := descriptor.Control()
 	if err != nil {
 		return ErrUnavailable
 	}
-	sddl := descriptor.String()
-	if !strings.HasPrefix(sddl, "D:P") || strings.Count(sddl, "(A;") != 2 || !strings.Contains(sddl, ";;;SY)") || !strings.Contains(sddl, ";;;"+user.User.Sid.String()+")") {
+	actual, _, err := descriptor.DACL()
+	if err != nil {
+		return ErrUnavailable
+	}
+	expectedDescriptor, err := privateSecurityDescriptor()
+	if err != nil {
+		return ErrUnavailable
+	}
+	expected, _, err := expectedDescriptor.DACL()
+	if err != nil {
+		return ErrUnavailable
+	}
+	if control&windows.SE_DACL_PROTECTED == 0 || !sameACL(actual, expected) {
 		return ErrInvalid
 	}
 	return nil
+}
+
+func sameACL(actual, expected *windows.ACL) bool {
+	if actual == nil || expected == nil || actual.AceCount != expected.AceCount {
+		return false
+	}
+	matched := make([]bool, expected.AceCount)
+	for actualIndex := range uint32(actual.AceCount) {
+		var actualACE *windows.ACCESS_ALLOWED_ACE
+		if windows.GetAce(actual, actualIndex, &actualACE) != nil || actualACE.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
+			return false
+		}
+		actualSID := (*windows.SID)(unsafe.Pointer(&actualACE.SidStart))
+		found := false
+		for expectedIndex := range uint32(expected.AceCount) {
+			if matched[expectedIndex] {
+				continue
+			}
+			var expectedACE *windows.ACCESS_ALLOWED_ACE
+			if windows.GetAce(expected, expectedIndex, &expectedACE) != nil {
+				return false
+			}
+			expectedSID := (*windows.SID)(unsafe.Pointer(&expectedACE.SidStart))
+			if actualACE.Mask == expectedACE.Mask && actualACE.Header.AceFlags == expectedACE.Header.AceFlags && actualSID.Equals(expectedSID) {
+				matched[expectedIndex], found = true, true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
