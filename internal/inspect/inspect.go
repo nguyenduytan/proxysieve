@@ -356,7 +356,7 @@ func paths(dataDir string) (string, string, error) {
 }
 
 func writeTemporary(directory string, bundle []byte) (string, error) {
-	file, err := os.CreateTemp(directory, ".ca-*.tmp")
+	file, err := createPrivateTemp(directory)
 	if err != nil {
 		return "", ErrUnavailable
 	}
@@ -368,9 +368,6 @@ func writeTemporary(directory string, bundle []byte) (string, error) {
 			_ = os.Remove(name)
 		}
 	}()
-	if file.Chmod(0600) != nil || secureFile(name) != nil {
-		return "", ErrUnavailable
-	}
 	if _, err = file.Write(bundle); err != nil || file.Sync() != nil || file.Close() != nil {
 		return "", ErrUnavailable
 	}

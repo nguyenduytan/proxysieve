@@ -3,11 +3,53 @@
 package inspect
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"os"
+	"path/filepath"
 	"strings"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+func createPrivateTemp(directory string) (*os.File, error) {
+	token := windows.GetCurrentProcessToken()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return nil, err
+	}
+	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;;FA;;;SY)(A;;FA;;;" + user.User.Sid.String() + ")")
+	if err != nil {
+		return nil, err
+	}
+	attributes := windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: descriptor}
+	for range 100 {
+		var random [16]byte
+		if _, err = rand.Read(random[:]); err != nil {
+			return nil, err
+		}
+		name := filepath.Join(directory, ".ca-"+hex.EncodeToString(random[:])+".tmp")
+		path, pathErr := windows.UTF16PtrFromString(name)
+		if pathErr != nil {
+			return nil, pathErr
+		}
+		handle, createErr := windows.CreateFile(path, windows.GENERIC_WRITE, 0, &attributes, windows.CREATE_NEW, windows.FILE_ATTRIBUTE_NORMAL, 0)
+		if createErr == windows.ERROR_FILE_EXISTS || createErr == windows.ERROR_ALREADY_EXISTS {
+			continue
+		}
+		if createErr != nil {
+			return nil, createErr
+		}
+		file := os.NewFile(uintptr(handle), name)
+		if file == nil {
+			_ = windows.CloseHandle(handle)
+			return nil, ErrUnavailable
+		}
+		return file, nil
+	}
+	return nil, ErrUnavailable
+}
 
 func installFile(source, target string) error {
 	err := moveFile(source, target, windows.MOVEFILE_WRITE_THROUGH)
@@ -27,27 +69,6 @@ func moveFile(source, target string, flags uint32) error {
 		return err
 	}
 	return windows.MoveFileEx(from, to, flags)
-}
-
-func secureFile(path string) error {
-	token := windows.GetCurrentProcessToken()
-	user, err := token.GetTokenUser()
-	if err != nil {
-		return err
-	}
-	sddl := "D:P(A;;FA;;;SY)(A;;FA;;;" + user.User.Sid.String() + ")"
-	descriptor, err := windows.SecurityDescriptorFromString(sddl)
-	if err != nil {
-		return err
-	}
-	dacl, _, err := descriptor.DACL()
-	if err != nil {
-		return err
-	}
-	if err = windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
-		return err
-	}
-	return verifySecureFile(path)
 }
 
 func replaceFile(source, target string) error {

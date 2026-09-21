@@ -4,11 +4,17 @@ package inspect
 
 import "os"
 
-func secureFile(path string) error {
-	if err := os.Chmod(path, 0600); err != nil {
-		return err
+func createPrivateTemp(directory string) (*os.File, error) {
+	file, err := os.CreateTemp(directory, ".ca-*.tmp")
+	if err != nil {
+		return nil, err
 	}
-	return verifySecureFile(path)
+	if err = file.Chmod(0600); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return nil, err
+	}
+	return file, nil
 }
 
 func installFile(source, target string) error { return os.Link(source, target) }

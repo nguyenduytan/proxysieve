@@ -85,22 +85,17 @@ func TestRejectsCorruptBundle(t *testing.T) {
 	if err := os.WriteFile(target, []byte("not a CA"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := secureFile(target); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := ReadInfo(dataDir); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("corrupt bundle accepted: %v", err)
 	}
 }
 
 func TestSecureFilePermissions(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "private.pem")
-	if err := os.WriteFile(path, []byte("private"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := secureFile(path); err != nil {
+	path, err := writeTemporary(t.TempDir(), []byte("private"))
+	if err != nil {
 		t.Fatalf("secure file: %T %v", err, err)
 	}
+	defer func() { _ = os.Remove(path) }()
 	if err := verifySecureFile(path); err != nil {
 		t.Fatalf("verify file: %T %v", err, err)
 	}
