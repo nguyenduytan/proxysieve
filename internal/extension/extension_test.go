@@ -42,7 +42,7 @@ func TestRunRejectsHandshakeAndCapabilityMismatch(t *testing.T) {
 	} {
 		root, manifest := testExtension(t, test.mode, []publicextension.Capability{publicextension.ProxyProvider})
 		_, err := Run(t.Context(), Request{Root: root, Manifest: manifest, Capability: publicextension.ProxyProvider, Method: "fetch", Input: json.RawMessage(`{}`), Timeout: 2 * time.Second, Attempts: 1})
-		assertCallError(t, err, test.code, 1)
+		_ = assertCallError(t, err, test.code, 1)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestRunContainsPaths(t *testing.T) {
 	root, _ := testExtension(t, "success", []publicextension.Capability{publicextension.ProxyProvider})
 	request := Request{Root: root, Manifest: filepath.Join("..", "manifest.json"), Capability: publicextension.ProxyProvider, Method: "fetch", Input: json.RawMessage(`{}`), Timeout: time.Second, Attempts: 1}
 	_, err := Run(t.Context(), request)
-	assertCallError(t, err, "manifest_invalid", 0)
+	_ = assertCallError(t, err, "manifest_invalid", 0)
 
 	outside := t.TempDir()
 	executable := filepath.Join(outside, "outside")
@@ -68,7 +68,7 @@ func TestRunContainsPaths(t *testing.T) {
 	writeManifest(t, root, "symlink.json", "./outside", "success", []publicextension.Capability{publicextension.ProxyProvider})
 	request.Manifest = "symlink.json"
 	_, err = Run(t.Context(), request)
-	assertCallError(t, err, "manifest_invalid", 0)
+	_ = assertCallError(t, err, "manifest_invalid", 0)
 }
 
 func TestRunBoundsFramesStderrTimeoutAndRestarts(t *testing.T) {
@@ -94,7 +94,7 @@ func TestRunBoundsFramesStderrTimeoutAndRestarts(t *testing.T) {
 func TestRunReturnsStructuredExtensionErrorWithoutRestart(t *testing.T) {
 	root, manifest := testExtension(t, "structured-error", []publicextension.Capability{publicextension.ProxyProvider})
 	_, err := Run(t.Context(), Request{Root: root, Manifest: manifest, Capability: publicextension.ProxyProvider, Method: "fetch", Input: json.RawMessage(`{}`), Timeout: time.Second, Attempts: 3})
-	assertCallError(t, err, "invalid_input", 1)
+	_ = assertCallError(t, err, "invalid_input", 1)
 }
 
 func TestRunCancellationDoesNotRestart(t *testing.T) {
@@ -102,7 +102,7 @@ func TestRunCancellationDoesNotRestart(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	time.AfterFunc(50*time.Millisecond, cancel)
 	_, err := Run(ctx, Request{Root: root, Manifest: manifest, Capability: publicextension.ProxyProvider, Method: "fetch", Input: json.RawMessage(`{}`), Timeout: time.Second, Attempts: 3})
-	assertCallError(t, err, "cancelled", 1)
+	_ = assertCallError(t, err, "cancelled", 1)
 }
 
 func TestRunRejectsInvalidManifestDocuments(t *testing.T) {
@@ -116,7 +116,7 @@ func TestRunRejectsInvalidManifestDocuments(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err := Run(t.Context(), request)
-		assertCallError(t, err, "manifest_invalid", 0)
+		_ = assertCallError(t, err, "manifest_invalid", 0)
 	}
 }
 

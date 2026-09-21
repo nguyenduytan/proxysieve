@@ -233,7 +233,7 @@ func readImportFile(ctx context.Context, root, name string) ([]byte, error) {
 	if err != nil {
 		return nil, ErrRead
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > MaxBodyBytes {
 		return nil, ErrRead
