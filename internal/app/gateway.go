@@ -58,22 +58,25 @@ var ErrPoolUnavailable = errors.New("no usable proxy route")
 var ErrUnsupportedAdminTLS = errors.New("admin TLS serving is not implemented")
 
 type Runtime struct {
-	Server     *http.Server
-	Bind       string
-	HTTPMax    int
-	SOCKS      *socks5.Server
-	SOCKSBind  string
-	SOCKSMax   int
-	Traffic    *internaltraffic.Memory
-	Durable    *internaltraffic.Async
-	Admin      *http.Server
-	AdminBind  string
-	AdminMax   int
-	SetupToken string
-	Store      *sqlite.Store
-	Scheduler  *scheduler.Runner
-	HealthJob  *scheduler.Runner
-	Sessions   *internalsession.Manager
+	Server      *http.Server
+	Bind        string
+	HTTPMax     int
+	HTTPMetric  *security.ListenerMetrics
+	SOCKS       *socks5.Server
+	SOCKSBind   string
+	SOCKSMax    int
+	SOCKSMetric *security.ListenerMetrics
+	Traffic     *internaltraffic.Memory
+	Durable     *internaltraffic.Async
+	Admin       *http.Server
+	AdminBind   string
+	AdminMax    int
+	AdminMetric *security.ListenerMetrics
+	SetupToken  string
+	Store       *sqlite.Store
+	Scheduler   *scheduler.Runner
+	HealthJob   *scheduler.Runner
+	Sessions    *internalsession.Manager
 }
 type resolver struct{}
 
@@ -716,6 +719,8 @@ func Build(c config.Config) (Runtime, error) {
 	}
 	var sessionManager *internalsession.Manager
 	runtime := Runtime{Traffic: trafficRecorder}
+	listenerMetrics := make([]api.ListenerMetric, 0, len(c.Listeners)+1)
+	var controlAPI *api.Server
 	var budgetManager *internalbudget.Manager
 	var routeRuntime *routingRuntime
 	var healthService *healthControl
@@ -792,6 +797,8 @@ func Build(c config.Config) (Runtime, error) {
 		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}
 		runtime.AdminBind = c.Admin.Bind
 		runtime.AdminMax = 32
+		runtime.AdminMetric = &security.ListenerMetrics{}
+		controlAPI = server
 		runtime.Store = controlStore
 		runtime.Durable = durableRecorder
 		rawRetention := time.Duration(c.Traffic.RetentionDays) * 24 * time.Hour
@@ -872,7 +879,9 @@ func Build(c config.Config) (Runtime, error) {
 			if runtime.Durable != nil {
 				recorder = internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, runtime.Durable}}
 			}
-			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: recorder, Authenticate: authenticate, AuthenticatePassword: authenticatePassword, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20)})
+			runtime.HTTPMetric = &security.ListenerMetrics{}
+			listenerMetrics = append(listenerMetrics, api.ListenerMetric{Name: listener.Name, Type: listener.Type, Bind: listener.Bind, MaxConnections: listener.MaxConnections, Metrics: runtime.HTTPMetric})
+			handler, err := httpforward.New(httpforward.Options{Evaluator: r, Router: r, Recorder: recorder, Authenticate: authenticate, AuthenticatePassword: authenticatePassword, ResponseCache: responseCache, MaxCacheBody: min64(c.Cache.Response.MaxBytes, 1<<20), ListenerName: listener.Name, IdleTimeout: time.Duration(listener.IdleTimeout)})
 			if err != nil {
 				return Runtime{}, err
 			}
@@ -887,7 +896,9 @@ func Build(c config.Config) (Runtime, error) {
 			if runtime.Durable != nil {
 				recorder = internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, runtime.Durable}}
 			}
-			server, err := socks5.New(socks5.Options{Evaluator: r, Router: r, Recorder: recorder, AuthenticatePassword: authenticatePassword, IdleTimeout: time.Duration(listener.IdleTimeout)})
+			runtime.SOCKSMetric = &security.ListenerMetrics{}
+			listenerMetrics = append(listenerMetrics, api.ListenerMetric{Name: listener.Name, Type: listener.Type, Bind: listener.Bind, MaxConnections: listener.MaxConnections, Metrics: runtime.SOCKSMetric})
+			server, err := socks5.New(socks5.Options{Evaluator: r, Router: r, Recorder: recorder, AuthenticatePassword: authenticatePassword, IdleTimeout: time.Duration(listener.IdleTimeout), ListenerName: listener.Name})
 			if err != nil {
 				return Runtime{}, err
 			}
@@ -897,6 +908,10 @@ func Build(c config.Config) (Runtime, error) {
 		default:
 			return Runtime{}, ErrUnsupportedListener
 		}
+	}
+	if controlAPI != nil {
+		listenerMetrics = append(listenerMetrics, api.ListenerMetric{Name: "admin", Type: "admin", Bind: runtime.AdminBind, MaxConnections: runtime.AdminMax, Metrics: runtime.AdminMetric})
+		controlAPI.SetListenerMetrics(listenerMetrics)
 	}
 	if runtime.Server == nil && runtime.SOCKS == nil {
 		return Runtime{}, ErrUnsupportedListener
@@ -1018,7 +1033,7 @@ func (r Runtime) RunReady(ctx context.Context, ready func() error) error {
 		if err != nil {
 			return err
 		}
-		listener, err := security.NewLimitedListener(base, r.HTTPMax)
+		listener, err := security.NewLimitedListener(base, r.HTTPMax, r.HTTPMetric)
 		if err != nil {
 			_ = base.Close()
 			return err
@@ -1031,7 +1046,7 @@ func (r Runtime) RunReady(ctx context.Context, ready func() error) error {
 			closeAll()
 			return err
 		}
-		listener, err := security.NewLimitedListener(base, r.SOCKSMax)
+		listener, err := security.NewLimitedListener(base, r.SOCKSMax, r.SOCKSMetric)
 		if err != nil {
 			_ = base.Close()
 			closeAll()
@@ -1045,7 +1060,7 @@ func (r Runtime) RunReady(ctx context.Context, ready func() error) error {
 			closeAll()
 			return err
 		}
-		listener, err := security.NewLimitedListener(base, r.AdminMax)
+		listener, err := security.NewLimitedListener(base, r.AdminMax, r.AdminMetric)
 		if err != nil {
 			_ = base.Close()
 			closeAll()
@@ -1061,6 +1076,7 @@ func (r Runtime) RunReady(ctx context.Context, ready func() error) error {
 	}
 	done := make(chan error, len(listeners))
 	if r.Server != nil {
+		r.Server.BaseContext = func(net.Listener) context.Context { return ctx }
 		listener := listeners[0]
 		go func() { done <- r.Server.Serve(listener) }()
 	}
@@ -1073,6 +1089,7 @@ func (r Runtime) RunReady(ctx context.Context, ready func() error) error {
 		go func() { done <- r.serveSOCKS(ctx, listener) }()
 	}
 	if r.Admin != nil {
+		r.Admin.BaseContext = func(net.Listener) context.Context { return ctx }
 		index := 0
 		if r.Server != nil {
 			index++

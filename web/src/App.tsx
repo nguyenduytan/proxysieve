@@ -265,7 +265,7 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
                 {system.error}
               </p>
             )}
-            <section className="table-panel">
+            <section className="table-panel system-panel">
               <div className="section-header">
                 <h2>Build information</h2>
               </div>
@@ -288,6 +288,48 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
                 </dl>
               ) : (
                 <p className="empty-state">Loading system information…</p>
+              )}
+            </section>
+            <section className="table-panel system-panel">
+              <div className="section-header">
+                <div>
+                  <h2>Listeners</h2>
+                  <span>Process-lifetime connection counters</span>
+                </div>
+              </div>
+              {system.listeners ? (
+                <div className="table-scroll">
+                  <table className="listener-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Bind</th>
+                        <th>Active / limit</th>
+                        <th>Accepted</th>
+                        <th>Rejected</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {system.listeners.map((listener) => (
+                        <tr key={`${listener.type}:${listener.name}`}>
+                          <td>{listener.name}</td>
+                          <td className="mono">
+                            {listener.type.toUpperCase()}
+                          </td>
+                          <td className="mono">{listener.bind}</td>
+                          <td>
+                            {listener.active} / {listener.max_connections}
+                          </td>
+                          <td>{listener.accepted}</td>
+                          <td>{listener.rejected}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="empty-state">Loading listener status…</p>
               )}
             </section>
             <p className="scope-notice">

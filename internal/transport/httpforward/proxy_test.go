@@ -2,9 +2,11 @@ package httpforward
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -37,6 +39,18 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+type hijackResponse struct {
+	header http.Header
+	conn   net.Conn
+}
+
+func (w *hijackResponse) Header() http.Header       { return w.header }
+func (w *hijackResponse) Write([]byte) (int, error) { return 0, nil }
+func (w *hijackResponse) WriteHeader(int)           {}
+func (w *hijackResponse) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return w.conn, bufio.NewReadWriter(bufio.NewReader(w.conn), bufio.NewWriter(w.conn)), nil
 }
 
 func direct(_ context.Context, _ policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
@@ -538,7 +552,7 @@ func TestDownstreamBearerAuth(t *testing.T) {
 	called := false
 	recorder, _ := internaltraffic.NewMemory(2)
 	h, err := New(Options{Evaluator: Decider(func(_ context.Context, request policy.RequestContext, _ policy.Visibility) (policy.Result, error) {
-		called = request.ClientID == "client"
+		called = request.ClientID == "client" && request.Listener == "edge-http"
 		return direct(context.Background(), request, policy.Visibility{})
 	}), Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
 		return gateway.Route{Action: "reject"}, nil
@@ -547,7 +561,7 @@ func TestDownstreamBearerAuth(t *testing.T) {
 			return "", errors.New("bad")
 		}
 		return "client", nil
-	}})
+	}, ListenerName: "edge-http"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -660,5 +674,103 @@ func TestConnectDirectTunnel(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("CONNECT traffic event was not recorded")
+	}
+}
+
+func TestConnectCancellationClosesTunnel(t *testing.T) {
+	client, server := net.Pipe()
+	upstream, target := net.Pipe()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = target.Close() }()
+	h, err := New(Options{
+		Evaluator: Decider(direct),
+		Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{Action: "direct", Dial: func(context.Context, string) (net.Conn, error) { return upstream, nil }}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	request := httptest.NewRequest(http.MethodConnect, "http://example.invalid", nil).WithContext(ctx)
+	request.Host = "example.invalid:443"
+	done := make(chan struct{})
+	go func() {
+		h.ServeHTTP(&hijackResponse{header: http.Header{}, conn: server}, request)
+		close(done)
+	}()
+	response, err := http.ReadResponse(bufio.NewReader(client), request)
+	if err != nil || response.StatusCode != http.StatusOK {
+		t.Fatal(response, err)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cancelled CONNECT tunnel did not close")
+	}
+}
+
+func TestConnectLargeStreamAccounting(t *testing.T) {
+	target, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = target.Close() }()
+	go func() {
+		connection, acceptErr := target.Accept()
+		if acceptErr == nil {
+			defer func() { _ = connection.Close() }()
+			_, _ = io.Copy(connection, connection)
+		}
+	}()
+	recorded := make(eventRecorder, 1)
+	h, err := New(Options{
+		Evaluator: Decider(direct),
+		Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{Action: "direct", Dial: func(ctx context.Context, address string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "tcp", address)
+			}}, nil
+		}),
+		Recorder: recorded,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httptest.NewServer(h)
+	defer proxy.Close()
+	connection, err := net.Dial("tcp", strings.TrimPrefix(proxy.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = fmt.Fprintf(connection, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target.Addr(), target.Addr()); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(connection)
+	response, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+	if err != nil || response.StatusCode != http.StatusOK {
+		t.Fatal(response, err)
+	}
+	payload := bytes.Repeat([]byte("proxysieve"), 100_000)
+	writeErr := make(chan error, 1)
+	go func() {
+		_, err := connection.Write(payload)
+		writeErr <- err
+	}()
+	received := make([]byte, len(payload))
+	if _, err = io.ReadFull(reader, received); err != nil || !bytes.Equal(received, payload) {
+		t.Fatal("large CONNECT payload mismatch", err)
+	}
+	if err = <-writeErr; err != nil {
+		t.Fatal(err)
+	}
+	_ = connection.Close()
+	select {
+	case event := <-recorded:
+		if event.ClientUpload != trafficpkg.Bytes(len(payload)) || event.ClientDownload != trafficpkg.Bytes(len(payload)) || event.Direct != trafficpkg.Bytes(2*len(payload)) {
+			t.Fatal(event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("large CONNECT stream was not recorded")
 	}
 }

@@ -765,6 +765,34 @@ nav {
 .table-panel {
   overflow: hidden;
 }
+.system-panel + .system-panel {
+  margin-top: 20px;
+}
+.system-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: 0;
+}
+.system-list div {
+  min-width: 0;
+  padding: 14px 20px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.system-list dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.system-list dd {
+  overflow-wrap: anywhere;
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.listener-table {
+  min-width: 680px;
+}
 .section-header {
   display: flex;
   align-items: center;

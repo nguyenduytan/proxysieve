@@ -75,6 +75,7 @@ type Server struct {
 	chainHealthMu   sync.RWMutex
 	chainHealth     map[model.ID]chainHealthRecord
 	chainTester     ChainTester
+	listenerMetrics []ListenerMetric
 	windowStart     time.Time
 	authAttempts    int
 }
@@ -107,6 +108,22 @@ type SessionStore interface {
 	Get(context.Context, model.ID) (publicsession.Session, error)
 	Rotate(context.Context, model.ID, publicsession.RotationReason) error
 	Delete(context.Context, model.ID) error
+}
+
+type ListenerMetric struct {
+	Name           string
+	Type           string
+	Bind           string
+	MaxConnections int
+	Metrics        *security.ListenerMetrics
+}
+
+type listenerStatus struct {
+	Name           string `json:"name"`
+	Type           string `json:"type"`
+	Bind           string `json:"bind"`
+	MaxConnections int    `json:"max_connections"`
+	security.ListenerStats
 }
 
 func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints store.Endpoints, auditWriter audit.Writer, clientStores ...ClientStore) (*Server, error) {
@@ -166,6 +183,9 @@ func (s *Server) SetHealth(health HealthControl)                     { s.health 
 func (s *Server) SetBudgets(budgets *internalbudget.Manager)         { s.budgets = budgets }
 func (s *Server) SetCache(responseCache internalcache.ResponseStore) { s.responseCache = responseCache }
 func (s *Server) SetChainTester(tester ChainTester)                  { s.chainTester = tester }
+func (s *Server) SetListenerMetrics(metrics []ListenerMetric) {
+	s.listenerMetrics = append([]ListenerMetric(nil), metrics...)
+}
 func (s *Server) SetSourceRefresher(refresher *internalsource.Refresher) {
 	if refresher != nil {
 		s.sourceRefresh = refresher
@@ -216,7 +236,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(openAPISpec)
 	case "/api/v1/system/info":
 		s.require(w, r, auth.RoleViewer, func(user auth.User) {
-			writeJSON(w, http.StatusOK, map[string]any{"build": buildinfo.Current(), "user": user})
+			listeners := make([]listenerStatus, 0, len(s.listenerMetrics))
+			for _, metric := range s.listenerMetrics {
+				listeners = append(listeners, listenerStatus{Name: metric.Name, Type: metric.Type, Bind: metric.Bind, MaxConnections: metric.MaxConnections, ListenerStats: metric.Metrics.Snapshot()})
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"build": buildinfo.Current(), "user": user, "listeners": listeners})
 		})
 	case "/api/v1/auth/setup-status":
 		s.setupStatus(w, r)

@@ -84,6 +84,11 @@ are rejected. Responses set restrictive security headers and `Cache-Control: no-
 Remote/TLS admin serving rejects explicitly until the TLS secret/certificate path is
 implemented. Do not work around this by exposing the local admin port publicly.
 
+`GET /api/v1/system/info` returns public-safe build provenance, the current user and
+process-lifetime admission counters for every configured HTTP, SOCKS5 and admin
+listener. Listener status includes its configured name/type/bind, active connection
+count, limit, cumulative accepted count and sockets rejected at the concurrency limit.
+
 `GET /api/v1/traffic/live` is authenticated and returns the bounded newest-event
 gateway buffer plus asynchronous persistence health. The authenticated
 `GET /api/v1/traffic/stream` SSE feed publishes new traffic events through bounded

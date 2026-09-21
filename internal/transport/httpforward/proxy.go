@@ -19,6 +19,7 @@ import (
 	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
+	internaltransport "github.com/nguyenduytan/proxysieve/internal/transport"
 	cachepkg "github.com/nguyenduytan/proxysieve/pkg/cache"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
@@ -52,6 +53,8 @@ type Options struct {
 	ResponseCache        internalcache.ResponseStore
 	MaxCacheBody         int64
 	MaxHeaderBytes       int
+	ListenerName         string
+	IdleTimeout          time.Duration
 }
 type Handler struct {
 	evaluator            gateway.Evaluator
@@ -62,6 +65,8 @@ type Handler struct {
 	responseCache        internalcache.ResponseStore
 	maxCacheBody         int64
 	maxHeaderBytes       int
+	listenerName         string
+	idleTimeout          time.Duration
 }
 
 func New(options Options) (*Handler, error) {
@@ -80,7 +85,19 @@ func New(options Options) (*Handler, error) {
 	if options.MaxCacheBody < 1 || options.MaxCacheBody > 8<<20 {
 		return nil, errors.New("invalid cache response limit")
 	}
-	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, authenticate: options.Authenticate, authenticatePassword: options.AuthenticatePassword, responseCache: options.ResponseCache, maxCacheBody: options.MaxCacheBody, maxHeaderBytes: options.MaxHeaderBytes}, nil
+	if options.ListenerName == "" {
+		options.ListenerName = "http"
+	}
+	if len(options.ListenerName) > 128 {
+		return nil, errors.New("invalid listener name")
+	}
+	if options.IdleTimeout <= 0 {
+		options.IdleTimeout = 2 * time.Minute
+	}
+	if options.IdleTimeout > 24*time.Hour {
+		return nil, errors.New("invalid idle timeout")
+	}
+	return &Handler{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, authenticate: options.Authenticate, authenticatePassword: options.AuthenticatePassword, responseCache: options.ResponseCache, maxCacheBody: options.MaxCacheBody, maxHeaderBytes: options.MaxHeaderBytes, listenerName: options.ListenerName, idleTimeout: options.IdleTimeout}, nil
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	clientID, ok := h.authenticateRequest(w, r)
@@ -124,7 +141,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			delete(visibleHeaders, key)
 		}
 	}
-	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "http", Scheme: r.URL.Scheme, Host: host, SessionKey: r.Header.Get(sessionHeader), Port: port, Method: model.Optional[string]{Known: true, Value: r.Method}, Path: model.Optional[string]{Known: true, Value: r.URL.EscapedPath()}, Headers: model.Optional[map[string][]string]{Known: true, Value: visibleHeaders}, Timestamp: time.Now().UTC()}
+	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: h.listenerName, Protocol: "http", Scheme: r.URL.Scheme, Host: host, SessionKey: r.Header.Get(sessionHeader), Port: port, Method: model.Optional[string]{Known: true, Value: r.Method}, Path: model.Optional[string]{Known: true, Value: r.URL.EscapedPath()}, Headers: model.Optional[map[string][]string]{Known: true, Value: visibleHeaders}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true, Path: true, Headers: true})
 	if err != nil {
 		recordHTTP(h.recorder, r, ctx, gateway.Route{Action: "reject", PolicyID: result.PolicyID, RuleID: result.TerminalRuleID}, host, 0, 0, 0, http.StatusForbidden, 0)
@@ -328,7 +345,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 		http.Error(w, "INVALID_CONNECT_TARGET", http.StatusBadRequest)
 		return
 	}
-	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "http", Protocol: "connect", Host: host, SessionKey: r.Header.Get(sessionHeader), Port: port, Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
+	ctx := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: h.listenerName, Protocol: "connect", Host: host, SessionKey: r.Header.Get(sessionHeader), Port: port, Method: model.Optional[string]{Known: true, Value: http.MethodConnect}, Timestamp: time.Now().UTC()}
 	result, err := h.evaluator.Evaluate(r.Context(), ctx, policy.Visibility{Host: true, Method: true})
 	if err != nil {
 		recordTunnel(h.recorder, r.Context(), ctx, gateway.Route{Action: "reject", PolicyID: result.PolicyID, RuleID: result.TerminalRuleID}, host, "connect", http.StatusForbidden, 0, 0, 0, 0)
@@ -418,11 +435,13 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request, clientID model
 	if err = buffer.Flush(); err != nil {
 		return
 	}
+	stopCancellation := internaltransport.CloseOnCancel(r.Context(), client, upstream)
+	defer stopCancellation()
 	var copies sync.WaitGroup
-	clientUpload := &internaltraffic.Reader{Source: buffer.Reader}
-	upstreamUpload := &internaltraffic.Writer{Destination: &internalbudget.Writer{Context: r.Context(), Destination: upstream, Reserve: route.Reserve}}
-	upstreamDownload := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: r.Context(), Source: upstream, Reserve: route.Reserve}}
-	clientDownload := &internaltraffic.Writer{Destination: client}
+	clientUpload := &internaltraffic.Reader{Source: internaltransport.IdleReader(buffer.Reader, client, h.idleTimeout)}
+	upstreamUpload := &internaltraffic.Writer{Destination: &internalbudget.Writer{Context: r.Context(), Destination: internaltransport.IdleWriter(upstream, upstream, h.idleTimeout), Reserve: route.Reserve}}
+	upstreamDownload := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: r.Context(), Source: internaltransport.IdleReader(upstream, upstream, h.idleTimeout), Reserve: route.Reserve}}
+	clientDownload := &internaltraffic.Writer{Destination: internaltransport.IdleWriter(client, client, h.idleTimeout)}
 	uploadSource, downloadSource := io.Reader(clientUpload), io.Reader(upstreamDownload)
 	if route.ThrottleBPS > 0 {
 		uploadSource = &internaltraffic.ThrottledReader{Context: r.Context(), Source: uploadSource, BytesPerSecond: route.ThrottleBPS}

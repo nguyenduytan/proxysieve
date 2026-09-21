@@ -108,7 +108,7 @@ paths:
     get:
       tags: [System]
       responses:
-        '200': {description: Build and current user information}
+        '200': {description: Build, current user and listener runtime information, content: {application/json: {schema: {$ref: '#/components/schemas/SystemInfo'}}}}
   /api/v1/traffic/live:
     get:
       tags: [Traffic]
@@ -815,6 +815,36 @@ components:
       required: [error]
       properties:
         error: {type: object, required: [code, message], properties: {code: {type: string}, message: {type: string}}}
+    SystemInfo:
+      type: object
+      required: [build, user, listeners]
+      properties:
+        build: {$ref: '#/components/schemas/BuildInfo'}
+        user: {$ref: '#/components/schemas/User'}
+        listeners: {type: array, items: {$ref: '#/components/schemas/ListenerStatus'}}
+    BuildInfo:
+      type: object
+      required: [name, version, commit, build_date, go_version, platform, author, license]
+      properties:
+        name: {type: string}
+        version: {type: string}
+        commit: {type: string}
+        build_date: {type: string}
+        go_version: {type: string}
+        platform: {type: string}
+        author: {type: string}
+        license: {type: string}
+    ListenerStatus:
+      type: object
+      required: [name, type, bind, max_connections, accepted, active, rejected]
+      properties:
+        name: {type: string}
+        type: {type: string, enum: [http, socks5, admin]}
+        bind: {type: string}
+        max_connections: {type: integer, minimum: 1}
+        accepted: {type: integer, minimum: 0}
+        active: {type: integer, minimum: 0}
+        rejected: {type: integer, minimum: 0}
     BrowserPolicySnapshot:
       type: object
       required: [version, revision, expires_at, client_id, policies]

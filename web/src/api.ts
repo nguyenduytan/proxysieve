@@ -15,6 +15,15 @@ export interface BuildInfo {
   commit: string;
   build_date: string;
 }
+export interface ListenerStatus {
+  name: string;
+  type: "http" | "socks5" | "admin";
+  bind: string;
+  max_connections: number;
+  accepted: number;
+  active: number;
+  rejected: number;
+}
 export interface Endpoint {
   id: string;
   name: string;

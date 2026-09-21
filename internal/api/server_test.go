@@ -200,6 +200,7 @@ func TestSetupAndAuthenticatedAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	server.SetListenerMetrics([]ListenerMetric{{Name: "edge", Type: "http", Bind: "127.0.0.1:8080", MaxConnections: 128}})
 	handler := server.Handler()
 	unauth := request(handler, http.MethodGet, "/api/v1/system/info", nil, "")
 	if unauth.Code != http.StatusUnauthorized {
@@ -221,6 +222,10 @@ func TestSetupAndAuthenticatedAPI(t *testing.T) {
 	me := request(handler, http.MethodGet, "/api/v1/auth/me", nil, cookies)
 	if me.Code != http.StatusOK || !bytes.Contains(me.Body.Bytes(), []byte(`"username":"tony"`)) {
 		t.Fatal(me.Code, me.Body.String())
+	}
+	system := request(handler, http.MethodGet, "/api/v1/system/info", nil, cookies)
+	if system.Code != http.StatusOK || !bytes.Contains(system.Body.Bytes(), []byte(`"name":"edge"`)) || !bytes.Contains(system.Body.Bytes(), []byte(`"max_connections":128`)) || !bytes.Contains(system.Body.Bytes(), []byte(`"accepted":0`)) {
+		t.Fatal(system.Code, system.Body.String())
 	}
 	traffic := request(handler, http.MethodGet, "/api/v1/traffic/live", nil, cookies)
 	if traffic.Code != http.StatusOK || !bytes.Contains(traffic.Body.Bytes(), []byte(`"host":"example.invalid"`)) || !bytes.Contains(traffic.Body.Bytes(), []byte(`"durable":`)) {

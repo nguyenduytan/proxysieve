@@ -196,6 +196,11 @@ credentials are resolved per connection and are never persisted or logged.
 SOCKS5 UDP ASSOCIATE is not supported. No route reaches the network until a policy
 returns `direct` or `proxy`; `reject`/`block` remain fail-closed.
 
+`idle_timeout` applies to established HTTP CONNECT and SOCKS5 tunnels as an
+activity-based deadline. Traffic in either direction refreshes the connection; an
+idle or cancelled tunnel closes both sockets so shutdown cannot leave relay
+goroutines behind.
+
 For an HTTP listener, `auth: api_key` enables downstream `Proxy-Authorization:
 Bearer psk_...` authentication against a stored, enabled client key. Create the key
 through the local administrator API; only its hash/prefix is retained. Do not place

@@ -47,7 +47,7 @@ func TestConnect(t *testing.T) {
 		return policy.Result{PolicyID: "policy", TerminalRuleID: "rule", Actions: []policy.Action{{Type: "proxy", PoolID: "pool"}}}, nil
 	}), Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
 		return gateway.Route{Action: "proxy", PoolID: "pool", ProxyID: "proxy", ThrottleBPS: 80, Rate: &trafficpkg.Rate{Price: trafficpkg.Money{Currency: "USD", Micros: 1_000_000_000}, Unit: trafficpkg.GB, EffectiveAt: time.Unix(0, 0)}, Dial: func(context.Context, string) (net.Conn, error) { return targetServer, nil }, Observe: func(observation publichealth.Observation) { observed <- observation.Success }}, nil
-	}), Recorder: recorded})
+	}), Recorder: recorded, ListenerName: "edge-socks"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestConnect(t *testing.T) {
 		t.Fatal(response, err)
 	}
 	request := <-done
-	if request.Host != "test" || request.Port != 443 {
+	if request.Host != "test" || request.Port != 443 || request.Listener != "edge-socks" {
 		t.Fatal(request)
 	}
 	if success := <-observed; !success {
@@ -150,6 +150,88 @@ func TestConnectRetriesBeforeReply(t *testing.T) {
 		t.Fatal(first, second)
 	}
 }
+
+func TestConnectCancellationClosesTunnel(t *testing.T) {
+	client, server := net.Pipe()
+	upstream, target := net.Pipe()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = target.Close() }()
+	s, err := New(Options{
+		Evaluator: eval(func(context.Context, policy.RequestContext, policy.Visibility) (policy.Result, error) {
+			return policy.Result{Actions: []policy.Action{{Type: "direct"}}}, nil
+		}),
+		Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{Action: "direct", Dial: func(context.Context, string) (net.Conn, error) { return upstream, nil }}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { s.Serve(ctx, server); close(done) }()
+	if _, err = client.Write([]byte{5, 1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, 2)
+	if _, err = io.ReadFull(client, reply); err != nil || reply[1] != 0 {
+		t.Fatal(reply, err)
+	}
+	if _, err = client.Write([]byte{5, 1, 0, 3, 4, 't', 'e', 's', 't', 1, 187}); err != nil {
+		t.Fatal(err)
+	}
+	reply = make([]byte, 10)
+	if _, err = io.ReadFull(client, reply); err != nil || reply[1] != 0 {
+		t.Fatal(reply, err)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cancelled tunnel did not close")
+	}
+}
+
+func TestConnectIdleTimeoutClosesTunnel(t *testing.T) {
+	client, server := net.Pipe()
+	upstream, target := net.Pipe()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = target.Close() }()
+	s, err := New(Options{
+		Evaluator: eval(func(context.Context, policy.RequestContext, policy.Visibility) (policy.Result, error) {
+			return policy.Result{Actions: []policy.Action{{Type: "direct"}}}, nil
+		}),
+		Router: route(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+			return gateway.Route{Action: "direct", Dial: func(context.Context, string) (net.Conn, error) { return upstream, nil }}, nil
+		}),
+		IdleTimeout: 20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { s.Serve(context.Background(), server); close(done) }()
+	if _, err = client.Write([]byte{5, 1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, 2)
+	if _, err = io.ReadFull(client, reply); err != nil || reply[1] != 0 {
+		t.Fatal(reply, err)
+	}
+	if _, err = client.Write([]byte{5, 1, 0, 3, 4, 't', 'e', 's', 't', 1, 187}); err != nil {
+		t.Fatal(err)
+	}
+	reply = make([]byte, 10)
+	if _, err = io.ReadFull(client, reply); err != nil || reply[1] != 0 {
+		t.Fatal(reply, err)
+	}
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("idle tunnel did not close")
+	}
+}
+
 func TestRejectsUnsupportedMethodsAndRoutes(t *testing.T) {
 	for _, input := range [][]byte{{4, 1, 0}, {5, 1, 2}} {
 		client, server := net.Pipe()

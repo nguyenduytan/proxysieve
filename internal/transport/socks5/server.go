@@ -14,6 +14,7 @@ import (
 
 	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
+	internaltransport "github.com/nguyenduytan/proxysieve/internal/transport"
 	"github.com/nguyenduytan/proxysieve/pkg/gateway"
 	publichealth "github.com/nguyenduytan/proxysieve/pkg/health"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
@@ -44,6 +45,7 @@ type Options struct {
 	// and returns the opaque downstream client identity.
 	AuthenticatePassword func(context.Context, string, string) (model.ID, error)
 	IdleTimeout          time.Duration
+	ListenerName         string
 }
 type Server struct {
 	evaluator gateway.Evaluator
@@ -51,6 +53,7 @@ type Server struct {
 	recorder  trafficpkg.Recorder
 	auth      func(context.Context, string, string) (model.ID, error)
 	idle      time.Duration
+	listener  string
 }
 
 func New(options Options) (*Server, error) {
@@ -63,7 +66,13 @@ func New(options Options) (*Server, error) {
 	if options.IdleTimeout > 24*time.Hour {
 		return nil, errors.New("invalid socks5 idle timeout")
 	}
-	return &Server{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, auth: options.AuthenticatePassword, idle: options.IdleTimeout}, nil
+	if options.ListenerName == "" {
+		options.ListenerName = "socks"
+	}
+	if len(options.ListenerName) > 128 {
+		return nil, errors.New("invalid listener name")
+	}
+	return &Server{evaluator: options.Evaluator, router: options.Router, recorder: options.Recorder, auth: options.AuthenticatePassword, idle: options.IdleTimeout, listener: options.ListenerName}, nil
 }
 
 // Serve accepts one downstream connection. No-auth is only used by a listener
@@ -80,7 +89,7 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 	if !ok {
 		return
 	}
-	request := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: "socks", Protocol: "socks5", Host: host, Port: port, Timestamp: time.Now().UTC()}
+	request := policy.RequestContext{RequestID: model.NewID(), ConnectionID: model.NewID(), ClientID: clientID, Listener: s.listener, Protocol: "socks5", Host: host, Port: port, Timestamp: time.Now().UTC()}
 	result, err := s.evaluator.Evaluate(ctx, request, policy.Visibility{Host: true})
 	if err != nil {
 		recordTunnel(s.recorder, ctx, request, gateway.Route{Action: "reject", PolicyID: result.PolicyID, RuleID: result.TerminalRuleID}, 2, 0, 0, 0, 0)
@@ -148,12 +157,13 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) {
 	if !writeReply(conn, 0) {
 		return
 	}
-	_ = conn.SetDeadline(time.Time{})
+	stopCancellation := internaltransport.CloseOnCancel(ctx, conn, upstream)
+	defer stopCancellation()
 	var copies sync.WaitGroup
-	clientUpload := &internaltraffic.Reader{Source: reader}
-	upstreamUpload := &internaltraffic.Writer{Destination: &internalbudget.Writer{Context: ctx, Destination: upstream, Reserve: route.Reserve}}
-	upstreamDownload := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: ctx, Source: upstream, Reserve: route.Reserve}}
-	clientDownload := &internaltraffic.Writer{Destination: conn}
+	clientUpload := &internaltraffic.Reader{Source: internaltransport.IdleReader(reader, conn, s.idle)}
+	upstreamUpload := &internaltraffic.Writer{Destination: &internalbudget.Writer{Context: ctx, Destination: internaltransport.IdleWriter(upstream, upstream, s.idle), Reserve: route.Reserve}}
+	upstreamDownload := &internaltraffic.Reader{Source: &internalbudget.Reader{Context: ctx, Source: internaltransport.IdleReader(upstream, upstream, s.idle), Reserve: route.Reserve}}
+	clientDownload := &internaltraffic.Writer{Destination: internaltransport.IdleWriter(conn, conn, s.idle)}
 	uploadSource, downloadSource := io.Reader(clientUpload), io.Reader(upstreamDownload)
 	if route.ThrottleBPS > 0 {
 		uploadSource = &internaltraffic.ThrottledReader{Context: ctx, Source: uploadSource, BytesPerSecond: route.ThrottleBPS}

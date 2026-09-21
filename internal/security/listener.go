@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 )
 
 var ErrConnectionLimit = errors.New("connection limit reached")
@@ -12,14 +13,37 @@ var ErrConnectionLimit = errors.New("connection limit reached")
 // closed immediately; it never queues unbounded connections in user space.
 type LimitedListener struct {
 	net.Listener
-	slots chan struct{}
+	slots   chan struct{}
+	metrics *ListenerMetrics
 }
 
-func NewLimitedListener(listener net.Listener, max int) (*LimitedListener, error) {
+type ListenerMetrics struct {
+	accepted atomic.Uint64
+	active   atomic.Int64
+	rejected atomic.Uint64
+}
+
+type ListenerStats struct {
+	Accepted uint64 `json:"accepted"`
+	Active   uint64 `json:"active"`
+	Rejected uint64 `json:"rejected"`
+}
+
+func (m *ListenerMetrics) Snapshot() ListenerStats {
+	if m == nil {
+		return ListenerStats{}
+	}
+	return ListenerStats{Accepted: m.accepted.Load(), Active: uint64(m.active.Load()), Rejected: m.rejected.Load()}
+}
+
+func NewLimitedListener(listener net.Listener, max int, metrics *ListenerMetrics) (*LimitedListener, error) {
 	if listener == nil || max < 1 || max > 100_000 {
 		return nil, ErrConnectionLimit
 	}
-	return &LimitedListener{Listener: listener, slots: make(chan struct{}, max)}, nil
+	if metrics == nil {
+		metrics = &ListenerMetrics{}
+	}
+	return &LimitedListener{Listener: listener, slots: make(chan struct{}, max), metrics: metrics}, nil
 }
 func (l *LimitedListener) Accept() (net.Conn, error) {
 	for {
@@ -29,8 +53,11 @@ func (l *LimitedListener) Accept() (net.Conn, error) {
 		}
 		select {
 		case l.slots <- struct{}{}:
-			return &limitedConn{Conn: connection, release: func() { <-l.slots }}, nil
+			l.metrics.accepted.Add(1)
+			l.metrics.active.Add(1)
+			return &limitedConn{Conn: connection, release: func() { <-l.slots; l.metrics.active.Add(-1) }}, nil
 		default:
+			l.metrics.rejected.Add(1)
 			_ = connection.Close()
 		}
 	}

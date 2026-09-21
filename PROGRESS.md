@@ -1,14 +1,14 @@
 # ProxySieve milestone tracker
 
-Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
+Maintainer: **Tony Nguyen**. Updated: 2026-09-17.
 
 ## Status
 
 - [ ] M0 — Repository bootstrap (local checks passed; hosted acceptance pending)
 - [ ] M1 — Domain, config, storage, secret foundations (implemented locally; acceptance review pending)
 - [x] M2 — Proxy normalization, sources, endpoint management (bounded text/CSV/JSON mapping, safe HTTP and import-root file sources, revisioned CRUD, atomic scheduled refresh, provider capabilities and responsive Admin workflows complete locally)
-- [ ] M3 — HTTP forward and CONNECT gateway (local HTTP/CONNECT routing supports explicit direct and configured HTTP/HTTPS/SOCKS upstream pools; auth/accounting/health pending)
-- [ ] M4 — SOCKS5 downstream and multi-listener support (local/password SOCKS5 CONNECT and runtime multi-listener support implemented; UDP, metrics and transport-framing accounting pending)
+- [x] M3 — HTTP forward and CONNECT gateway (authenticated HTTP forwarding and CONNECT through direct/HTTP/HTTPS/SOCKS routes, safe retries, health, actual stream accounting, idle/cancellation shutdown and large-stream coverage complete locally)
+- [x] M4 — SOCKS5 downstream and multi-listener support (HTTP/CONNECT and SOCKS5 TCP listeners, local/password auth, configured listener policy identity, protocol routing matrix and process-lifetime admission metrics complete locally)
 - [x] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation, durable atomic runtime activation/rollback and fail-closed execution of every accepted action complete locally)
 - [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
@@ -24,6 +24,15 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-16.
 
 ### Release engineering continuation — 2026-09-16
 
+- Completed M3 tunnel lifecycle coverage. HTTP CONNECT and SOCKS5 relays now refresh
+  configured idle deadlines during real I/O and close both directions on runtime or
+  request cancellation while retaining TCP half-close behavior. Regression coverage
+  includes cancellation, idle timeout and 1 MB bidirectional CONNECT accounting.
+- Completed M4 listener identity and observability. HTTP, CONNECT and SOCKS5 policy
+  contexts now preserve the configured listener name, while the System API/Admin
+  workspace reports bind, active/limit, accepted and rejected connection counts for
+  each gateway and admin listener. SOCKS5 UDP remains explicitly unsupported and is
+  outside the M4 TCP CONNECT deliverable.
 - Completed M2 structured imports and sources: shared bounded text/CSV/JSON field
   mapping now powers preview, atomic import, HTTP refresh and import-root-confined
   file refresh. File sources reject traversal/outside symlinks, join the scheduler,

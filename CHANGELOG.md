@@ -4,6 +4,11 @@
 
 ### Added
 
+- Added activity-based tunnel idle deadlines and cancellation shutdown for HTTP
+  CONNECT and SOCKS5 relays, with large-stream accounting coverage.
+- Added configured listener identity to HTTP, CONNECT and SOCKS5 policy contexts,
+  plus process-lifetime accepted, active and rejected connection metrics in the
+  System API and responsive Admin workspace.
 - Added bounded text, CSV and JSON proxy imports with flat field mapping across
   preview, atomic inventory commits and source refreshes. Added scheduled local
   file sources confined to `<data_dir>/imports` and matching responsive Admin
