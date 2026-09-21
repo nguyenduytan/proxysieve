@@ -1,14 +1,14 @@
 # ProxySieve milestone tracker
 
-Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
+Maintainer: **Tony Nguyen**. Updated: 2026-09-22.
 
 A checked milestone is implemented and accepted locally. Hosted CI, native archive
 smoke tests and release-candidate evidence are tracked separately under M16.
 
 ## Status
 
-- [ ] M0 — Repository bootstrap (local checks passed; hosted acceptance pending)
-- [ ] M1 — Domain, config, storage, secret foundations (implemented locally; acceptance review pending)
+- [x] M0 — Repository bootstrap (documented clean build, hosted CI/security and hardened non-root container smoke complete)
+- [x] M1 — Domain, config, storage, secret foundations (public dependency boundary, schema v1, deterministic migrations and secret/redaction acceptance complete)
 - [x] M2 — Proxy normalization, sources, endpoint management (bounded text/CSV/JSON mapping, safe HTTP and import-root file sources, revisioned CRUD, atomic scheduled refresh, provider capabilities and responsive Admin workflows complete locally)
 - [x] M3 — HTTP forward and CONNECT gateway (authenticated HTTP forwarding and CONNECT through direct/HTTP/HTTPS/SOCKS routes, safe retries, health, actual stream accounting, idle/cancellation shutdown and large-stream coverage complete locally)
 - [x] M4 — SOCKS5 downstream and multi-listener support (HTTP/CONNECT and SOCKS5 TCP listeners, local/password auth, configured listener policy identity, protocol routing matrix and process-lifetime admission metrics complete locally)
@@ -18,12 +18,41 @@ smoke tests and release-candidate evidence are tracked separately under M16.
 - [x] M8 — Traffic, cost, budgets, retention (application-stream attribution, bounded live/history analytics, restart-safe rollups/retention, exact-vs-estimated savings, configured-cost projection, revisioned durable scoped byte budgets, soft-warning/hard transitions and budget-aware configured pool fallback complete locally; transport framing and cost-denominated enforcement remain documented limitations)
 - [x] M9 — Cache and advanced visible-HTTP actions (policy-opt-in safe bounded memory/disk response cache, explicit HTTP freshness, deterministic TTL eviction, bounded DNS cache, complete process-lifetime cache statistics, audited full/exact-host purge API/CLI, role-aware Admin workspace and validated CACHE/THROTTLE/MOCK/REDIRECT/REWRITE execution complete locally)
 - [x] M10 — Browser integrations (client-scoped snapshot/control contract, safe presets, Playwright/Puppeteer adapters, bounded estimated block reporting, Selenium foundation and controlled Chrome E2E complete locally)
-- [ ] M11 — API, authentication, RBAC, audit (versioned local API, first-run auth, role hierarchy, audited lifecycle endpoints, bounded event streams and OpenAPI contract implemented locally; full-plan acceptance review pending)
-- [ ] M12 — Admin dashboard and first-run UX (release-blocking first-use flow passed locally through setup, proxy import/test/edit, pool/policy activation and attributed traffic; full-plan dashboard acceptance review remains pending)
+- [x] M11 — API, authentication, RBAC, audit (versioned local API, first-run auth, role hierarchy, one-time API keys, audited lifecycle endpoints, bounded event streams and OpenAPI contract accepted)
+- [x] M12 — Admin dashboard and first-run UX (browser-only setup, proxy import/test/edit, pool/policy activation and attributed traffic acceptance passed on desktop and mobile)
 - [x] M13 — Shadow policies, events, alerts, extensions (bounded operational events, signed webhook alerts, shadow comparison and external Extension API v1 complete locally)
 - [x] M14 — Optional HTTPS Inspect (default-off scoped HTTP/1.1 interception, restrictive CA lifecycle, canonical routing and privacy-bounded Admin visibility complete locally)
 - [x] M15 — Backup, restore, import/export, operations (doctor diagnostics, SQLite status/migration/offline compaction, WAL-consistent validated backup/restore, versioned secret-free portable config and restore acceptance for inventory/runtime/analytics complete locally)
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
+
+### Release acceptance continuation — 2026-09-22
+
+- Hosted backend, frontend and dependency-security workflows pass on the current
+  branch, including race, Linux/Windows/macOS builds and the hardened non-root
+  container smoke. Manually dispatched fuzz, benchmark, controlled Chrome E2E and
+  native Linux/Windows/macOS protocol matrices also pass on the reviewed head.
+- Fixed Windows Inspect CA creation after the native matrix exposed two independent
+  portability defects: hard-link installation and post-create ACL mutation. The CA
+  now receives its protected current-user/Local-System DACL on the first handle,
+  installs without overwrite and verifies principals/masks semantically instead of
+  comparing canonicalized SDDL text. Windows regression/race and hosted matrix pass.
+- Added a named bounded load gate: 512 concurrent local HTTP proxy requests, a 1 MB
+  bidirectional CONNECT stream and an 8,000-event durable traffic burst. The hosted
+  five-run benchmark artifact remains the performance baseline; the load smoke has
+  no flaky wall-clock threshold.
+- Completed the v1 documentation index plus CLI, cache, deployment,
+  troubleshooting and benchmarking guides. Added a tag-only native archive smoke
+  job that downloads the draft Linux/Windows/macOS amd64 assets, verifies checksums,
+  extracts them and runs `version` plus schema-v1 config validation.
+- M1 acceptance confirms public packages do not import SQLite/UI/provider adapters,
+  schema-v1 config and migration determinism are tested, and secret values redact
+  through normal formatting/logging. M11 acceptance confirms viewer/operator/admin
+  boundaries, one-time API-key disclosure, parsed OpenAPI and mutation audit trails.
+  M12 acceptance is the plan's browser-only first-run criterion; recommended pages
+  are consolidated into working API-backed workspaces instead of empty navigation.
+- M16 remains open until repository launch settings are enabled, `main` is created
+  and green, the curated `v1.0.0-rc.1` tag workflow/native archive smoke passes,
+  and the resulting draft assets/SBOM/provenance are reviewed.
 
 ### M13 events and alerts continuation — 2026-09-21
 
@@ -121,9 +150,9 @@ smoke tests and release-candidate evidence are tracked separately under M16.
   and tool versions. GoReleaser produces draft Linux/Windows/macOS amd64/arm64
   archives and checksums; Syft adds an SPDX JSON SBOM and GitHub attests both the
   archive checksums and SBOM provenance.
-- Added operator verification/publish guidance. Container publication, the hosted
-  cross-platform run, benchmark/protocol/browser matrices and an actual RC remain
-  pending, so M16 and the v1 release gate stay open.
+- Added operator verification/publish guidance. Hosted container,
+  benchmark/protocol/browser matrices now pass; container publication and an actual
+  RC remain gated, so M16 and the v1 release gate stay open.
 - Fixed outbound TLS in the scratch container by copying a current CA bundle from
   the pinned Alpine build stage. The compose target remains an artifact smoke test,
   not an implicitly exposed gateway deployment.
@@ -147,7 +176,7 @@ smoke tests and release-candidate evidence are tracked separately under M16.
   future extension protocol fuzzing remain pending with those features.
 - Replaced fixed durable traffic queue settings with validated schema-v1 capacity,
   batch and flush controls. A concurrent 8,000-event burst proves accepted events
-  drain without analytics loss; long-duration and hosted load evidence remains.
+  drain without analytics loss and joins HTTP/CONNECT in the bounded load gate.
 - Completed the browser integration slice with API-key-authenticated, client-scoped
   active policy snapshots and bounded local-block reports recorded only as estimated
   avoided bytes. The shared evaluator fails open on expired/offline/unsupported or
@@ -157,8 +186,8 @@ smoke tests and release-candidate evidence are tracked separately under M16.
   guidance. Unit tests cover forged attribution, policy scope, snapshot expiry,
   concurrent sessions and existing handlers. Controlled stable-Chrome E2E proves
   image/media/font/tracker requests never reach the local upstream proxy fixture
-  while the document and XHR succeed. The hosted browser workflow remains pending
-  until these commits are pushed.
+  while the document and XHR succeed. The hosted browser workflow passes on the
+  current branch head.
 
 ### Latest local continuation — inventory lifecycle (2026-09-13)
 
@@ -249,19 +278,20 @@ Verified locally on Windows amd64, Go 1.27.1 / Node 24.19.0 / pnpm 11.19.0:
 - [x] Native build and `version --json` smoke test passed; Tony Nguyen is credited.
 - [x] Static cross-compilation passed for Linux/macOS/Windows, amd64 and arm64.
   Cross-compilation is not a runtime test on those six platforms.
-- [x] Frontend frozen lockfile install, lint, 2 unit tests, and Vite build passed.
+- [x] Frontend frozen lockfile install, lint, 51 unit tests, and Vite build passed.
 - [x] `pnpm audit --audit-level=high` found no known vulnerabilities.
 - [x] govulncheck 1.8.0 found no vulnerabilities in reachable Go code.
-- [x] actionlint 1.7.12 validated all three workflow files.
-- [ ] Hosted CI (including native Linux/macOS execution).
-- [ ] Container build and non-root smoke test (Docker is unavailable locally;
-  backend CI includes this check).
+- [x] actionlint 1.7.12 validated all workflow files.
+- [x] Hosted CI passed, including native Linux/Windows/macOS protocol execution.
+- [x] Hosted hardened container build and non-root smoke test passed (Docker remains
+  unavailable locally).
 - [ ] Hosted repository protection/security settings confirmed.
 
-Historical M0 publication note: the existing remote is public, but hosted checks
-and repository settings remain independent acceptance gates. A local green run
-does not waive them; the current branch may be pushed only as reviewed development
-work, not tagged as `v1.0.0`.
+The existing remote is private and currently uses `codex/m1-foundations` as its
+default branch; remote `main` and repository protection/security settings still
+need maintainer-authorized setup. These are M16 launch gates, not reasons to weaken
+the now-complete M0 implementation acceptance. Do not tag stable `v1.0.0` from the
+development branch.
 
 The original plan's intentional Markdown hard-break spaces are preserved. The
 staged whitespace check applies to newly authored files without rewriting that

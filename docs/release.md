@@ -12,9 +12,11 @@ sources. GitHub artifact attestations
 bind the archives and SBOM to the tag workflow. Pre-release tags remain
 pre-releases.
 
-Before publishing a draft, verify the hosted CI/security checks and smoke-test at
-least one archive on every supported operating system. Do not publish a release
-with an incomplete changelog, failed migration test or known P0/P1 defect.
+The tag workflow checksum-verifies, extracts and executes the amd64 archive on
+Linux, Windows and macOS before it can be considered green. Before publishing a
+draft, also verify the hosted CI/security checks and review those native smoke
+results. Do not publish a release with an incomplete changelog, failed migration
+test or known P0/P1 defect.
 
 Verify an extracted download against the release checksum:
 
@@ -52,6 +54,6 @@ acceptance matrix.
 | SQLite backup/restore | Stop ProxySieve first. Backups include committed WAL state, never overwrite a destination and may restore a valid older embedded schema that the current binary can migrate. Future, reordered or checksum-modified migration histories are rejected. |
 
 Static cross-compilation is not runtime acceptance. Before publishing an RC, the
-hosted Linux, Windows and macOS jobs must pass. Smoke-test one release archive on
-each operating system; both architectures remain build-verified until matching
-hardware or hosted runners execute them.
+hosted Linux, Windows and macOS protocol jobs and native amd64 archive smoke jobs
+must pass. Arm64 artifacts remain build-verified until matching hardware or hosted
+runners execute them.

@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## [Unreleased]
+
+## [1.0.0-rc.1] - 2026-09-22
+
+### Added
 
 - Added revisioned Admin proxy editing and explicit remote-DNS trust approval,
   allowing imported endpoints to route under the safe default configuration.
@@ -23,11 +27,10 @@
   hosts, with restrictive local CA lifecycle commands, bounded host-certificate
   caching, exact inner-host enforcement, canonical policy/routing reuse and a
   privacy-bounded recent metadata view in the existing System workspace.
-
-### Added
-
 - Added a deterministic local load-smoke gate covering 512 concurrent HTTP proxy
   requests, a 1 MB CONNECT stream and an 8,000-event durable traffic burst.
+- Added checksum-verified native amd64 archive smoke execution on Linux, Windows
+  and macOS to the tag-gated draft release workflow.
 - Added admin-only user account lifecycle APIs and a responsive Users workspace,
   with role changes, password rotation, session invalidation, audit records and
   last-enabled-admin lockout protection.
@@ -175,3 +178,6 @@
   bypassing stale, partial, `no-cache` and unsupported `Vary` responses.
 
 No public release is published. See PROGRESS.md for verification status.
+
+[Unreleased]: https://github.com/nguyenduytan/proxysieve/compare/v1.0.0-rc.1...HEAD
+[1.0.0-rc.1]: https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0-rc.1

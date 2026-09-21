@@ -65,3 +65,52 @@ jobs:
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: proxysieve.spdx.json
+
+  native-smoke:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux
+            extension: tar.gz
+            binary: proxysieve
+          - runner: windows-latest
+            target: windows
+            extension: zip
+            binary: proxysieve.exe
+          - runner: macos-latest
+            target: darwin
+            extension: tar.gz
+            binary: proxysieve
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Download and verify release archive
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          TARGET: ${{ matrix.target }}
+          EXTENSION: ${{ matrix.extension }}
+          BINARY: ${{ matrix.binary }}
+        run: |
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern "proxysieve_*_$($env:TARGET)_amd64.$($env:EXTENSION)" --pattern checksums.txt
+          $archives = @(Get-ChildItem -File "proxysieve_*_$($env:TARGET)_amd64.$($env:EXTENSION)")
+          if ($archives.Count -ne 1) { throw "Expected one $($env:TARGET) archive, found $($archives.Count)" }
+          $archive = $archives[0]
+          $checksum = Get-Content checksums.txt | Where-Object { $_ -match "  $([regex]::Escape($archive.Name))$" }
+          if (-not $checksum) { throw "Checksum missing for $($archive.Name)" }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne ($checksum -split '\s+')[0]) { throw "Checksum mismatch for $($archive.Name)" }
+          New-Item -ItemType Directory smoke | Out-Null
+          if ($env:EXTENSION -eq 'zip') { Expand-Archive $archive smoke } else { tar -xzf $archive -C smoke }
+          $binaries = @(Get-ChildItem smoke -Recurse -File -Filter $env:BINARY)
+          $configs = @(Get-ChildItem smoke -Recurse -File -Filter config.example.yaml)
+          if ($binaries.Count -ne 1 -or $configs.Count -ne 1) { throw 'Release archive layout is invalid' }
+          $binary = $binaries[0]
+          $config = $configs[0]
+          & $binary.FullName version
+          & $binary.FullName config validate --file $config.FullName
