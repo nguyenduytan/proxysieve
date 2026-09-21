@@ -26,6 +26,8 @@
 
 ### Added
 
+- Added a deterministic local load-smoke gate covering 512 concurrent HTTP proxy
+  requests, a 1 MB CONNECT stream and an 8,000-event durable traffic burst.
 - Added admin-only user account lifecycle APIs and a responsive Users workspace,
   with role changes, password rotation, session invalidation, audit records and
   last-enabled-admin lockout protection.
@@ -155,8 +157,8 @@
 
 ### Fixed
 
-- Install the private Inspect CA atomically on Windows without relying on hard-link
-  creation, while preserving no-overwrite behavior and restrictive ACLs.
+- Create private Inspect CA files with their restrictive Windows ACL from the first
+  handle and install them atomically without overwriting an existing CA.
 - Policy validation now rejects unsupported `allow`, `set_tag` and
   `set_session_policy` actions instead of accepting runtime no-ops.
 - Report unavailable `CACHE`, `MOCK`, `REDIRECT` and `REWRITE` policy actions as

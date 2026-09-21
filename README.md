@@ -173,6 +173,7 @@ paste proxy credentials, cookies, API keys, setup tokens, or user traffic in iss
 
 ## Documentation
 
+- [Documentation index](docs/README.md)
 - [Implementation plan](PROXYSIEVE_PLAN.md)
 - [Milestone progress](PROGRESS.md)
 - [Engineering refinements](docs/plan-refinements.md)
@@ -188,6 +189,11 @@ paste proxy credentials, cookies, API keys, setup tokens, or user traffic in iss
 - [Runtime activation and rollback](docs/runtime-activation.md)
 - [Proxy source security](docs/proxy-sources.md)
 - [Traffic accounting](docs/traffic-accounting.md)
+- [Cache](docs/cache.md)
+- [CLI](docs/cli.md)
+- [Deployment](docs/deployment.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Benchmarking and load smoke](docs/benchmarking.md)
 - [Development guide](docs/development.md)
 - [Release process and artifact verification](docs/release.md)
 - [Contributing](CONTRIBUTING.md)

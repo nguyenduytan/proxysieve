@@ -37,6 +37,7 @@ pnpm --dir web build
 pnpm --dir integrations install --frozen-lockfile
 pnpm --dir integrations test
 pnpm --dir integrations test:e2e
+make load
 ```
 
 Go race testing requires a supported C toolchain/platform; run on Linux CI if the
@@ -61,6 +62,11 @@ Browser integration unit tests use only local fixtures. The E2E suite launches t
 installed stable Chrome through a local recording proxy and proves Playwright and
 Puppeteer block image, media, font and tracker requests before that proxy while the
 document and XHR still succeed. It never contacts a public or paid proxy.
+
+`make load` is the bounded release smoke: 512 concurrent HTTP proxy requests, a
+1 MB bidirectional CONNECT stream and an 8,000-event durable traffic burst. It uses
+only local fixtures and checks correctness under load; benchmark artifacts carry
+performance measurements.
 
 ## Frontend workflow
 

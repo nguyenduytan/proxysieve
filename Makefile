@@ -1,7 +1,7 @@
 GO ?= go
 PNPM ?= pnpm
 
-.PHONY: bootstrap fmt lint test race fuzz integration browser benchmark build web run docker
+.PHONY: bootstrap fmt lint test race fuzz integration browser load benchmark build web run docker
 bootstrap:
 	$(GO) version
 	node --version
@@ -42,6 +42,10 @@ integration:
 browser:
 	$(PNPM) --dir integrations test
 	$(PNPM) --dir integrations test:e2e
+
+load:
+	$(GO) test -count=1 -run 'TestConcurrentHTTPForwardLoad|TestConnectLargeStreamAccounting' ./internal/transport/httpforward
+	$(GO) test -count=1 -run '^TestAsyncConcurrentBurstDrainsWithoutLoss$$' ./internal/traffic
 
 benchmark:
 	$(GO) test -run '^$$' -bench 'Benchmark(PolicyEvaluation|Selector|TrafficRecordFullBuffer|ResponseCacheHit)$$' -benchmem ./pkg/policy ./pkg/routing ./internal/traffic ./internal/cache

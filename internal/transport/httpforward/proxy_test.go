@@ -15,6 +15,8 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -191,6 +193,62 @@ func TestDirectForwardAndCredentialStripping(t *testing.T) {
 	b, _ := io.ReadAll(res.Body)
 	if res.StatusCode != 200 || string(b) != "ok" || sawProxyAuth != "" {
 		t.Fatalf("%d %s %q", res.StatusCode, b, sawProxyAuth)
+	}
+}
+
+func TestConcurrentHTTPForwardLoad(t *testing.T) {
+	const workers, requestsPerWorker = 16, 32
+	var hits atomic.Int64
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer target.Close()
+
+	upstream := &http.Transport{ForceAttemptHTTP2: false, MaxIdleConns: workers, MaxIdleConnsPerHost: workers}
+	defer upstream.CloseIdleConnections()
+	handler, err := New(Options{Evaluator: Decider(direct), Router: RouterFunc(func(context.Context, policy.RequestContext, policy.Result) (gateway.Route, error) {
+		return gateway.Route{Action: "direct", Transport: upstream}, nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyServer := httptest.NewServer(handler)
+	defer proxyServer.Close()
+	proxyURL, _ := url.Parse(proxyServer.URL)
+	clientTransport := &http.Transport{Proxy: http.ProxyURL(proxyURL), MaxIdleConns: workers, MaxIdleConnsPerHost: workers}
+	defer clientTransport.CloseIdleConnections()
+	client := &http.Client{Transport: clientTransport, Timeout: 10 * time.Second}
+
+	failures := make(chan error, workers)
+	var group sync.WaitGroup
+	for range workers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			for range requestsPerWorker {
+				response, requestErr := client.Get(target.URL)
+				if requestErr == nil {
+					_, requestErr = io.Copy(io.Discard, response.Body)
+					requestErr = errors.Join(requestErr, response.Body.Close())
+					if response.StatusCode != http.StatusOK {
+						requestErr = errors.Join(requestErr, fmt.Errorf("status %d", response.StatusCode))
+					}
+				}
+				if requestErr != nil {
+					failures <- requestErr
+					return
+				}
+			}
+		}()
+	}
+	group.Wait()
+	close(failures)
+	for requestErr := range failures {
+		t.Fatal(requestErr)
+	}
+	if got, want := hits.Load(), int64(workers*requestsPerWorker); got != want {
+		t.Fatalf("origin hits = %d, want %d", got, want)
 	}
 }
 func TestRecordsActualHTTPStreamBytes(t *testing.T) {
