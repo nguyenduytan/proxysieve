@@ -10,6 +10,7 @@ servers:
     description: Default local-only listener
 tags:
   - name: Auth
+  - name: Users
   - name: System
   - name: Traffic
   - name: Budgets
@@ -104,6 +105,41 @@ paths:
       responses:
         '200': {description: Current user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/users:
+    get:
+      tags: [Users]
+      responses:
+        '200': {description: Admin user accounts, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/User'}}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [Users]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/UserInput'}}}
+      responses:
+        '201': {description: User created, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: Username already exists}
+  /api/v1/users/{userId}:
+    parameters: [{name: userId, in: path, required: true, schema: {type: string}}]
+    patch:
+      tags: [Users]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/UserInput'}}}
+      responses:
+        '200': {description: User updated and its existing sessions invalidated, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Duplicate username or last-admin protection}
+    delete:
+      tags: [Users]
+      security: [sessionCookie: [], csrfToken: []]
+      responses:
+        '204': {description: User deleted and its existing sessions invalidated}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Self-delete or last-admin protection}
   /api/v1/system/info:
     get:
       tags: [System]
@@ -1022,6 +1058,15 @@ components:
         enabled: {type: boolean}
         created_at: {type: string, format: date-time}
         last_login_at: {type: string, format: date-time}
+    UserInput:
+      type: object
+      additionalProperties: false
+      required: [username, password, role, enabled]
+      properties:
+        username: {type: string, minLength: 3, maxLength: 64, pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{2,63}$'}
+        password: {type: string, format: password, maxLength: 1024, description: Required when creating; empty preserves the current hash when updating}
+        role: {type: string, enum: [admin, operator, viewer]}
+        enabled: {type: boolean}
     Client:
       type: object
       required: [id, name, enabled, auth_method, created_at]

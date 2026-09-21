@@ -4,6 +4,9 @@
 
 ### Added
 
+- Added admin-only user account lifecycle APIs and a responsive Users workspace,
+  with role changes, password rotation, session invalidation, audit records and
+  last-enabled-admin lockout protection.
 - Added budget soft-warning thresholds and budget-aware configured pool fallback,
   while rejecting unsupported action modes instead of silently accepting them.
 - Added `db status`, `db migrate` and offline `db compact` commands, plus

@@ -31,6 +31,13 @@ type UserStore interface {
 	FindUser(context.Context, string) (auth.User, string, error)
 	UpdateLastLogin(context.Context, model.ID, time.Time) error
 }
+
+type managedUserStore interface {
+	ListUsers(context.Context) ([]auth.User, error)
+	GetUser(context.Context, model.ID) (auth.User, error)
+	UpdateUser(context.Context, auth.User, string) error
+	DeleteUser(context.Context, model.ID) error
+}
 type Session struct {
 	User      auth.User
 	ExpiresAt time.Time
@@ -108,6 +115,65 @@ func (s *Service) Login(ctx context.Context, username, password string) (string,
 	}
 	return token, user, nil
 }
+
+func (s *Service) ListUsers(ctx context.Context) ([]auth.User, error) {
+	store, ok := s.store.(managedUserStore)
+	if !ok {
+		return nil, ErrUnauthorized
+	}
+	return store.ListUsers(ctx)
+}
+
+func (s *Service) CreateUser(ctx context.Context, username, password string, role auth.Role, enabled bool) (auth.User, error) {
+	if !validUsername(username) || !role.Valid() {
+		return auth.User{}, ErrInvalidCredentials
+	}
+	hash, err := security.HashPassword(password, s.params)
+	if err != nil {
+		return auth.User{}, ErrInvalidCredentials
+	}
+	user := auth.User{ID: model.NewID(), Username: username, Role: role, Enabled: enabled, CreatedAt: s.now()}
+	if err = s.store.CreateUser(ctx, user, hash); err != nil {
+		return auth.User{}, err
+	}
+	return user, nil
+}
+
+func (s *Service) UpdateUser(ctx context.Context, id model.ID, username, password string, role auth.Role, enabled bool) (auth.User, error) {
+	store, ok := s.store.(managedUserStore)
+	if !ok || !id.Valid() || !validUsername(username) || !role.Valid() {
+		return auth.User{}, ErrInvalidCredentials
+	}
+	current, err := store.GetUser(ctx, id)
+	if err != nil {
+		return auth.User{}, err
+	}
+	hash := ""
+	if password != "" {
+		hash, err = security.HashPassword(password, s.params)
+		if err != nil {
+			return auth.User{}, ErrInvalidCredentials
+		}
+	}
+	current.Username, current.Role, current.Enabled = username, role, enabled
+	if err = store.UpdateUser(ctx, current, hash); err != nil {
+		return auth.User{}, err
+	}
+	s.invalidateUser(id)
+	return current, nil
+}
+
+func (s *Service) DeleteUser(ctx context.Context, id model.ID) error {
+	store, ok := s.store.(managedUserStore)
+	if !ok || !id.Valid() {
+		return ErrInvalidCredentials
+	}
+	if err := store.DeleteUser(ctx, id); err != nil {
+		return err
+	}
+	s.invalidateUser(id)
+	return nil
+}
 func (s *Service) CreateSession(user auth.User) (string, error) {
 	if !user.Enabled || !user.Validate() {
 		return "", ErrUnauthorized
@@ -144,6 +210,16 @@ func (s *Service) Logout(token string) {
 	s.mu.Lock()
 	delete(s.sessions, digest)
 	s.mu.Unlock()
+}
+
+func (s *Service) invalidateUser(id model.ID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, session := range s.sessions {
+		if session.User.ID == id {
+			delete(s.sessions, token)
+		}
+	}
 }
 func (s *Service) Require(token string, roles ...auth.Role) (auth.User, error) {
 	user, err := s.Authorize(token)

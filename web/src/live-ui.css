@@ -667,6 +667,13 @@
 .client-actions .pause-button {
   justify-content: center;
 }
+.user-table {
+  min-width: 820px;
+}
+.user-table .row-actions,
+.user-table .inline-confirm {
+  justify-content: flex-end;
+}
 .delete-client-confirm {
   margin: 0 16px 16px;
   padding: 12px;

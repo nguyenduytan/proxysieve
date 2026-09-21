@@ -258,6 +258,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		})
 	case "/api/v1/auth/me":
 		s.require(w, r, auth.RoleViewer, func(user auth.User) { writeJSON(w, http.StatusOK, user) })
+	case "/api/v1/users":
+		s.usersCollection(w, r)
 	case "/api/v1/traffic/live":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.liveTraffic(w) })
 	case "/api/v1/traffic/stream":
@@ -352,6 +354,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.budgetByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/clients/") {
 			s.clientByID(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/users/") {
+			s.userByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/proxies/") {
 			s.proxyByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/sources/") {

@@ -20,6 +20,7 @@ describe("admin navigation", () => {
       "Sessions",
       "Policies",
       "Clients",
+      "Users",
       "Audit",
       "System",
     ]);
@@ -33,12 +34,18 @@ describe("admin navigation", () => {
     expect(navigationForRole("admin").map((item) => item.page)).toContain(
       "Audit",
     );
+    expect(navigationForRole("admin").map((item) => item.page)).toContain(
+      "Users",
+    );
     expect(
       navigationForRole("operator").map((item) => item.page),
     ).not.toContain("Clients");
     expect(
       navigationForRole("operator").map((item) => item.page),
     ).not.toContain("Audit");
+    expect(
+      navigationForRole("operator").map((item) => item.page),
+    ).not.toContain("Users");
     expect(navigationForRole("viewer").map((item) => item.page)).not.toContain(
       "Clients",
     );

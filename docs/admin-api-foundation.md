@@ -13,6 +13,10 @@ POST /api/v1/auth/setup
 POST /api/v1/auth/login
 POST /api/v1/auth/logout
 GET  /api/v1/auth/me
+GET  /api/v1/users
+POST /api/v1/users
+PATCH /api/v1/users/{id}
+DELETE /api/v1/users/{id}
 GET  /api/v1/openapi.yaml
 GET  /api/v1/system/info
 GET  /api/v1/traffic/live
@@ -75,9 +79,11 @@ for 12 hours. Restarting the process invalidates them. Cookie-authenticated muta
 routes require the non-HttpOnly CSRF cookie's value in `X-CSRF-Token`.
 
 The current role hierarchy is admin > operator > viewer. Existing read endpoints
-require viewer; admin may use them. Future mutation endpoints define their own
-minimum role. Raw traffic credentials and stored secret values never appear in
-these response models.
+require viewer; admin may use them. User listing and lifecycle operations are
+administrator-only, and every mutation invalidates the target user's active
+sessions. The database rejects deletion, disabling or demotion of the last enabled
+administrator; the API also rejects deleting the current account. Raw passwords,
+traffic credentials and stored secret values never appear in response models.
 
 Admin host requests must be `localhost`, `127.0.0.1`, or `::1`; other Host values
 are rejected. Responses set restrictive security headers and `Cache-Control: no-store`.
@@ -105,7 +111,7 @@ configured estimates, not provider-billed amounts.
 
 The embedded Admin Panel deliberately lists only API-backed destinations:
 Overview, Traffic, Budgets, Cache, Proxies, Sources, Pools, Chains, Health, Sessions,
-Policies, Clients, Audit and System. Planned
+Policies, Clients, Users, Audit and System. Planned
 workspaces such as Alerts are not rendered as disabled navigation. This avoids
 duplicate or inert menu surfaces while features are still under development.
 
@@ -229,7 +235,7 @@ bypass gateway policy, destination security or budgets.
 ## Audit Events
 
 The SQLite audit trail records actor, action, target, request ID and timestamp for
-setup, login, logout and proxy/source/pool/policy/runtime/session/client/key
+setup, login, logout and user/proxy/source/pool/policy/runtime/session/client/key
 mutations. It intentionally excludes raw
 passwords, setup tokens, cookies, API keys and request/response bodies. `/api/v1/audit`
 is administrator-only. The embedded administrator-only Audit workspace presents

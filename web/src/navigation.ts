@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   ScrollText,
   Settings,
+  UsersRound,
   HeartPulse,
   Gauge,
   HardDrive,
@@ -30,6 +31,7 @@ export type Page =
   | "Sessions"
   | "Policies"
   | "Clients"
+  | "Users"
   | "Audit"
   | "System";
 
@@ -115,6 +117,13 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Clients",
     description: "Downstream clients and API keys",
     icon: KeyRound,
+    roles: ["admin"],
+  },
+  {
+    page: "Users",
+    label: "Users",
+    description: "Administrator accounts and roles",
+    icon: UsersRound,
     roles: ["admin"],
   },
   {

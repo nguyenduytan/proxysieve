@@ -4,6 +4,11 @@ export interface User {
   username: string;
   role: Role;
   enabled: boolean;
+  created_at: string;
+  last_login_at: string;
+}
+export interface UserPage {
+  items: User[];
 }
 export interface BuildInfo {
   name: string;

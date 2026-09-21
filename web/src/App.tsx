@@ -15,6 +15,7 @@ import { HealthInventory } from "./HealthInventory";
 import { BudgetInventory } from "./BudgetInventory";
 import { CacheInventory } from "./CacheInventory";
 import { TrafficView } from "./TrafficView";
+import { UserSettings } from "./UserSettings";
 import { navigationForRole } from "./navigation";
 import type { Page } from "./navigation";
 import { useLiveData, useSystem } from "./useLiveData";
@@ -249,6 +250,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
         )}
         {page === "Clients" && user.role === "admin" && (
           <ClientAccess onExpired={onExpired} />
+        )}
+        {page === "Users" && user.role === "admin" && (
+          <UserSettings currentUserID={user.id} onExpired={onExpired} />
         )}
         {page === "Audit" && user.role === "admin" && (
           <AuditLog onExpired={onExpired} />
