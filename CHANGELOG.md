@@ -4,6 +4,9 @@
 
 - Added bounded sanitized control-plane operational events with viewer-readable
   snapshot/SSE APIs, slow-subscriber isolation and a responsive live Events workspace.
+- Added revisioned administrator-only alert rules and HTTPS webhook destinations,
+  bounded asynchronous delivery with SSRF protection, optional HMAC signing, retry
+  history, scheduler failure events and one responsive Alerts workspace.
 
 ### Added
 
@@ -34,9 +37,9 @@
   API-key-authenticated policy snapshots, safe presets, bounded estimated local-
   block reporting, idempotent cleanup, Selenium guidance and deterministic Chrome
   E2E proof that blocked resources never reach the upstream proxy fixture.
-- Authenticated responsive Admin Panel with API-backed Overview, Traffic, Proxies,
-  Sources, Pools, Chains, Sessions, Policies, Clients, Audit and System
-  destinations; duplicate/inert Alerts navigation was removed.
+- Authenticated responsive Admin Panel with API-backed Overview, Traffic, Events,
+  Alerts, Budgets, Cache, Proxies, Sources, Pools, Chains, Health, Sessions,
+  Policies, Clients, Users, Audit and System destinations.
 - Bounded asynchronous traffic persistence, HTTP/CONNECT/SOCKS5 application-stream
   accounting, tiered rollups/retention, configured-cost snapshots and durable hard
   byte budgets with restart-safe reservations.

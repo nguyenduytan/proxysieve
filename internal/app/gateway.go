@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
+	internalalert "github.com/nguyenduytan/proxysieve/internal/alert"
 	"github.com/nguyenduytan/proxysieve/internal/api"
 	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	internalcache "github.com/nguyenduytan/proxysieve/internal/cache"
@@ -78,6 +79,7 @@ type Runtime struct {
 	Scheduler   *scheduler.Runner
 	HealthJob   *scheduler.Runner
 	Sessions    *internalsession.Manager
+	Alerts      *internalalert.Dispatcher
 }
 type resolver struct{}
 
@@ -817,6 +819,13 @@ func Build(c config.Config) (Runtime, error) {
 			return Runtime{}, err
 		}
 		server.SetEvents(eventBus)
+		alertDispatcher, err := internalalert.New(eventBus, controlStore, internalalert.Sender{Resolver: resolver{}, Policy: security.DestinationPolicy{DenyPrivate: true}, Secrets: secrets.Environment{}})
+		if err != nil {
+			_ = controlStore.Close()
+			return Runtime{}, err
+		}
+		server.SetAlertControl(alertDispatcher)
+		runtime.Alerts = alertDispatcher
 		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: runtimeResolver, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}}, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout), globalPace: checkPace(c.Health.GlobalCheckRate), poolPace: checkPace(c.Health.PoolCheckRate)}
 		server.SetTrafficStatus(durableRecorder)
 		server.SetBrowserRecorder(internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}})
@@ -853,7 +862,7 @@ func Build(c config.Config) (Runtime, error) {
 		// Source refresh resolves uncached so every fetch checks the current addresses at its SSRF boundary.
 		sourceJob := &scheduler.SourceJob{
 			Store: controlStore, Refresher: sourceRefresher, Resolver: resolver{},
-			Policy: security.DestinationPolicy{DenyPrivate: true}, Audit: controlStore,
+			Policy: security.DestinationPolicy{DenyPrivate: true}, Audit: controlStore, Events: eventBus,
 		}
 		runtime.Scheduler = scheduler.New(time.Duration(c.Traffic.AggregationInterval), 30*time.Second, trafficJob.Run, sourceJob.Run)
 		if token, err := service.SetupToken(context.Background()); err == nil {
@@ -1044,6 +1053,10 @@ func (r Runtime) RunReady(ctx context.Context, ready func() error) error {
 	if r.Durable != nil {
 		r.Durable.Start()
 		defer r.Durable.Stop()
+	}
+	if r.Alerts != nil {
+		r.Alerts.Start(ctx)
+		defer r.Alerts.Stop()
 	}
 	if r.Scheduler != nil {
 		r.Scheduler.Start(ctx)

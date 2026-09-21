@@ -17,10 +17,21 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
 - [x] M10 — Browser integrations (client-scoped snapshot/control contract, safe presets, Playwright/Puppeteer adapters, bounded estimated block reporting, Selenium foundation and controlled Chrome E2E complete locally)
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, audited user/proxy/source/pool/policy/client/API-key/cache lifecycle endpoints, protected local API, bounded authenticated traffic SSE and embedded OpenAPI contract locally implemented; broader API/event completion pending)
 - [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including user access, revisioned budget management and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
-- [ ] M13 — Shadow policies, events, alerts, extensions
+- [ ] M13 — Shadow policies, events, alerts, extensions (bounded operational events and signed webhook alerts complete locally; shadow comparison and external extensions pending)
 - [ ] M14 — Optional HTTPS Inspect
 - [x] M15 — Backup, restore, import/export, operations (doctor diagnostics, SQLite status/migration/offline compaction, WAL-consistent validated backup/restore, versioned secret-free portable config and restore acceptance for inventory/runtime/analytics complete locally)
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
+
+### M13 events and alerts continuation — 2026-09-21
+
+- Completed the local webhook-alert slice of M13. Added revisioned alert rules and
+  webhook destinations, admin-only CRUD/test/history APIs, bounded delivery queues,
+  per-attempt DNS/private-address checks, pinned connects, no redirects or proxy
+  environment, optional environment-backed HMAC-SHA256 signing, retry metadata and
+  globally bounded SQLite delivery retention. Manual and scheduled source refreshes
+  now publish through the same operational event bus, and the responsive Admin Panel
+  exposes one Alerts workspace without duplicate navigation. Shadow policies and
+  external extension loading remain open, so M13 is not complete.
 
 ### Release engineering continuation — 2026-09-16
 

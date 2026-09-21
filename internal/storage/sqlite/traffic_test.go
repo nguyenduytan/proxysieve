@@ -289,7 +289,7 @@ func TestSchemaSeventeenUpgradePreservesTrafficAndCostAggregates(t *testing.T) {
 	old := &Store{db: database}
 	files := fstest.MapFS{}
 	names, err := fs.Glob(migrations, "migrations/*.sql")
-	if err != nil || len(names) != 20 {
+	if err != nil || len(names) != 21 {
 		t.Fatal(names, err)
 	}
 	for _, name := range names[:16] {

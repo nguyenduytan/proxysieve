@@ -15,6 +15,7 @@ import (
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
 	"github.com/nguyenduytan/proxysieve/internal/audit"
+	internalevents "github.com/nguyenduytan/proxysieve/internal/events"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	"github.com/nguyenduytan/proxysieve/internal/storage/contract"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
@@ -160,6 +161,11 @@ func TestSourceRefreshFailuresKeepExistingInventory(t *testing.T) {
 	}))
 	defer feed.Close()
 	handler, server, repository, _, audits, cookies := refreshTestServer(t)
+	eventBus, err := internalevents.New(20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetEvents(eventBus)
 	server.sourceResolver = loopbackResolver()
 	server.sourcePolicy = security.DestinationPolicy{AllowTrusted: true}
 	source := contract.Source("failing")
@@ -192,6 +198,10 @@ func TestSourceRefreshFailuresKeepExistingInventory(t *testing.T) {
 	}
 	if err != nil || failureEvents != 1 {
 		t.Fatal(events, err)
+	}
+	operational, _, err := eventBus.Snapshot(20)
+	if err != nil || len(operational) != 1 || operational[0].Type != "source.refresh_failed" || operational[0].Severity != "error" {
+		t.Fatal(operational, err)
 	}
 }
 

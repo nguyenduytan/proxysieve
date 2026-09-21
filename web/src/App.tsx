@@ -6,6 +6,7 @@ import type { User, SessionState } from "./api";
 import { ClientAccess } from "./ClientAccess";
 import { AuditLog } from "./AuditLog";
 import { EventLog } from "./EventLog";
+import { AlertSettings } from "./AlertSettings";
 import { ProxyInventory } from "./ProxyInventory";
 import { PoolInventory } from "./PoolInventory";
 import { ChainInventory } from "./ChainInventory";
@@ -223,6 +224,9 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
           />
         )}
         {page === "Events" && <EventLog onExpired={onExpired} />}
+        {page === "Alerts" && user.role === "admin" && (
+          <AlertSettings onExpired={onExpired} />
+        )}
         {page === "Budgets" && (
           <BudgetInventory role={user.role} onExpired={onExpired} />
         )}

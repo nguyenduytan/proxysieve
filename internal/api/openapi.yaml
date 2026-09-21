@@ -14,6 +14,7 @@ tags:
   - name: System
   - name: Traffic
   - name: Events
+  - name: Alerts
   - name: Budgets
   - name: Cache
   - name: Health
@@ -270,6 +271,120 @@ paths:
         '200': {description: Bounded server-sent stream of new operational events, content: {text/event-stream: {schema: {type: string}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '503': {description: Operational event streaming is unavailable or at capacity}
+  /api/v1/alerts:
+    get:
+      tags: [Alerts]
+      responses:
+        '200': {description: Revisioned alert rules, content: {application/json: {schema: {$ref: '#/components/schemas/AlertRulePage'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [Alerts]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [rule], properties: {rule: {$ref: '#/components/schemas/AlertRule'}}}}}
+      responses:
+        '201': {description: Alert rule created, content: {application/json: {schema: {$ref: '#/components/schemas/AlertRuleRecord'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: Alert rule ID already exists}
+  /api/v1/alerts/{alertId}:
+    parameters: [{name: alertId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Alerts]
+      responses:
+        '200': {description: Alert rule, content: {application/json: {schema: {$ref: '#/components/schemas/AlertRuleRecord'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Alerts]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [rule, revision], properties: {rule: {$ref: '#/components/schemas/AlertRule'}, revision: {type: integer, minimum: 1}}}}}
+      responses:
+        '200': {description: Alert rule updated, content: {application/json: {schema: {$ref: '#/components/schemas/AlertRuleRecord'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Alert rule revision is stale}
+    delete:
+      tags: [Alerts]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/RevisionInput'}}}
+      responses:
+        '204': {description: Alert rule deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Alert rule revision is stale}
+  /api/v1/webhooks:
+    get:
+      tags: [Alerts]
+      responses:
+        '200': {description: Revisioned webhook destinations and process-lifetime dispatcher statistics, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookPage'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [Alerts]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [webhook], properties: {webhook: {$ref: '#/components/schemas/Webhook'}}}}}
+      responses:
+        '201': {description: Webhook created, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookRecord'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: Webhook ID already exists}
+  /api/v1/webhooks/{webhookId}:
+    parameters: [{name: webhookId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Alerts]
+      responses:
+        '200': {description: Webhook destination, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookRecord'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Alerts]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [webhook, revision], properties: {webhook: {$ref: '#/components/schemas/Webhook'}, revision: {type: integer, minimum: 1}}}}}
+      responses:
+        '200': {description: Webhook updated, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookRecord'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Webhook revision is stale}
+    delete:
+      tags: [Alerts]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/RevisionInput'}}}
+      responses:
+        '204': {description: Webhook deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Webhook revision is stale or destination is referenced by an alert rule}
+  /api/v1/webhooks/{webhookId}/test:
+    parameters: [{name: webhookId, in: path, required: true, schema: {type: string}}]
+    post:
+      tags: [Alerts]
+      security: [sessionCookie: [], csrfToken: []]
+      responses:
+        '200': {description: Completed webhook test attempt, content: {application/json: {schema: {type: object, required: [delivery], properties: {delivery: {$ref: '#/components/schemas/WebhookDelivery'}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {description: Webhook delivery is unavailable}
+  /api/v1/webhooks/{webhookId}/deliveries:
+    parameters: [{name: webhookId, in: path, required: true, schema: {type: string}}, {$ref: '#/components/parameters/Limit'}]
+    get:
+      tags: [Alerts]
+      responses:
+        '200': {description: Newest bounded delivery attempts for one webhook, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookDeliveryPage'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/v1/cache/stats:
     get:
       tags: [Cache]
@@ -1161,6 +1276,81 @@ components:
       properties:
         items: {type: array, maxItems: 1000, items: {$ref: '#/components/schemas/OperationalEvent'}}
         dropped: {type: integer, minimum: 0}
+    RevisionInput:
+      type: object
+      required: [revision]
+      properties:
+        revision: {type: integer, minimum: 1}
+    Webhook:
+      type: object
+      required: [id, name, url, enabled]
+      properties:
+        id: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'}
+        name: {type: string, minLength: 1, maxLength: 128}
+        url: {type: string, format: uri, maxLength: 2048, description: HTTPS URL without userinfo, query or fragment}
+        secret_ref: {type: string, maxLength: 256, pattern: '^secret://[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+){0,7}$'}
+        enabled: {type: boolean}
+    WebhookRecord:
+      type: object
+      required: [webhook, revision]
+      properties:
+        webhook: {$ref: '#/components/schemas/Webhook'}
+        revision: {type: integer, minimum: 1}
+    AlertRule:
+      type: object
+      required: [id, name, event_types, webhook_ids, enabled]
+      properties:
+        id: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'}
+        name: {type: string, minLength: 1, maxLength: 128}
+        event_types: {type: array, minItems: 1, maxItems: 64, uniqueItems: true, items: {type: string, pattern: '^[a-z][a-z0-9_.-]{1,127}$'}}
+        webhook_ids: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {type: string}}
+        enabled: {type: boolean}
+    AlertRuleRecord:
+      type: object
+      required: [rule, revision]
+      properties:
+        rule: {$ref: '#/components/schemas/AlertRule'}
+        revision: {type: integer, minimum: 1}
+    AlertRulePage:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/AlertRuleRecord'}}
+    AlertDeliveryStats:
+      type: object
+      required: [events_dropped, deliveries_dropped, succeeded, failed, log_failures, queued_events, queued_deliveries]
+      properties:
+        events_dropped: {type: integer, minimum: 0}
+        deliveries_dropped: {type: integer, minimum: 0}
+        succeeded: {type: integer, minimum: 0}
+        failed: {type: integer, minimum: 0}
+        log_failures: {type: integer, minimum: 0}
+        queued_events: {type: integer, minimum: 0, maximum: 256}
+        queued_deliveries: {type: integer, minimum: 0, maximum: 256}
+    WebhookPage:
+      type: object
+      required: [items, delivery]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/WebhookRecord'}}
+        delivery: {$ref: '#/components/schemas/AlertDeliveryStats'}
+    WebhookDelivery:
+      type: object
+      required: [id, webhook_id, event_id, attempted_at, attempt, success, duration_ns]
+      properties:
+        id: {type: string}
+        webhook_id: {type: string}
+        event_id: {type: string}
+        attempted_at: {type: string, format: date-time}
+        attempt: {type: integer, minimum: 1, maximum: 3}
+        success: {type: boolean}
+        status_code: {type: integer, minimum: 0, maximum: 999}
+        error_code: {type: string, maxLength: 64}
+        duration_ns: {type: integer, minimum: 0}
+    WebhookDeliveryPage:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, maxItems: 1000, items: {$ref: '#/components/schemas/WebhookDelivery'}}
     PoolInput:
       type: object
       description: Pool metadata accepted on create; omit id to let the server generate it.

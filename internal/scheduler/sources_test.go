@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/audit"
+	internalevents "github.com/nguyenduytan/proxysieve/internal/events"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
 	"github.com/nguyenduytan/proxysieve/internal/storage/contract"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
+	publicevent "github.com/nguyenduytan/proxysieve/pkg/event"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	publicstore "github.com/nguyenduytan/proxysieve/pkg/store"
@@ -58,9 +60,13 @@ func TestSourceJobRefreshesDueSourcesAcrossBoundedRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	eventBus, err := internalevents.New(20)
+	if err != nil {
+		t.Fatal(err)
+	}
 	job := &SourceJob{
 		Store: repository, Refresher: internalsource.NewRefresher(""), Resolver: schedulerLoopbackResolver(),
-		Policy: security.DestinationPolicy{AllowTrusted: true}, Audit: audits, Now: func() time.Time { return now },
+		Policy: security.DestinationPolicy{AllowTrusted: true}, Audit: audits, Events: eventBus, Now: func() time.Time { return now },
 		PageSize: 2, MaxPages: 2, MaxRefreshes: 1, PerSourceTimeout: 5 * time.Second,
 	}
 	for range 3 {
@@ -88,6 +94,10 @@ func TestSourceJobRefreshesDueSourcesAcrossBoundedRuns(t *testing.T) {
 	if err != nil || len(events) != 3 {
 		t.Fatal(events, err)
 	}
+	operational, _, err := eventBus.Snapshot(20)
+	if err != nil || len(operational) != 3 || !operationalEventsAudited(operational, events) || operational[0].Type != "source.refreshed" {
+		t.Fatal(operational, err)
+	}
 }
 
 func TestSourceJobContinuesAfterRecordedFailure(t *testing.T) {
@@ -111,10 +121,14 @@ func TestSourceJobContinuesAfterRecordedFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	eventBus, err := internalevents.New(20)
+	if err != nil {
+		t.Fatal(err)
+	}
 	now := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
 	job := &SourceJob{
 		Store: repository, Refresher: internalsource.NewRefresher(""), Resolver: schedulerLoopbackResolver(),
-		Policy: security.DestinationPolicy{AllowTrusted: true}, Audit: audits, Now: func() time.Time { return now },
+		Policy: security.DestinationPolicy{AllowTrusted: true}, Audit: audits, Events: eventBus, Now: func() time.Time { return now },
 		PageSize: 10, MaxPages: 1, MaxRefreshes: 2, PerSourceTimeout: 5 * time.Second,
 	}
 	if err = job.Run(t.Context()); !errors.Is(err, ErrSourceRefreshFailed) {
@@ -132,6 +146,10 @@ func TestSourceJobContinuesAfterRecordedFailure(t *testing.T) {
 	events, err := audits.ListAudit(t.Context(), audit.Page{Limit: 20})
 	if err != nil || len(events) != 2 || !hasAuditActions(events, "source.refresh_failed", "source.refreshed") {
 		t.Fatal(events, err)
+	}
+	operational, _, err := eventBus.Snapshot(20)
+	if err != nil || len(operational) != 2 || !operationalEventsAudited(operational, events) || operational[0].Type != "source.refreshed" || operational[1].Type != "source.refresh_failed" || operational[1].Severity != "error" {
+		t.Fatal(operational, err)
 	}
 }
 
@@ -151,6 +169,22 @@ func hasAuditActions(events []audit.Event, want ...string) bool {
 	}
 	for _, action := range want {
 		if !seen[action] {
+			return false
+		}
+	}
+	return true
+}
+
+func operationalEventsAudited(operational []publicevent.Event, audited []audit.Event) bool {
+	for _, item := range operational {
+		found := false
+		for _, recorded := range audited {
+			if item.ID == recorded.ID && item.At.Equal(recorded.At) && item.Type == recorded.Action && item.TargetID == recorded.TargetID {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return false
 		}
 	}

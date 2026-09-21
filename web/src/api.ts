@@ -432,6 +432,58 @@ export interface EventPage {
   items: OperationalEvent[];
   dropped: number;
 }
+export interface WebhookConfig {
+  id: string;
+  name: string;
+  url: string;
+  secret_ref?: string;
+  enabled: boolean;
+}
+export interface WebhookRecord {
+  webhook: WebhookConfig;
+  revision: number;
+}
+export interface AlertRule {
+  id: string;
+  name: string;
+  event_types: string[];
+  webhook_ids: string[];
+  enabled: boolean;
+}
+export interface AlertRuleRecord {
+  rule: AlertRule;
+  revision: number;
+}
+export interface WebhookDelivery {
+  id: string;
+  webhook_id: string;
+  event_id: string;
+  attempted_at: string;
+  attempt: number;
+  success: boolean;
+  status_code?: number;
+  error_code?: string;
+  duration_ns: number;
+}
+export interface AlertDeliveryStats {
+  events_dropped: number;
+  deliveries_dropped: number;
+  succeeded: number;
+  failed: number;
+  log_failures: number;
+  queued_events: number;
+  queued_deliveries: number;
+}
+export interface AlertRulePage {
+  items: AlertRuleRecord[];
+}
+export interface WebhookPage {
+  items: WebhookRecord[];
+  delivery: AlertDeliveryStats;
+}
+export interface WebhookDeliveryPage {
+  items: WebhookDelivery[];
+}
 export interface APIKeyCreation {
   api_key: APIKeyRecord;
   token: string;

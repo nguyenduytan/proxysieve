@@ -110,8 +110,8 @@ func TestSessionCLIRejectsRedirectAndDoesNotLeakPassword(t *testing.T) {
 		received <- string(body)
 	}))
 	defer target.Close()
-	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Redirect(w, nil, target.URL, http.StatusTemporaryRedirect)
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
 	}))
 	defer redirect.Close()
 

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/admin"
+	internalalert "github.com/nguyenduytan/proxysieve/internal/alert"
 	"github.com/nguyenduytan/proxysieve/internal/audit"
 	internalbudget "github.com/nguyenduytan/proxysieve/internal/budget"
 	"github.com/nguyenduytan/proxysieve/internal/buildinfo"
@@ -30,6 +31,7 @@ import (
 	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
+	publicalert "github.com/nguyenduytan/proxysieve/pkg/alert"
 	"github.com/nguyenduytan/proxysieve/pkg/auth"
 	publicbudget "github.com/nguyenduytan/proxysieve/pkg/budget"
 	publicevent "github.com/nguyenduytan/proxysieve/pkg/event"
@@ -66,6 +68,8 @@ type Server struct {
 	health          HealthControl
 	budgets         *internalbudget.Manager
 	responseCache   internalcache.ResponseStore
+	alerts          store.Alerts
+	alertControl    AlertControl
 	audit           audit.Writer
 	events          *internalevents.Bus
 	now             func() time.Time
@@ -111,6 +115,11 @@ type SessionStore interface {
 	Get(context.Context, model.ID) (publicsession.Session, error)
 	Rotate(context.Context, model.ID, publicsession.RotationReason) error
 	Delete(context.Context, model.ID) error
+}
+
+type AlertControl interface {
+	Stats() internalalert.Stats
+	Test(context.Context, model.ID) (publicalert.Delivery, error)
 }
 
 type ListenerMetric struct {
@@ -161,9 +170,13 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 	if chainStore, ok := endpoints.(store.Chains); ok {
 		chains = chainStore
 	}
+	var alerts store.Alerts
+	if alertStore, ok := endpoints.(store.Alerts); ok {
+		alerts = alertStore
+	}
 	return &Server{
 		admin: service, traffic: traffic, endpoints: endpoints, sources: sources, pools: pools, chains: chains, policies: policies,
-		clients: clients, trafficStore: durable, browserAuth: browserAuth, browserRecorder: traffic, audit: auditWriter, ui: dashboardHandler(),
+		clients: clients, trafficStore: durable, browserAuth: browserAuth, browserRecorder: traffic, alerts: alerts, audit: auditWriter, ui: dashboardHandler(),
 		chainHealth:    map[model.ID]chainHealthRecord{},
 		now:            func() time.Time { return time.Now().UTC() },
 		sourceResolver: sourceResolver{},
@@ -180,6 +193,7 @@ func (sourceResolver) LookupNetIP(ctx context.Context, host string) ([]netip.Add
 func (s *Server) Handler() http.Handler                              { return securityHeaders(http.HandlerFunc(s.handle)) }
 func (s *Server) SetTrafficStatus(status TrafficStatus)              { s.trafficStatus = status }
 func (s *Server) SetEvents(events *internalevents.Bus)               { s.events = events }
+func (s *Server) SetAlertControl(control AlertControl)               { s.alertControl = control }
 func (s *Server) SetRuntimeControl(control RuntimeControl)           { s.runtimeControl = control }
 func (s *Server) SetBrowserRecorder(recorder publictraffic.Recorder) { s.browserRecorder = recorder }
 func (s *Server) SetSessions(sessions SessionStore)                  { s.sessions = sessions }
@@ -272,6 +286,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.listEvents(w, r) })
 	case "/api/v1/events/stream":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.streamEvents(w, r) })
+	case "/api/v1/alerts":
+		s.alertsCollection(w, r)
+	case "/api/v1/webhooks":
+		s.webhooksCollection(w, r)
 	case "/api/v1/traffic/history":
 		s.require(w, r, auth.RoleViewer, func(_ auth.User) { s.trafficHistory(w, r) })
 	case "/api/v1/traffic/summary":
@@ -360,6 +378,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.revokeAPIKey(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/budgets/") {
 			s.budgetByID(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/alerts/") {
+			s.alertByID(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/webhooks/") {
+			s.webhookByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/clients/") {
 			s.clientByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/users/") {
@@ -1252,7 +1274,11 @@ func (s *Server) record(ctx context.Context, user auth.User, action, targetType,
 		_ = s.audit.Record(ctx, audit.Event{ID: id, At: at, ActorID: user.ID, Action: action, TargetType: targetType, TargetID: targetID})
 	}
 	if s.events != nil {
-		_ = s.events.Publish(ctx, publicevent.Event{ID: id, At: at, Type: action, Severity: publicevent.Info, Source: "admin", ActorID: user.ID, TargetType: targetType, TargetID: targetID})
+		severity := publicevent.Info
+		if action == "source.refresh_failed" {
+			severity = publicevent.Error
+		}
+		_ = s.events.Publish(ctx, publicevent.Event{ID: id, At: at, Type: action, Severity: severity, Source: "admin", ActorID: user.ID, TargetType: targetType, TargetID: targetID})
 	}
 }
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {

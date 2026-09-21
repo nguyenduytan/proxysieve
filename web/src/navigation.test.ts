@@ -11,6 +11,7 @@ describe("admin navigation", () => {
       "Overview",
       "Traffic",
       "Events",
+      "Alerts",
       "Budgets",
       "Cache",
       "Proxies",
@@ -25,7 +26,7 @@ describe("admin navigation", () => {
       "Audit",
       "System",
     ]);
-    expect(labels).not.toContain("Alerts");
+    expect(labels.filter((label) => label === "Alerts")).toHaveLength(1);
   });
 
   it("shows security-sensitive destinations only to admins", () => {
@@ -38,6 +39,9 @@ describe("admin navigation", () => {
     expect(navigationForRole("admin").map((item) => item.page)).toContain(
       "Users",
     );
+    expect(navigationForRole("admin").map((item) => item.page)).toContain(
+      "Alerts",
+    );
     expect(
       navigationForRole("operator").map((item) => item.page),
     ).not.toContain("Clients");
@@ -47,6 +51,9 @@ describe("admin navigation", () => {
     expect(
       navigationForRole("operator").map((item) => item.page),
     ).not.toContain("Users");
+    expect(
+      navigationForRole("operator").map((item) => item.page),
+    ).not.toContain("Alerts");
     expect(navigationForRole("viewer").map((item) => item.page)).not.toContain(
       "Clients",
     );

@@ -26,6 +26,18 @@ GET  /api/v1/traffic/timeseries
 GET  /api/v1/traffic/breakdown
 GET  /api/v1/events
 GET  /api/v1/events/stream
+GET  /api/v1/alerts
+POST /api/v1/alerts
+GET  /api/v1/alerts/{id}
+PATCH /api/v1/alerts/{id}
+DELETE /api/v1/alerts/{id}
+GET  /api/v1/webhooks
+POST /api/v1/webhooks
+GET  /api/v1/webhooks/{id}
+PATCH /api/v1/webhooks/{id}
+DELETE /api/v1/webhooks/{id}
+POST /api/v1/webhooks/{id}/test
+GET  /api/v1/webhooks/{id}/deliveries
 GET  /api/v1/budgets
 POST /api/v1/budgets
 GET  /api/v1/budgets/{id}
@@ -116,10 +128,20 @@ grouped by currency and includes rated upstream-byte coverage; these values are
 configured estimates, not provider-billed amounts.
 
 The embedded Admin Panel deliberately lists only API-backed destinations:
-Overview, Traffic, Events, Budgets, Cache, Proxies, Sources, Pools, Chains, Health, Sessions,
-Policies, Clients, Users, Audit and System. Planned
-workspaces such as Alerts are not rendered as disabled navigation. This avoids
-duplicate or inert menu surfaces while features are still under development.
+Overview, Traffic, Events, Alerts, Budgets, Cache, Proxies, Sources, Pools, Chains,
+Health, Sessions, Policies, Clients, Users, Audit and System. Alert rules and webhook
+destinations share one administrator-only workspace rather than duplicating related
+controls across separate menu items.
+
+Alert rules match exact operational event types and fan out to enabled webhook
+destinations. Configuration is revisioned and administrator-only. Webhook URLs must
+use HTTPS without userinfo, query or fragment; DNS is resolved and checked against
+the private-destination policy for every attempt, redirects and environment proxies
+are disabled, and the accepted address is pinned during connect. Optional HMAC-SHA256
+signing resolves `secret://` references from environment variables without storing
+raw keys. Delivery attempts use a bounded queue, at most three retryable attempts,
+an idempotency key equal to the event ID, sanitized error codes and a globally bounded
+10,000-row history. See [alerts and webhooks](alerts.md).
 
 Budget reads expose the revisioned durable inventory and current usage to viewers.
 Calendar budgets include the current half-open UTC window; lifetime budgets omit

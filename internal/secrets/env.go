@@ -16,9 +16,9 @@ var ErrUnavailable = errors.New("secret is unavailable")
 
 type Environment struct{ Lookup func(string) (string, bool) }
 
-func (e Environment) ResolveCredentials(_ context.Context, ref secret.Ref) (upstream.Credentials, error) {
+func (e Environment) Resolve(_ context.Context, ref secret.Ref) (secret.Value, error) {
 	if !ref.Valid() {
-		return upstream.Credentials{}, ErrUnavailable
+		return secret.Value{}, ErrUnavailable
 	}
 	lookup := e.Lookup
 	if lookup == nil {
@@ -26,13 +26,27 @@ func (e Environment) ResolveCredentials(_ context.Context, ref secret.Ref) (upst
 	}
 	raw, ok := lookup(variable(ref))
 	if !ok || len(raw) == 0 || len(raw) > secret.MaxBytes {
+		return secret.Value{}, ErrUnavailable
+	}
+	value, err := secret.New([]byte(raw))
+	if err != nil {
+		return secret.Value{}, ErrUnavailable
+	}
+	return value, nil
+}
+
+func (e Environment) ResolveCredentials(ctx context.Context, ref secret.Ref) (upstream.Credentials, error) {
+	resolved, err := e.Resolve(ctx, ref)
+	if err != nil {
 		return upstream.Credentials{}, ErrUnavailable
 	}
+	raw := resolved.Reveal()
+	defer func() { clear(raw) }()
 	var value struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	if json.Unmarshal([]byte(raw), &value) != nil {
+	if json.Unmarshal(raw, &value) != nil {
 		return upstream.Credentials{}, ErrUnavailable
 	}
 	username, err := secret.New([]byte(value.Username))

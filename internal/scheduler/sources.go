@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/nguyenduytan/proxysieve/internal/audit"
+	internalevents "github.com/nguyenduytan/proxysieve/internal/events"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
+	publicevent "github.com/nguyenduytan/proxysieve/pkg/event"
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	publicstore "github.com/nguyenduytan/proxysieve/pkg/store"
@@ -22,6 +24,7 @@ type SourceJob struct {
 	Resolver         internalsource.Resolver
 	Policy           security.DestinationPolicy
 	Audit            audit.Writer
+	Events           *internalevents.Bus
 	Now              func() time.Time
 	PageSize         int
 	MaxPages         int
@@ -135,10 +138,19 @@ func sourceJobResult(failed bool) error {
 }
 
 func (j *SourceJob) record(ctx context.Context, now time.Time, action string, id model.ID) {
-	if j.Audit == nil {
+	if j.Audit == nil && j.Events == nil {
 		return
 	}
-	_ = j.Audit.Record(context.WithoutCancel(ctx), audit.Event{
-		ID: model.NewID(), At: now, Action: action, TargetType: "source", TargetID: string(id),
-	})
+	eventID := model.NewID()
+	ctx = context.WithoutCancel(ctx)
+	if j.Audit != nil {
+		_ = j.Audit.Record(ctx, audit.Event{ID: eventID, At: now, Action: action, TargetType: "source", TargetID: string(id)})
+	}
+	if j.Events != nil {
+		severity := publicevent.Info
+		if action == "source.refresh_failed" {
+			severity = publicevent.Error
+		}
+		_ = j.Events.Publish(ctx, publicevent.Event{ID: eventID, At: now, Type: action, Severity: severity, Source: "scheduler", TargetType: "source", TargetID: string(id)})
+	}
 }

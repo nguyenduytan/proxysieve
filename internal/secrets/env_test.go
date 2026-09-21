@@ -19,6 +19,9 @@ func TestEnvironmentCredentials(t *testing.T) {
 	if _, err = e.ResolveCredentials(context.Background(), "secret://upstream/missing"); err == nil {
 		t.Fatal("missing secret accepted")
 	}
+	if raw, resolveErr := e.Resolve(context.Background(), "secret://upstream/auth"); resolveErr != nil || string(raw.Reveal()) != `{"username":"demo","password":"fake-password"}` {
+		t.Fatal(raw, resolveErr)
+	}
 	if variable("secret://up-stream/auth-key") != "PROXYSIEVE_SECRET_UP_STREAM_AUTH_KEY" {
 		t.Fatal(variable("secret://up-stream/auth-key"))
 	}

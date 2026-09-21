@@ -16,6 +16,7 @@ import {
   Gauge,
   HardDrive,
   RadioTower,
+  BellRing,
 } from "lucide-react";
 import type { Role } from "./api";
 
@@ -23,6 +24,7 @@ export type Page =
   | "Overview"
   | "Traffic"
   | "Events"
+  | "Alerts"
   | "Budgets"
   | "Cache"
   | "Proxies"
@@ -65,6 +67,13 @@ export const navigationItems: readonly NavigationItem[] = Object.freeze([
     label: "Events",
     description: "Live control-plane activity",
     icon: RadioTower,
+  },
+  {
+    page: "Alerts",
+    label: "Alerts",
+    description: "Rules and webhook delivery",
+    icon: BellRing,
+    roles: ["admin"],
   },
   {
     page: "Budgets",
