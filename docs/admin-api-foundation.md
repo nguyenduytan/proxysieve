@@ -1,7 +1,8 @@
-# Admin API Foundation
+# Admin API v1
 
 The local control plane binds to `127.0.0.1:9090` by default. It is an HTTP API
-foundation, not yet the full documented v1 control plane or dashboard server.
+with an embedded dashboard. The implemented contract is published at
+`/api/v1/openapi.yaml`; routes not present there are not supported.
 
 Available endpoints:
 
@@ -20,10 +21,13 @@ DELETE /api/v1/users/{id}
 GET  /api/v1/openapi.yaml
 GET  /api/v1/system/info
 GET  /api/v1/traffic/live
+GET  /api/v1/traffic/stream
 GET  /api/v1/traffic/history
 GET  /api/v1/traffic/summary
 GET  /api/v1/traffic/timeseries
 GET  /api/v1/traffic/breakdown
+GET  /api/v1/browser/policy
+POST /api/v1/browser/blocks
 GET  /api/v1/events
 GET  /api/v1/events/stream
 GET  /api/v1/alerts
@@ -64,11 +68,22 @@ POST /api/v1/sources
 GET  /api/v1/sources/{id}
 PATCH /api/v1/sources/{id}
 DELETE /api/v1/sources/{id}
+POST /api/v1/sources/{id}/refresh
 GET  /api/v1/pools
 POST /api/v1/pools
 GET  /api/v1/pools/{id}
 PATCH /api/v1/pools/{id}
 DELETE /api/v1/pools/{id}
+GET  /api/v1/chains
+POST /api/v1/chains
+GET  /api/v1/chains/{id}
+PATCH /api/v1/chains/{id}
+DELETE /api/v1/chains/{id}
+POST /api/v1/chains/{id}/test
+GET  /api/v1/sessions
+GET  /api/v1/sessions/{id}
+DELETE /api/v1/sessions/{id}
+POST /api/v1/sessions/{id}/rotate
 GET  /api/v1/policies
 POST /api/v1/policies
 GET  /api/v1/policies/{id}
@@ -81,8 +96,15 @@ GET  /api/v1/shadow/{id}
 PATCH /api/v1/shadow/{id}
 DELETE /api/v1/shadow/{id}
 GET  /api/v1/shadow/{id}/comparison
+GET  /api/v1/runtime
+GET  /api/v1/runtime/history
+POST /api/v1/runtime/activate
+POST /api/v1/runtime/rollback
 GET  /api/v1/clients
 POST /api/v1/clients
+GET  /api/v1/clients/{id}
+PATCH /api/v1/clients/{id}
+DELETE /api/v1/clients/{id}
 GET  /api/v1/clients/{id}/api-keys
 POST /api/v1/clients/{id}/api-keys
 DELETE /api/v1/clients/{id}/api-keys/{key-id}

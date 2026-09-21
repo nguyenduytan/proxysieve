@@ -38,3 +38,20 @@ gh attestation verify proxysieve.spdx.json --repo nguyenduytan/proxysieve
 The workflow intentionally does not publish a container image or move a
 pre-release to `latest`. Container publication remains gated on the full release
 acceptance matrix.
+
+## Compatibility matrix
+
+| Surface | Supported release contract |
+| --- | --- |
+| Runtime targets | Linux, Windows and macOS on amd64 and arm64; release archives are statically built with Go 1.27.x (`CGO_ENABLED=0`) |
+| Downstream protocols | HTTP/1.1 forward proxy, HTTP CONNECT and SOCKS5 CONNECT; no SOCKS5 UDP |
+| Upstream routes | Explicit DIRECT, HTTP proxy, HTTPS proxy and SOCKS5 proxy, including ordered 2-to-8-hop chains |
+| HTTPS Inspect | Explicitly scoped HTTP/1.1 inside CONNECT only; disabled by default; no HTTP/2, HTTP/3, QUIC, WebSocket upgrade or nested CONNECT inspection |
+| Browser adapters | Node.js 24; Playwright Core 1.63.x; Puppeteer Core 25.11.x; Selenium uses the documented proxy-only setup |
+| Versioned contracts | Configuration schema v1, Admin API v1 at `/api/v1`, browser control/report format v1, portable export format v1 and Extension API v1 |
+| SQLite backup/restore | Stop ProxySieve first. Backups include committed WAL state, never overwrite a destination and may restore a valid older embedded schema that the current binary can migrate. Future, reordered or checksum-modified migration histories are rejected. |
+
+Static cross-compilation is not runtime acceptance. Before publishing an RC, the
+hosted Linux, Windows and macOS jobs must pass. Smoke-test one release archive on
+each operating system; both architectures remain build-verified until matching
+hardware or hosted runners execute them.

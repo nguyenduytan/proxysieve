@@ -145,11 +145,10 @@ export function TrafficView({
         </span>
       </header>
       <div className="scope-notice">
-        Local development build · Live and retained HTTP, CONNECT and SOCKS5
-        events with bounded summary and minute/hour/day rollups. Transport
-        framing plus soft and cost budgets are not available yet. Configured
-        costs and projections are estimates; configured hard byte budgets are
-        enforced in the gateway.
+        Live and retained HTTP, CONNECT and SOCKS5 events with minute/hour/day
+        rollups. Measurements exclude transport framing. Configured costs and
+        projections are estimates. Byte budgets support soft warnings and hard
+        enforcement; cost-denominated limits are not supported.
       </div>
       {error && (
         <div role="alert" className="auth-error">

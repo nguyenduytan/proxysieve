@@ -806,7 +806,9 @@ function summarizeConstraints(pool: Pool): string {
   return values.join(" · ") || "None";
 }
 
-async function fetchAllPools(signal?: AbortSignal): Promise<PoolRecord[]> {
+export async function fetchAllPools(
+  signal?: AbortSignal,
+): Promise<PoolRecord[]> {
   const records: PoolRecord[] = [];
   let after = "";
   do {

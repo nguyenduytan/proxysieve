@@ -12,12 +12,14 @@ import {
 } from "lucide-react";
 import { ApiError, api, errorMessage } from "./api";
 import { ShadowPolicies } from "./ShadowPolicies";
+import { fetchAllPools } from "./PoolInventory";
 import type {
   Policy,
   PolicyPage,
   PolicyRecord,
   PolicyResponse,
   PolicySimulation,
+  PoolRecord,
   Role,
   RuntimeHistory,
   RuntimeState,
@@ -40,6 +42,23 @@ const examplePolicy = (): Policy => ({
         values: ["example.invalid"],
       },
       actions: [{ type: "reject" }],
+    },
+  ],
+});
+
+export const passthroughPolicy = (poolID: string): Policy => ({
+  version: 1,
+  id: "default",
+  name: "Passthrough",
+  rules: [
+    {
+      id: "route",
+      name: "Route through selected pool",
+      priority: 100,
+      enabled: true,
+      stop_processing: true,
+      conditions: {},
+      actions: [{ type: "proxy", pool_id: poolID }],
     },
   ],
 });
@@ -592,6 +611,29 @@ function PolicyEditor({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pools, setPools] = useState<PoolRecord[]>([]);
+  const [poolID, setPoolID] = useState("");
+  useEffect(() => {
+    if (initial) return;
+    const controller = new AbortController();
+    void fetchAllPools(controller.signal)
+      .then((records) => {
+        if (controller.signal.aborted) return;
+        setPools(records.filter((record) => record.pool.enabled));
+        setPoolID(
+          (current) =>
+            current ||
+            records.find((record) => record.pool.enabled)?.pool.id ||
+            "",
+        );
+      })
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) return;
+        if (caught instanceof ApiError && caught.status === 401) onExpired();
+        else setError(errorMessage(caught));
+      });
+    return () => controller.abort();
+  }, [initial, onExpired]);
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -630,6 +672,34 @@ function PolicyEditor({
         Edit the canonical JSON document. The API validates rule fields, action
         types and pool or chain references before saving.
       </p>
+      {!initial && pools.length > 0 ? (
+        <div className="form-grid">
+          <label>
+            Pool for passthrough
+            <select
+              value={poolID}
+              onChange={(event) => setPoolID(event.target.value)}
+            >
+              {pools.map((record) => (
+                <option key={record.pool.id} value={record.pool.id}>
+                  {record.pool.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="pause-button secondary"
+            disabled={busy}
+            onClick={() => {
+              setText(JSON.stringify(passthroughPolicy(poolID), null, 2));
+              setError("");
+            }}
+          >
+            Replace JSON with passthrough
+          </button>
+        </div>
+      ) : null}
       <textarea
         aria-label="Policy JSON"
         value={text}

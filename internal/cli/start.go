@@ -38,7 +38,7 @@ func runStart(args []string, stdout, stderr io.Writer, home string, env map[stri
 	}
 	runtime, err := app.Build(effective.Config)
 	if errors.Is(err, app.ErrUnsupportedListener) {
-		_, _ = io.WriteString(stderr, "LISTENER_UNAVAILABLE: remove SOCKS5 listeners until M4 is implemented.\n")
+		_, _ = io.WriteString(stderr, "RUNTIME_UNSUPPORTED: the configured listener or control-plane feature is unavailable.\n")
 		return 1
 	}
 	if err != nil {

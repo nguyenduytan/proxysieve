@@ -103,7 +103,11 @@ only in the local setup form. It is never returned by the API.
 The example configuration is intentionally fail-closed. It starts the local
 listener/control plane but does not route user traffic until a policy/pool/endpoint
 configuration explicitly permits it. See [configuration](docs/configuration.md)
-and [admin API foundation](docs/admin-api-foundation.md).
+and [Admin API v1](docs/admin-api-foundation.md).
+For a first route in Admin: import a proxy, edit it to approve remote DNS only
+after assessing the provider, create a pool containing it, then add a policy with
+the passthrough template and activate inventory. A passing health check proves
+connectivity, not the provider's DNS trustworthiness.
 Advanced action values and visible-HTTP compatibility are documented in
 [policy inventory and simulation](docs/policies.md).
 Operational backup and portable configuration workflows are described in

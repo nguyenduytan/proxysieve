@@ -232,6 +232,10 @@
     Consolas,
     monospace;
 }
+.policy-form .form-grid {
+  align-items: end;
+  margin-bottom: 15px;
+}
 .runtime-strip {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto minmax(220px, auto);

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added revisioned Admin proxy editing and explicit remote-DNS trust approval,
+  allowing imported endpoints to route under the safe default configuration.
+- Corrected the Overview explanation of supported budget warnings and limits.
+- Added a pool-selectable passthrough template to the Admin policy editor; its
+  generated JSON remains visible for review before saving and activation.
 - Added bounded sanitized control-plane operational events with viewer-readable
   snapshot/SSE APIs, slow-subscriber isolation and a responsive live Events workspace.
 - Added revisioned administrator-only alert rules and HTTPS webhook destinations,

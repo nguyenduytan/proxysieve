@@ -57,6 +57,7 @@ export interface Endpoint {
   port: number;
   enabled: boolean;
   credential_ref?: string;
+  trusted_remote_dns?: boolean;
 }
 export interface EndpointRecord {
   endpoint: Endpoint;

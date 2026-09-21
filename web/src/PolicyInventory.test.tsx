@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { PolicyInventory } from "./PolicyInventory";
+import { PolicyInventory, passthroughPolicy } from "./PolicyInventory";
 
 describe("policy workspace permissions", () => {
+  it("generates an inspectable passthrough policy for the selected pool", () => {
+    const policy = passthroughPolicy("paid-pool");
+    expect(policy.id).toBe("default");
+    expect(policy.rules[0]?.conditions).toEqual({});
+    expect(policy.rules[0]?.actions).toEqual([
+      { type: "proxy", pool_id: "paid-pool" },
+    ]);
+  });
   it("shows the operator authoring control and inventory boundary", () => {
     const html = renderToStaticMarkup(
       <PolicyInventory role="operator" onExpired={() => {}} />,

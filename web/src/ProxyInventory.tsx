@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Globe2, Plus, Power, RefreshCw } from "lucide-react";
+import { Edit3, Globe2, Plus, Power, RefreshCw } from "lucide-react";
 import { api, ApiError, errorMessage } from "./api";
 import type {
   EndpointRecord,
@@ -23,7 +23,9 @@ export function ProxyInventory({
   const [next, setNext] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [form, setForm] = useState<"none" | "create" | "preview">("none");
+  const [form, setForm] = useState<
+    "none" | "create" | "preview" | EndpointRecord
+  >("none");
   const [notice, setNotice] = useState("");
   const [toggling, setToggling] = useState("");
   const load = useCallback(
@@ -140,8 +142,10 @@ export function ProxyInventory({
           {notice}
         </div>
       )}
-      {form === "create" && (
-        <CreateProxy
+      {(form === "create" || typeof form === "object") && (
+        <ProxyEditor
+          key={typeof form === "object" ? form.endpoint.id : "new"}
+          initial={typeof form === "object" ? form : undefined}
           onSaved={() => {
             setForm("none");
             setNotice("Proxy saved and staged. Active routing is unchanged.");
@@ -193,6 +197,7 @@ export function ProxyInventory({
                   <th>Endpoint</th>
                   <th>Credential reference</th>
                   <th>Enabled metadata</th>
+                  <th>Remote DNS</th>
                   <th>Revision</th>
                   {mutable && <th>Actions</th>}
                 </tr>
@@ -217,9 +222,23 @@ export function ProxyInventory({
                       <td data-label="Enabled">
                         {endpoint.enabled ? "Yes" : "No"}
                       </td>
+                      <td data-label="Remote DNS">
+                        {endpoint.trusted_remote_dns
+                          ? "Trusted"
+                          : "Not approved"}
+                      </td>
                       <td data-label="Revision">{revision}</td>
                       {mutable && (
                         <td className="proxy-action-cell">
+                          <button
+                            className="icon-button"
+                            aria-label={`Edit ${endpoint.name}`}
+                            title="Edit endpoint"
+                            disabled={toggling === endpoint.id}
+                            onClick={() => setForm(record)}
+                          >
+                            <Edit3 size={15} />
+                          </button>
                           <button
                             className="icon-button proxy-toggle-button"
                             title={
@@ -264,20 +283,27 @@ export function ProxyInventory({
     </div>
   );
 }
-function CreateProxy({
+export function ProxyEditor({
+  initial,
   onSaved,
   onCancel,
   onExpired,
 }: {
+  initial?: EndpointRecord | undefined;
   onSaved: () => void;
   onCancel: () => void;
   onExpired: () => void;
 }) {
-  const [name, setName] = useState(""),
-    [host, setHost] = useState(""),
-    [protocol, setProtocol] = useState("http"),
-    [port, setPort] = useState("8080"),
-    [reference, setReference] = useState("");
+  const [name, setName] = useState(initial?.endpoint.name ?? ""),
+    [host, setHost] = useState(initial?.endpoint.host ?? ""),
+    [protocol, setProtocol] = useState(initial?.endpoint.protocol ?? "http"),
+    [port, setPort] = useState(String(initial?.endpoint.port ?? 8080)),
+    [reference, setReference] = useState(
+      initial?.endpoint.credential_ref ?? "",
+    );
+  const [trustedDNS, setTrustedDNS] = useState(
+    initial?.endpoint.trusted_remote_dns ?? false,
+  );
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -285,19 +311,27 @@ function CreateProxy({
     setBusy(true);
     setError("");
     try {
-      await api("/api/v1/proxies", {
-        method: "POST",
-        body: {
-          endpoint: {
-            name,
-            protocol,
-            host,
-            port: Number(port),
-            enabled: true,
-            ...(reference ? { credential_ref: reference } : {}),
+      await api(
+        initial
+          ? `/api/v1/proxies/${encodeURIComponent(initial.endpoint.id)}`
+          : "/api/v1/proxies",
+        {
+          method: initial ? "PATCH" : "POST",
+          body: {
+            ...(initial ? { revision: initial.revision } : {}),
+            endpoint: {
+              ...initial?.endpoint,
+              name,
+              protocol,
+              host,
+              port: Number(port),
+              enabled: initial?.endpoint.enabled ?? true,
+              credential_ref: reference,
+              trusted_remote_dns: trustedDNS,
+            },
           },
         },
-      });
+      );
       onSaved();
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) onExpired();
@@ -307,7 +341,7 @@ function CreateProxy({
   }
   return (
     <form className="resource-form" onSubmit={save}>
-      <h2>Add endpoint metadata</h2>
+      <h2>{initial ? "Edit endpoint metadata" : "Add endpoint metadata"}</h2>
       <div className="form-grid">
         <label>
           Name
@@ -360,6 +394,20 @@ function CreateProxy({
           />
         </label>
       </div>
+      <label className="checkbox-field">
+        <input
+          type="checkbox"
+          checked={trustedDNS}
+          onChange={(event) => setTrustedDNS(event.target.checked)}
+        />
+        Trust this proxy's remote DNS
+      </label>
+      <p className="field-help">
+        Required for routing with default private-destination protection. Enable
+        only for a proxy you trust to enforce destination restrictions after DNS
+        resolution. A successful health check does not establish this trust.
+        Save, then activate inventory from Policies to apply changes.
+      </p>
       <p className="field-help">
         Do not put a username or password in the host field. Credentials are
         resolved separately by the gateway.
@@ -376,6 +424,7 @@ function CreateProxy({
         <button
           type="button"
           className="pause-button secondary"
+          disabled={busy}
           onClick={onCancel}
         >
           Cancel
