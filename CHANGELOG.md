@@ -10,6 +10,10 @@
 - Added revisioned shadow policies with canonical simulation-only evaluation,
   bounded decision/pool/latency aggregates, audited CRUD APIs and an integrated
   responsive Policies workspace that cannot alter live route selection.
+- Added out-of-process Extension API v1 with bounded JSON frames, version and
+  capability negotiation, root-confined manifests/executables, sanitized child
+  environments, deadlines, bounded crash retries and provider/selector/alert-sink
+  examples callable through the explicit local CLI.
 
 ### Added
 

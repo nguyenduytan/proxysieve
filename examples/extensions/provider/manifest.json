@@ -1,0 +1,8 @@
+{
+  "name": "example-provider",
+  "version": "0.1.0",
+  "api_version": 1,
+  "command": "./extension",
+  "capabilities": ["proxy-provider"],
+  "permissions": []
+}

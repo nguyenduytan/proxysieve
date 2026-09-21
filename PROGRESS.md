@@ -17,7 +17,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
 - [x] M10 — Browser integrations (client-scoped snapshot/control contract, safe presets, Playwright/Puppeteer adapters, bounded estimated block reporting, Selenium foundation and controlled Chrome E2E complete locally)
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, audited user/proxy/source/pool/policy/client/API-key/cache lifecycle endpoints, protected local API, bounded authenticated traffic SSE and embedded OpenAPI contract locally implemented; broader API/event completion pending)
 - [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including user access, revisioned budget management and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
-- [ ] M13 — Shadow policies, events, alerts, extensions (bounded operational events, signed webhook alerts and shadow comparison complete locally; external extensions pending)
+- [x] M13 — Shadow policies, events, alerts, extensions (bounded operational events, signed webhook alerts, shadow comparison and external Extension API v1 complete locally)
 - [ ] M14 — Optional HTTPS Inspect
 - [x] M15 — Backup, restore, import/export, operations (doctor diagnostics, SQLite status/migration/offline compaction, WAL-consistent validated backup/restore, versioned secret-free portable config and restore acceptance for inventory/runtime/analytics complete locally)
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
@@ -45,8 +45,22 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
 - Added OpenAPI/docs, persistence and concurrency regression coverage, an explicit
   router-level proof that shadow output cannot change the live decision, and a
   responsive Shadow comparison section inside Policies rather than another sidebar
-  destination. External extension protocol/lifecycle/examples remain open, so M13
-  is not complete.
+  destination.
+
+### M13 external extension continuation — 2026-09-21
+
+- Added a stdlib-only newline-delimited JSON protocol with API v1 handshake,
+  capability negotiation and structured errors. Every explicit call owns one child
+  process, so crashes, cancellation and timeouts cannot take down the gateway.
+- Added bounded manifests, frames, stderr metadata, deadlines and restart attempts;
+  root confinement rejects traversal and outside symlinks. Child processes receive
+  a minimal environment and no stored ProxySieve secrets. Extension execution is
+  trusted administrator code, not an OS sandbox, and is never downloaded or started
+  automatically.
+- Added the local `extension call` command, public `extension.Serve` helper and small
+  provider, selector and alert-sink examples. Lifecycle tests cover version and
+  capability mismatch, crash loops, timeout, oversized frames, structured errors,
+  stderr bounds and path escape. M13 acceptance is complete locally.
 
 ### Release engineering continuation — 2026-09-16
 

@@ -39,6 +39,7 @@ Usage:
   proxysieve cache stats --username USER [--admin URL] [--json]
   proxysieve cache purge --username USER [--admin URL] [--json]
   proxysieve cache purge-domain --domain DOMAIN --username USER [--admin URL] [--json]
+  proxysieve extension call --root DIR --manifest PATH --capability NAME --method NAME [--input JSON] [--timeout DURATION] [--attempts N]
   proxysieve config validate [--file PATH] [--set dotted.path=value]
   proxysieve config print-effective [--file PATH] [--set dotted.path=value]
 
@@ -99,6 +100,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runSession(args[1:], stdout, stderr, environment())
 	case "cache":
 		return runCache(args[1:], stdout, stderr, environment())
+	case "extension":
+		return runExtension(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		if len(args) != 1 {
 			return usageError(stderr)

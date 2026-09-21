@@ -1,0 +1,8 @@
+{
+  "name": "example-alert-sink",
+  "version": "0.1.0",
+  "api_version": 1,
+  "command": "./extension",
+  "capabilities": ["alert-sink"],
+  "permissions": []
+}

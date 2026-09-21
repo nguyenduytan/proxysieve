@@ -63,7 +63,7 @@ separate, explicitly scoped feature.
 | Gateway | HTTP forward, HTTPS CONNECT, SOCKS5 CONNECT, HTTP Basic/SOCKS5 password auth, graceful shutdown, listener-specific policy identity, limits and runtime metrics | UDP, transport-framing accounting |
 | Routing | Deterministic policies, atomic revisioned inventory activation/rollback, simulation, health/latency-aware selection, durable bounded sticky affinity, ordered HTTP/HTTPS/SOCKS proxy chains with active probes, configurable bounded safe retry, endpoint/pool/alternative-chain failover, configured upstream HTTP/HTTPS/SOCKS, policy cache/rewrite, stream throttling and visible-HTTP mock/redirect responses | Per-hop chain cost |
 | Safety | Loopback defaults, private destination checks, pinned DIRECT DNS, no implicit DIRECT, source fetch guard | Persistent encrypted secret store, TLS remote admin |
-| Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited user/proxy/source/pool/policy/client/API-key APIs, authenticated bounded traffic and operational-event SSE, signed SSRF-safe webhook alerts, revisioned shadow-policy comparison, cache stats/full/exact-host purge API and CLI, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore, versioned safe config import/export and published OpenAPI contract | External extensions |
+| Operations | SQLite migrations, first-run admin setup, Argon2id password hashing, session-bound CSRF, RBAC, audited user/proxy/source/pool/policy/client/API-key APIs, authenticated bounded traffic and operational-event SSE, signed SSRF-safe webhook alerts, revisioned shadow-policy comparison, out-of-process Extension API v1 and examples, cache stats/full/exact-host purge API and CLI, canonical policy simulation, atomic proxy-source refresh API/scheduler, WAL-consistent local backup/restore, versioned safe config import/export and published OpenAPI contract | Broader cost and policy authoring views |
 | Measurement | HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, newest-event live buffer, bounded batched SQLite history, restart-safe minute/hour/day rollups, tier-specific pruning, bounded summary/timeseries/breakdown queries, exact cache savings, evidence-separated avoided-byte estimates, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost estimates, rolling health/timing/throughput and circuit state, restart-safe lifetime/calendar/rolling hard byte-budget enforcement with soft warnings and pool fallback | Transport/proxy framing, cost-denominated budgets, provider billing reconciliation |
 | Cache | Policy-opt-in bounded memory or persistent disk response cache with client/session partitioning, explicit HTTP freshness/size eligibility, bounded TTL-based DNS cache, expired-first deterministic eviction, complete response-cache statistics and audited full/exact-host operator purge | External/distributed adapters |
 | Browser | Playwright and Puppeteer adapters, short-lived client-scoped policy snapshots, safe presets, bounded estimated local-block reporting and Selenium proxy-only guidance | Service Worker/CDP/BiDi-specific adapters |
@@ -108,7 +108,9 @@ Advanced action values and visible-HTTP compatibility are documented in
 [policy inventory and simulation](docs/policies.md).
 Operational backup and portable configuration workflows are described in
 [operations](docs/operations.md). Playwright, Puppeteer and Selenium setup is in
-[browser integrations](docs/browser-integrations.md).
+[browser integrations](docs/browser-integrations.md). Trusted local extension
+manifests, protocol limits and examples are documented in
+[external extensions](docs/extensions.md).
 
 `proxysieve doctor` validates the effective configuration and reports data-directory,
 SQLite schema and listener-bind readiness without starting the gateway. Add `--json`
@@ -176,6 +178,7 @@ paste proxy credentials, cookies, API keys, setup tokens, or user traffic in iss
 - [Sticky sessions](docs/sessions.md)
 - [Policy inventory and simulation](docs/policies.md)
 - [Browser integrations](docs/browser-integrations.md)
+- [External extensions](docs/extensions.md)
 - [Runtime activation and rollback](docs/runtime-activation.md)
 - [Proxy source security](docs/proxy-sources.md)
 - [Traffic accounting](docs/traffic-accounting.md)
