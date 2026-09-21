@@ -13,6 +13,8 @@ describe("policy workspace permissions", () => {
       "activate the complete proxy, pool and policy inventory",
     );
     expect(html).toContain("Activate inventory");
+    expect(html).toContain("Shadow comparison");
+    expect(html).toContain("Add shadow");
   });
 
   it("keeps viewer policy inventory read-only", () => {
@@ -21,6 +23,8 @@ describe("policy workspace permissions", () => {
     );
     expect(html).not.toContain("Add policy");
     expect(html).not.toContain("Activate inventory");
+    expect(html).not.toContain("Add shadow");
+    expect(html).toContain("Shadow comparison");
     expect(html).toContain("read only");
     expect(html).not.toContain('role="alert"');
   });

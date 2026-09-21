@@ -127,7 +127,7 @@ func TestPersistenceAndMigrationChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 21 || status.JournalMode != "wal" || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
+	if err != nil || status.SchemaVersion != 22 || status.JournalMode != "wal" || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
 		t.Fatalf("%+v %v", status, err)
 	}
 	if err = s.Close(); err != nil {
@@ -166,7 +166,7 @@ func TestFutureSchemaRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (22,'future','unknown')"); err != nil {
+	if _, err = s.db.Exec("INSERT INTO schema_migrations VALUES (23,'future','unknown')"); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.Close()
@@ -185,7 +185,7 @@ func TestSchemaTwelveUpgradePreservesInventoryAndAddsPolicies(t *testing.T) {
 	}
 	old := &Store{db: database, endpoints: endpoints{q: database}}
 	names, err := fs.Glob(migrations, "migrations/*.sql")
-	if err != nil || len(names) != 21 {
+	if err != nil || len(names) != 22 {
 		t.Fatal(names, err)
 	}
 	files := fstest.MapFS{}
@@ -232,7 +232,7 @@ func TestSchemaTwelveUpgradePreservesInventoryAndAddsPolicies(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := repository.Status(t.Context())
-	if err != nil || status.SchemaVersion != 21 || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
+	if err != nil || status.SchemaVersion != 22 || status.EndpointCount != 1 || status.SourceCount != 1 || status.PoolCount != 1 || status.PolicyCount != 1 {
 		t.Fatal(status, err)
 	}
 }
@@ -245,7 +245,7 @@ func TestSchemaEighteenUpgradePreservesLifetimeBudgetUsage(t *testing.T) {
 	}
 	old := &Store{db: database}
 	names, err := fs.Glob(migrations, "migrations/*.sql")
-	if err != nil || len(names) != 21 {
+	if err != nil || len(names) != 22 {
 		t.Fatal(names, err)
 	}
 	files := fstest.MapFS{}
@@ -298,7 +298,7 @@ func TestMigrationAtomicity(t *testing.T) {
 		t.Fatalf("table survived rollback: %d %v", n, err)
 	}
 	status, err := s.Status(t.Context())
-	if err != nil || status.SchemaVersion != 21 {
+	if err != nil || status.SchemaVersion != 22 {
 		t.Fatalf("%+v %v", status, err)
 	}
 }

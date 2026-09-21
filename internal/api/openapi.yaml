@@ -24,6 +24,7 @@ tags:
   - name: Chains
   - name: Sessions
   - name: Policies
+  - name: Shadow
   - name: Runtime
   - name: Clients
   - name: Browser
@@ -838,6 +839,41 @@ paths:
       security: [sessionCookie: [], csrfToken: []]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SimulationRequest'}}}}
       responses: {'200': {description: Simulation result; does not activate runtime routing, content: {application/json: {schema: {$ref: '#/components/schemas/SimulationResponse'}}}}, '400': {$ref: '#/components/responses/BadRequest'}}
+  /api/v1/shadow:
+    get:
+      tags: [Shadow]
+      responses:
+        '200': {description: Revisioned shadow policy configurations, content: {application/json: {schema: {$ref: '#/components/schemas/ShadowPage'}}}}
+    post:
+      tags: [Shadow]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [shadow], properties: {shadow: {$ref: '#/components/schemas/ShadowConfig'}}}}}}
+      responses:
+        '201': {description: Shadow policy created, content: {application/json: {schema: {$ref: '#/components/schemas/ShadowRecord'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {description: Shadow ID already exists or the bounded configuration limit was reached}
+  /api/v1/shadow/{shadowId}:
+    parameters: [{name: shadowId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Shadow]
+      responses: {'200': {description: Shadow policy record, content: {application/json: {schema: {$ref: '#/components/schemas/ShadowRecord'}}}}, '404': {description: Shadow policy not found}}
+    patch:
+      tags: [Shadow]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [shadow, revision], properties: {shadow: {$ref: '#/components/schemas/ShadowConfig'}, revision: {type: integer, minimum: 1}}}}}}
+      responses: {'200': {description: Shadow policy updated, content: {application/json: {schema: {$ref: '#/components/schemas/ShadowRecord'}}}}, '400': {$ref: '#/components/responses/BadRequest'}, '404': {description: Shadow policy not found}, '409': {description: Stale revision}}
+    delete:
+      tags: [Shadow]
+      security: [sessionCookie: [], csrfToken: []]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [revision], properties: {revision: {type: integer, minimum: 1}}}}}}
+      responses: {'204': {description: Shadow policy deleted}, '404': {description: Shadow policy not found}, '409': {description: Stale revision}}
+  /api/v1/shadow/{shadowId}/comparison:
+    parameters: [{name: shadowId, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [Shadow]
+      responses:
+        '200': {description: Bounded in-memory aggregate; counters reset after restart or policy replacement, content: {application/json: {schema: {$ref: '#/components/schemas/ShadowComparison'}}}}
+        '404': {description: Shadow policy not found}
   /api/v1/runtime:
     get:
       tags: [Runtime]
@@ -1565,6 +1601,40 @@ components:
       type: object
       required: [policy, runtime_active, activation, runtime_revision]
       properties: {policy: {$ref: '#/components/schemas/PolicyRecord'}, runtime_active: {type: boolean}, activation: {type: string, enum: [active, staged]}, runtime_revision: {type: integer, minimum: 0}}
+    ShadowConfig:
+      type: object
+      required: [id, name, active_policy_id, policy, enabled]
+      properties:
+        id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 256}
+        active_policy_id: {type: string, description: Active listener policy whose decisions are compared}
+        policy: {$ref: '#/components/schemas/Policy'}
+        enabled: {type: boolean}
+    ShadowRecord:
+      type: object
+      required: [shadow, revision]
+      properties: {shadow: {$ref: '#/components/schemas/ShadowConfig'}, revision: {type: integer, minimum: 1}}
+    ShadowPage:
+      type: object
+      required: [items]
+      properties: {items: {type: array, maxItems: 64, items: {$ref: '#/components/schemas/ShadowRecord'}}}
+    ShadowComparison:
+      type: object
+      required: [shadow_id, active_policy_id, shadow_policy_id, samples, same_decisions, different_decisions, pool_differences, evaluation_errors, estimated_upstream_bytes, average_evaluation_ns, active_decisions, shadow_decisions]
+      properties:
+        shadow_id: {type: string}
+        active_policy_id: {type: string}
+        shadow_policy_id: {type: string}
+        samples: {type: integer, minimum: 0}
+        same_decisions: {type: integer, minimum: 0}
+        different_decisions: {type: integer, minimum: 0}
+        pool_differences: {type: integer, minimum: 0, description: Requests where both policies selected proxy routing but chose different pools}
+        evaluation_errors: {type: integer, minimum: 0}
+        estimated_upstream_bytes: {type: integer, minimum: 0, description: Known request-body bytes that the shadow decision would send upstream}
+        average_evaluation_ns: {type: integer, minimum: 0}
+        active_decisions: {type: object, additionalProperties: {type: integer, minimum: 0}}
+        shadow_decisions: {type: object, additionalProperties: {type: integer, minimum: 0}}
+        updated_at: {type: string, format: date-time}
     RuntimeState:
       type: object
       required: [revision, source, proxy_count, pool_count, chain_count, policy_count, staged_changes]

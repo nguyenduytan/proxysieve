@@ -10,6 +10,7 @@ import (
 	internalhealth "github.com/nguyenduytan/proxysieve/internal/health"
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
+	internalshadow "github.com/nguyenduytan/proxysieve/internal/shadow"
 	"github.com/nguyenduytan/proxysieve/internal/storage/contract"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	"github.com/nguyenduytan/proxysieve/pkg/config"
@@ -19,6 +20,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	"github.com/nguyenduytan/proxysieve/pkg/routing"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
+	publicshadow "github.com/nguyenduytan/proxysieve/pkg/shadow"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 )
 
@@ -131,6 +133,33 @@ func TestRuntimeCompilationValidatesBundleChains(t *testing.T) {
 	}
 	if _, err := newRoutingRuntime(base, bundle, store.RuntimeRecord{Bundle: bundle}); !errors.Is(err, config.ErrInvalid) {
 		t.Fatalf("expected invalid bundle chain to fail compilation, got %v", err)
+	}
+}
+
+func TestShadowPolicyNeverChangesLiveDecision(t *testing.T) {
+	base := config.Defaults(t.TempDir())
+	for i := range base.Listeners {
+		base.Listeners[i].Policy = "active"
+	}
+	active := policy.Policy{Version: 1, ID: "active", Name: "Active", Rules: []policy.Rule{{ID: "route", Name: "Route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "direct"}}}}}
+	bundle := store.RuntimeBundle{Policies: []policy.Policy{active}}
+	runtime, err := newRoutingRuntime(base, bundle, store.RuntimeRecord{Bundle: bundle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := publicshadow.Config{ID: "candidate", Name: "Candidate", ActivePolicyID: active.ID, Enabled: true, Policy: policy.Policy{Version: 1, ID: "candidate-policy", Name: "Candidate", Rules: []policy.Rule{{ID: "route", Name: "Route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "block"}}}}}}
+	manager, err := internalshadow.New([]store.ShadowRecord{{Shadow: config, Revision: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := &router{policyID: active.ID, runtime: runtime, shadows: manager}
+	result, err := router.Evaluate(t.Context(), policy.RequestContext{}, policy.Visibility{})
+	if err != nil || len(result.Actions) != 1 || result.Actions[0].Type != "direct" {
+		t.Fatalf("live result changed: %+v %v", result, err)
+	}
+	comparison, ok := manager.Comparison(config.ID)
+	if !ok || comparison.DifferentDecisions != 1 || comparison.ShadowDecisions["block"] != 1 {
+		t.Fatalf("comparison=%+v", comparison)
 	}
 }
 

@@ -33,6 +33,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/internal/secrets"
 	"github.com/nguyenduytan/proxysieve/internal/security"
 	internalsession "github.com/nguyenduytan/proxysieve/internal/session"
+	internalshadow "github.com/nguyenduytan/proxysieve/internal/shadow"
 	internalsource "github.com/nguyenduytan/proxysieve/internal/source"
 	"github.com/nguyenduytan/proxysieve/internal/storage/sqlite"
 	internaltraffic "github.com/nguyenduytan/proxysieve/internal/traffic"
@@ -98,6 +99,7 @@ type router struct {
 	budgets      *internalbudget.Manager
 	sessions     *internalsession.Manager
 	retryPolicy  retrypkg.Policy
+	shadows      *internalshadow.Manager
 }
 
 func (r *router) Evaluate(_ context.Context, request policy.RequestContext, visibility policy.Visibility) (policy.Result, error) {
@@ -108,6 +110,9 @@ func (r *router) Evaluate(_ context.Context, request policy.RequestContext, visi
 	}
 	result, err := policy.Evaluate(document, request, visibility, false)
 	result.RuntimeRevision = snapshot.revision
+	if r.shadows != nil {
+		r.shadows.Observe(r.policyID, request, visibility, result, err)
+	}
 	return result, err
 }
 func (r *router) Route(ctx context.Context, request policy.RequestContext, result policy.Result) (gateway.Route, error) {
@@ -753,6 +758,7 @@ func Build(c config.Config) (Runtime, error) {
 	var controlAPI *api.Server
 	var budgetManager *internalbudget.Manager
 	var routeRuntime *routingRuntime
+	var shadowManager *internalshadow.Manager
 	var healthService *healthControl
 	if c.Admin.Enabled {
 		if c.Storage.Driver != "sqlite" {
@@ -760,6 +766,16 @@ func Build(c config.Config) (Runtime, error) {
 		}
 		controlStore, err := sqlite.Open(context.Background(), c.Storage.Path)
 		if err != nil {
+			return Runtime{}, err
+		}
+		shadowRecords, err := controlStore.ListShadows(context.Background())
+		if err != nil {
+			_ = controlStore.Close()
+			return Runtime{}, err
+		}
+		shadowManager, err = internalshadow.New(shadowRecords)
+		if err != nil {
+			_ = controlStore.Close()
 			return Runtime{}, err
 		}
 		durableSessions, loadErr := controlStore.LoadSessions(context.Background())
@@ -825,6 +841,7 @@ func Build(c config.Config) (Runtime, error) {
 			return Runtime{}, err
 		}
 		server.SetAlertControl(alertDispatcher)
+		server.SetShadowControl(shadowManager)
 		runtime.Alerts = alertDispatcher
 		healthService = &healthControl{runtime: routeRuntime, health: healthManager, resolver: runtimeResolver, credentials: secrets.Environment{}, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, recorder: internaltraffic.Fanout{Sinks: []trafficpkg.Recorder{trafficRecorder, durableRecorder}}, targetHost: c.Health.CheckHost, targetPort: c.Health.CheckPort, timeout: time.Duration(c.Health.CheckTimeout), globalPace: checkPace(c.Health.GlobalCheckRate), poolPace: checkPace(c.Health.PoolCheckRate)}
 		server.SetTrafficStatus(durableRecorder)
@@ -835,7 +852,7 @@ func Build(c config.Config) (Runtime, error) {
 		server.SetCache(responseCache)
 		server.SetSourceRefresher(sourceRefresher)
 		server.SetRuntimeControl(&runtimeControl{runtime: routeRuntime, store: controlStore, now: func() time.Time { return time.Now().UTC() }})
-		chainTester := &router{runtime: routeRuntime, resolver: runtimeResolver, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry}
+		chainTester := &router{runtime: routeRuntime, resolver: runtimeResolver, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry, shadows: shadowManager}
 		server.SetChainTester(chainTester.testChain)
 		runtime.Admin = &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 32 << 10}
 		runtime.AdminBind = c.Admin.Bind
@@ -899,7 +916,7 @@ func Build(c config.Config) (Runtime, error) {
 		if listener.Auth != "local" && listener.Auth != "api_key" && listener.Auth != "password" {
 			return Runtime{}, ErrUnsupportedAuthentication
 		}
-		r := &router{policyID: model.ID(listener.Policy), runtime: routeRuntime, resolver: runtimeResolver, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry}
+		r := &router{policyID: model.ID(listener.Policy), runtime: routeRuntime, resolver: runtimeResolver, destination: security.DestinationPolicy{DenyPrivate: c.Security.DenyPrivate}, credentials: secrets.Environment{}, health: healthManager, directPolicy: c.Security, budgets: budgetManager, sessions: sessionManager, retryPolicy: c.Retry, shadows: shadowManager}
 		var authenticatePassword func(context.Context, string, string) (model.ID, error)
 		if listener.Auth == "password" {
 			authenticatePassword = passwordAuthenticator(listener.CredentialRef, listener.Name)

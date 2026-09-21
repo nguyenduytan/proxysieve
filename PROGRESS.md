@@ -17,7 +17,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
 - [x] M10 — Browser integrations (client-scoped snapshot/control contract, safe presets, Playwright/Puppeteer adapters, bounded estimated block reporting, Selenium foundation and controlled Chrome E2E complete locally)
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, audited user/proxy/source/pool/policy/client/API-key/cache lifecycle endpoints, protected local API, bounded authenticated traffic SSE and embedded OpenAPI contract locally implemented; broader API/event completion pending)
 - [ ] M12 — Admin dashboard and first-run UX (authenticated responsive shell, API-backed operational workspaces including user access, revisioned budget management and response-cache operations, first-run setup and policy runtime activation/rollback locally implemented; remaining release UX pending)
-- [ ] M13 — Shadow policies, events, alerts, extensions (bounded operational events and signed webhook alerts complete locally; shadow comparison and external extensions pending)
+- [ ] M13 — Shadow policies, events, alerts, extensions (bounded operational events, signed webhook alerts and shadow comparison complete locally; external extensions pending)
 - [ ] M14 — Optional HTTPS Inspect
 - [x] M15 — Backup, restore, import/export, operations (doctor diagnostics, SQLite status/migration/offline compaction, WAL-consistent validated backup/restore, versioned secret-free portable config and restore acceptance for inventory/runtime/analytics complete locally)
 - [ ] M16 — Hardening, benchmarks, release candidate and v1
@@ -30,8 +30,23 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
   environment, optional environment-backed HMAC-SHA256 signing, retry metadata and
   globally bounded SQLite delivery retention. Manual and scheduled source refreshes
   now publish through the same operational event bus, and the responsive Admin Panel
-  exposes one Alerts workspace without duplicate navigation. Shadow policies and
-  external extension loading remain open, so M13 is not complete.
+  exposes one Alerts workspace without duplicate navigation. Shadow comparison was
+  completed in the following slice; external extension loading remains open.
+
+### M13 shadow policy continuation — 2026-09-21
+
+- Added up to 64 revisioned shadow configurations with independent candidate
+  snapshots, optimistic CRUD, audit records and policy-reference protection.
+- Live requests reuse the canonical evaluator for simulation-only comparison after
+  the active decision is produced. Shadow results never reach route selection or
+  create upstream connections. Process-lifetime aggregates cover decision
+  distributions, decision and proxy-pool differences, known candidate upstream
+  bytes, evaluation errors and average evaluation latency.
+- Added OpenAPI/docs, persistence and concurrency regression coverage, an explicit
+  router-level proof that shadow output cannot change the live decision, and a
+  responsive Shadow comparison section inside Policies rather than another sidebar
+  destination. External extension protocol/lifecycle/examples remain open, so M13
+  is not complete.
 
 ### Release engineering continuation — 2026-09-16
 

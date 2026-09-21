@@ -7,6 +7,9 @@
 - Added revisioned administrator-only alert rules and HTTPS webhook destinations,
   bounded asynchronous delivery with SSRF protection, optional HMAC signing, retry
   history, scheduler failure events and one responsive Alerts workspace.
+- Added revisioned shadow policies with canonical simulation-only evaluation,
+  bounded decision/pool/latency aggregates, audited CRUD APIs and an integrated
+  responsive Policies workspace that cannot alter live route selection.
 
 ### Added
 

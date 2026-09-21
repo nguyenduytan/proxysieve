@@ -340,6 +340,35 @@ export interface PolicyResponse {
   activation: "active" | "staged";
   runtime_revision: number;
 }
+export interface ShadowConfig {
+  id: string;
+  name: string;
+  active_policy_id: string;
+  policy: Policy;
+  enabled: boolean;
+}
+export interface ShadowRecord {
+  shadow: ShadowConfig;
+  revision: number;
+}
+export interface ShadowPage {
+  items: ShadowRecord[];
+}
+export interface ShadowComparison {
+  shadow_id: string;
+  active_policy_id: string;
+  shadow_policy_id: string;
+  samples: number;
+  same_decisions: number;
+  different_decisions: number;
+  pool_differences: number;
+  evaluation_errors: number;
+  estimated_upstream_bytes: number;
+  average_evaluation_ns: number;
+  active_decisions: Record<string, number>;
+  shadow_decisions: Record<string, number>;
+  updated_at?: string;
+}
 export interface RuntimeState {
   revision: number;
   source: "configuration" | "inventory" | "rollback";

@@ -55,7 +55,8 @@
   border-radius: 7px;
   background: var(--surface);
 }
-.resource-form h2 {
+.resource-form h2,
+.resource-form h3 {
   margin: 0 0 18px;
   font-size: 17px;
 }
@@ -395,6 +396,31 @@
   min-width: 0;
 }
 .policy-action-button span {
+  display: none;
+}
+.shadow-panel {
+  margin-top: 20px;
+}
+.shadow-table {
+  min-width: 900px;
+}
+.shadow-name-cell {
+  display: grid;
+  gap: 4px;
+  max-width: 280px;
+  white-space: normal;
+}
+.shadow-name-cell span {
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.shadow-action-cell .row-actions,
+.shadow-action-cell .inline-confirm {
+  justify-content: flex-end;
+}
+.shadow-action-button span {
   display: none;
 }
 .choice-group {
@@ -1223,6 +1249,70 @@ textarea:focus-visible {
     justify-content: center;
   }
   .policy-action-button span {
+    display: inline;
+  }
+  .shadow-table {
+    min-width: 0;
+  }
+  .shadow-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .shadow-table tbody {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+  }
+  .shadow-table tr {
+    display: grid;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+  }
+  .shadow-table td {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 12px;
+    padding: 8px 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .shadow-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .shadow-table .shadow-name-cell {
+    max-width: none;
+    padding: 2px 0 12px;
+  }
+  .shadow-table .shadow-name-cell::before,
+  .shadow-table .shadow-action-cell::before {
+    content: none;
+  }
+  .shadow-table .shadow-action-cell {
+    display: block;
+    padding-top: 12px;
+  }
+  .shadow-table .row-actions {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .shadow-table .shadow-action-button {
+    width: 100%;
+    min-height: 38px;
+    display: flex;
+    gap: 7px;
+    justify-content: center;
+  }
+  .shadow-action-button span {
     display: inline;
   }
   .pool-inventory-table thead {

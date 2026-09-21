@@ -75,6 +75,12 @@ GET  /api/v1/policies/{id}
 PATCH /api/v1/policies/{id}
 DELETE /api/v1/policies/{id}
 POST /api/v1/policies/{id}/simulate
+GET  /api/v1/shadow
+POST /api/v1/shadow
+GET  /api/v1/shadow/{id}
+PATCH /api/v1/shadow/{id}
+DELETE /api/v1/shadow/{id}
+GET  /api/v1/shadow/{id}/comparison
 GET  /api/v1/clients
 POST /api/v1/clients
 GET  /api/v1/clients/{id}/api-keys

@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { ApiError, api, errorMessage } from "./api";
+import { ShadowPolicies } from "./ShadowPolicies";
 import type {
   Policy,
   PolicyPage,
@@ -561,6 +562,16 @@ export function PolicyInventory({
           </div>
         )}
       </section>
+      <ShadowPolicies
+        policies={records}
+        role={role}
+        onExpired={onExpired}
+        onInteraction={() => {
+          setError("");
+          setNotice("");
+          setSimulation(null);
+        }}
+      />
     </div>
   );
 }

@@ -38,6 +38,7 @@ import (
 	"github.com/nguyenduytan/proxysieve/pkg/model"
 	"github.com/nguyenduytan/proxysieve/pkg/proxy"
 	publicsession "github.com/nguyenduytan/proxysieve/pkg/session"
+	publicshadow "github.com/nguyenduytan/proxysieve/pkg/shadow"
 	"github.com/nguyenduytan/proxysieve/pkg/store"
 	publictraffic "github.com/nguyenduytan/proxysieve/pkg/traffic"
 )
@@ -70,6 +71,8 @@ type Server struct {
 	responseCache   internalcache.ResponseStore
 	alerts          store.Alerts
 	alertControl    AlertControl
+	shadows         store.Shadows
+	shadowControl   ShadowControl
 	audit           audit.Writer
 	events          *internalevents.Bus
 	now             func() time.Time
@@ -120,6 +123,12 @@ type SessionStore interface {
 type AlertControl interface {
 	Stats() internalalert.Stats
 	Test(context.Context, model.ID) (publicalert.Delivery, error)
+}
+
+type ShadowControl interface {
+	Upsert(publicshadow.Config)
+	Delete(model.ID)
+	Comparison(model.ID) (publicshadow.Comparison, bool)
 }
 
 type ListenerMetric struct {
@@ -174,9 +183,13 @@ func New(service *admin.Service, traffic *internaltraffic.Memory, endpoints stor
 	if alertStore, ok := endpoints.(store.Alerts); ok {
 		alerts = alertStore
 	}
+	var shadows store.Shadows
+	if shadowStore, ok := endpoints.(store.Shadows); ok {
+		shadows = shadowStore
+	}
 	return &Server{
 		admin: service, traffic: traffic, endpoints: endpoints, sources: sources, pools: pools, chains: chains, policies: policies,
-		clients: clients, trafficStore: durable, browserAuth: browserAuth, browserRecorder: traffic, alerts: alerts, audit: auditWriter, ui: dashboardHandler(),
+		clients: clients, trafficStore: durable, browserAuth: browserAuth, browserRecorder: traffic, alerts: alerts, shadows: shadows, audit: auditWriter, ui: dashboardHandler(),
 		chainHealth:    map[model.ID]chainHealthRecord{},
 		now:            func() time.Time { return time.Now().UTC() },
 		sourceResolver: sourceResolver{},
@@ -194,6 +207,7 @@ func (s *Server) Handler() http.Handler                              { return se
 func (s *Server) SetTrafficStatus(status TrafficStatus)              { s.trafficStatus = status }
 func (s *Server) SetEvents(events *internalevents.Bus)               { s.events = events }
 func (s *Server) SetAlertControl(control AlertControl)               { s.alertControl = control }
+func (s *Server) SetShadowControl(control ShadowControl)             { s.shadowControl = control }
 func (s *Server) SetRuntimeControl(control RuntimeControl)           { s.runtimeControl = control }
 func (s *Server) SetBrowserRecorder(recorder publictraffic.Recorder) { s.browserRecorder = recorder }
 func (s *Server) SetSessions(sessions SessionStore)                  { s.sessions = sessions }
@@ -337,6 +351,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.chainsCollection(w, r)
 	case "/api/v1/policies":
 		s.policiesCollection(w, r)
+	case "/api/v1/shadow":
+		s.shadowCollection(w, r)
 	case "/api/v1/sessions":
 		s.sessionsCollection(w, r)
 	case "/api/v1/runtime":
@@ -390,6 +406,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.proxyByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/sources/") {
 			s.sourceByID(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/shadow/") {
+			s.shadowByID(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/policies/") && strings.HasSuffix(r.URL.Path, "/simulate") {
 			s.simulatePolicy(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/api/v1/sessions/") {

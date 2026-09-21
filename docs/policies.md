@@ -80,6 +80,27 @@ policy inventory as one immutable revision; individual Save actions never alter
 live routing. Existing requests retain the revision they evaluated against, while
 new requests use the newly active revision. See [runtime activation](runtime-activation.md).
 
-A visual rule builder, durable simulation history and policy-specific event
+## Shadow comparison
+
+The Policies workspace also manages up to 64 revisioned shadow configurations.
+Each configuration names the active policy to observe and stores an independent
+copy of a saved candidate document. Updating the saved source policy later does
+not silently change the candidate; edit the shadow configuration to take a new
+snapshot.
+
+Eligible requests run through the canonical evaluator a second time after the
+live decision has already been produced. The simulated result is never passed to
+route selection and never opens an upstream connection. `GET
+/api/v1/shadow/{id}/comparison` exposes bounded process-lifetime aggregates for
+decision distribution, decision differences, proxy-pool differences, known
+request bytes that the candidate would send upstream, evaluation errors and
+average evaluation latency. Counters reset on restart and when the active or
+candidate policy changes.
+
+Viewer roles can read configurations and comparisons. Operators can create,
+update and delete them with CSRF protection and optimistic revisions. An active
+policy cannot be deleted while a shadow configuration references it.
+
+A visual rule builder, durable shadow history and policy-specific event
 streaming remain later milestone work. The Admin traffic feed already uses its
 separate bounded SSE endpoint.

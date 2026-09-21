@@ -184,6 +184,13 @@ func (s *Server) deletePolicy(w http.ResponseWriter, r *http.Request, id model.I
 	}
 	s.routingMu.Lock()
 	defer s.routingMu.Unlock()
+	if referenced, err := s.shadowUsesPolicy(r.Context(), id); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "STORE_UNAVAILABLE", "Shadow policy references could not be checked.")
+		return
+	} else if referenced {
+		writeError(w, http.StatusConflict, "POLICY_IN_USE", "The policy is referenced by a shadow configuration.")
+		return
+	}
 	err := s.policies.DeletePolicy(r.Context(), id, input.Revision)
 	switch {
 	case err == nil:
