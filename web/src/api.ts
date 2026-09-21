@@ -210,8 +210,9 @@ export interface BudgetConfig {
   scope: BudgetScope;
   scope_id?: string;
   limit_bytes: number;
+  soft_limit_bytes?: number;
   hard: boolean;
-  action: "alert" | "reject" | "throttle";
+  action: "reject";
   window: BudgetWindow;
   timezone?: string;
   rolling_seconds?: number;
@@ -221,6 +222,7 @@ export interface BudgetStatus extends BudgetConfig {
   used_bytes: number;
   reserved_bytes: number;
   remaining_bytes: number;
+  warning: boolean;
   exhausted: boolean;
   window_start?: string;
   window_end?: string;

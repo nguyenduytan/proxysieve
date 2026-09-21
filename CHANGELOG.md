@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added budget soft-warning thresholds and budget-aware configured pool fallback,
+  while rejecting unsupported action modes instead of silently accepting them.
 - Added `db status`, `db migrate` and offline `db compact` commands, plus
   restore acceptance coverage for routing inventory, active runtime state and
   traffic analytics.

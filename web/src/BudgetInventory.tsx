@@ -203,7 +203,14 @@ export function BudgetInventory({
                         </div>
                       </td>
                       <td data-label="Limit">
-                        {formatBytes(budget.limit_bytes)}
+                        <div className="budget-window">
+                          <strong>{formatBytes(budget.limit_bytes)}</strong>
+                          <span>
+                            {budget.soft_limit_bytes
+                              ? `Warn at ${formatBytes(budget.soft_limit_bytes)}`
+                              : "No soft warning"}
+                          </span>
+                        </div>
                       </td>
                       <td data-label="Usage">
                         <div className="budget-usage">
@@ -229,13 +236,15 @@ export function BudgetInventory({
                       <td data-label="State">
                         <div className="budget-window">
                           <span
-                            className={`client-state ${budget.exhausted ? "disabled" : "enabled"}`}
+                            className={`client-state ${budget.exhausted ? "disabled" : budget.warning ? "warning" : "enabled"}`}
                           >
-                            {budget.exhausted ? "Exhausted" : "Available"}
+                            {budget.exhausted
+                              ? "Exhausted"
+                              : budget.warning
+                                ? "Warning"
+                                : "Available"}
                           </span>
-                          <span>
-                            {budget.hard ? "Hard reject" : "Tracking only"}
-                          </span>
+                          <span>Hard reject</span>
                         </div>
                       </td>
                       <td data-label="Revision">{budget.revision}</td>
@@ -330,6 +339,9 @@ function BudgetForm({
   const [scope, setScope] = useState<BudgetScope>(initial?.scope ?? "system");
   const [scopeID, setScopeID] = useState(initial?.scope_id ?? "");
   const [limit, setLimit] = useState(String(initial?.limit_bytes ?? ""));
+  const [softLimit, setSoftLimit] = useState(
+    String(initial?.soft_limit_bytes ?? ""),
+  );
   const [window, setWindow] = useState<BudgetWindow>(
     initial?.window ?? "lifetime",
   );
@@ -346,6 +358,17 @@ function BudgetForm({
     if (!Number.isSafeInteger(limitBytes) || limitBytes < 1) {
       setError(
         "Limit must be a positive integer within the browser safe range.",
+      );
+      return;
+    }
+    const softLimitBytes = softLimit.trim() ? Number(softLimit) : 0;
+    if (
+      !Number.isSafeInteger(softLimitBytes) ||
+      softLimitBytes < 0 ||
+      softLimitBytes >= limitBytes
+    ) {
+      setError(
+        "Soft warning must be empty or a positive integer below the hard limit.",
       );
       return;
     }
@@ -375,8 +398,9 @@ function BudgetForm({
       scope,
       ...(scope === "system" ? {} : { scope_id: scopeID.trim() }),
       limit_bytes: limitBytes,
-      hard: initial?.hard ?? true,
-      action: initial?.action ?? "reject",
+      ...(softLimitBytes ? { soft_limit_bytes: softLimitBytes } : {}),
+      hard: true,
+      action: "reject",
       window,
       ...(calendarWindow ? { timezone: timezone.trim() } : {}),
       ...(window === "rolling" ? { rolling_seconds: rollingDuration } : {}),
@@ -461,6 +485,17 @@ function BudgetForm({
             step={1}
             value={limit}
             onChange={(event) => setLimit(event.target.value)}
+          />
+        </label>
+        <label>
+          Soft warning (bytes, optional)
+          <input
+            type="number"
+            min={1}
+            max={Number.MAX_SAFE_INTEGER}
+            step={1}
+            value={softLimit}
+            onChange={(event) => setSoftLimit(event.target.value)}
           />
         </label>
         <label>

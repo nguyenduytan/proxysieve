@@ -324,6 +324,45 @@ func TestStatusesExposeCurrentWindowAndRemainingAllowance(t *testing.T) {
 		t.Fatal(system)
 	}
 }
+
+func TestSoftThresholdTransitionsBeforeHardExhaustion(t *testing.T) {
+	configured := budget.Config{ID: "system", Name: "System", Limit: 10, SoftLimit: 5, Hard: true, Action: budget.ActionReject}
+	m, err := New([]budget.Config{configured}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consume := func(amount traffic.Bytes) {
+		t.Helper()
+		lease, reserveErr := m.Reserve(t.Context(), []model.ID{"system"}, amount)
+		if reserveErr != nil {
+			t.Fatal(reserveErr)
+		}
+		if _, consumeErr := lease.Consume(t.Context(), amount); consumeErr != nil {
+			t.Fatal(consumeErr)
+		}
+		if closeErr := lease.Close(t.Context()); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	}
+	consume(4)
+	status, err := m.Status(t.Context(), "system")
+	if err != nil || status.Warning || status.Exhausted {
+		t.Fatal(status, err)
+	}
+	consume(1)
+	status, err = m.Status(t.Context(), "system")
+	if err != nil || !status.Warning || status.Exhausted {
+		t.Fatal(status, err)
+	}
+	consume(5)
+	status, err = m.Status(t.Context(), "system")
+	if err != nil || !status.Warning || !status.Exhausted {
+		t.Fatal(status, err)
+	}
+	if err = m.CanReserve(t.Context(), []model.ID{"system"}, 1); !errors.Is(err, budget.ErrExceeded) {
+		t.Fatal(err)
+	}
+}
 func TestLeaseNeverGrantsPastReservation(t *testing.T) {
 	m, _ := New([]budget.Config{{ID: "system", Name: "System", Limit: 20, Hard: true, Action: budget.ActionReject}}, 20)
 	lease, _ := m.Reserve(context.Background(), []model.ID{"system"}, 10)

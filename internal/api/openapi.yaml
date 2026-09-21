@@ -946,8 +946,9 @@ components:
         scope: {type: string, enum: [system, client, pool, proxy]}
         scope_id: {type: string}
         limit_bytes: {type: integer, minimum: 1}
-        hard: {type: boolean}
-        action: {type: string, enum: [alert, reject, throttle]}
+        soft_limit_bytes: {type: integer, minimum: 1, description: Optional warning threshold below limit_bytes}
+        hard: {type: boolean, enum: [true]}
+        action: {type: string, enum: [reject]}
         window: {type: string, enum: [lifetime, rolling, daily, weekly, monthly]}
         timezone: {type: string}
         rolling_seconds: {type: integer, minimum: 60, maximum: 31536000}
@@ -955,12 +956,13 @@ components:
       allOf:
         - {$ref: '#/components/schemas/BudgetConfig'}
         - type: object
-          required: [revision, used_bytes, reserved_bytes, remaining_bytes, exhausted]
+          required: [revision, used_bytes, reserved_bytes, remaining_bytes, warning, exhausted]
           properties:
             revision: {type: integer, minimum: 1}
             used_bytes: {type: integer, minimum: 0}
             reserved_bytes: {type: integer, minimum: 0}
             remaining_bytes: {type: integer, minimum: 0}
+            warning: {type: boolean}
             exhausted: {type: boolean}
             window_start: {type: string, format: date-time}
             window_end: {type: string, format: date-time}

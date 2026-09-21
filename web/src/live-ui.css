@@ -619,6 +619,10 @@
   color: #8b5860;
   background: #f5e9eb;
 }
+.client-state.warning {
+  color: #8a5a08;
+  background: #fff3d6;
+}
 .dark .client-state.enabled {
   color: #8fe0d6;
   background: #1d4845;
@@ -626,6 +630,10 @@
 .dark .client-state.disabled {
   color: #dfb2b9;
   background: #452f34;
+}
+.dark .client-state.warning {
+  color: #f2c46d;
+  background: #4a3b1e;
 }
 .client-facts {
   display: grid;

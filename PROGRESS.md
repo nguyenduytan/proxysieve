@@ -12,7 +12,7 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
 - [x] M5 — Deterministic policies and routing actions (evaluator, revisioned policy inventory, API simulation, durable atomic runtime activation/rollback and fail-closed execution of every accepted action complete locally)
 - [x] M6 — Pools, selectors, sessions, chaining (built-in selectors, revisioned pool/chain inventory, runtime activation, bounded durable sticky affinity, ordered mandatory proxy chaining, active chain probes, audited session API/Admin/CLI observability and failover validation complete locally)
 - [x] M7 — Health, circuit breaker, safe retries (passive/active checks, full rolling health/timing/throughput signals, score/latency selection, controlled half-open probes, globally/per-pool paced checks, health API/dashboard, configurable retry policy, per-attempt attribution and alternative-chain failover complete locally)
-- [ ] M8 — Traffic, cost, budgets, retention (HTTP/CONNECT/SOCKS5 application-stream counters, policy/rule attribution, bounded live/SQLite queues, batched history, restart-safe minute/hour/day rollups, bounded summary/timeseries/breakdown API, independent four-tier retention, exact-vs-estimated savings display, 30-day paid-traffic/configured-cost projection, currency-separated configured-cost snapshots/analytics and restart-safe lifetime/calendar/rolling hard byte-budget enforcement with durable revisioned API/Admin CRUD locally implemented; transport framing, soft thresholds and cost budgets pending)
+- [x] M8 — Traffic, cost, budgets, retention (application-stream attribution, bounded live/history analytics, restart-safe rollups/retention, exact-vs-estimated savings, configured-cost projection, revisioned durable scoped byte budgets, soft-warning/hard transitions and budget-aware configured pool fallback complete locally; transport framing and cost-denominated enforcement remain documented limitations)
 - [x] M9 — Cache and advanced visible-HTTP actions (policy-opt-in safe bounded memory/disk response cache, explicit HTTP freshness, deterministic TTL eviction, bounded DNS cache, complete process-lifetime cache statistics, audited full/exact-host purge API/CLI, role-aware Admin workspace and validated CACHE/THROTTLE/MOCK/REDIRECT/REWRITE execution complete locally)
 - [x] M10 — Browser integrations (client-scoped snapshot/control contract, safe presets, Playwright/Puppeteer adapters, bounded estimated block reporting, Selenium foundation and controlled Chrome E2E complete locally)
 - [ ] M11 — API, authentication, RBAC, audit (first-run admin auth, Argon2id, role hierarchy, protected local API, SQLite user migration, audited revisioned proxy/source/pool/policy/client/API-key/cache lifecycle endpoints, bounded authenticated traffic SSE and embedded OpenAPI contract locally implemented; broader API/event completion pending)
@@ -24,6 +24,10 @@ Maintainer: **Tony Nguyen**. Updated: 2026-09-21.
 
 ### Release engineering continuation — 2026-09-16
 
+- Completed M8 threshold/action correctness. Budgets now expose an optional soft
+  warning below the durable hard reject, unsupported action modes fail validation,
+  and exhausted pool/proxy budgets are excluded during selection so configured pool
+  fallback applies without weakening system/client limits or DIRECT safeguards.
 - Completed M15 operator workflows. Added SQLite status, explicit migration and
   offline compaction commands using the existing store boundary. Restore acceptance
   now proves proxy/pool/policy inventory, the active runtime snapshot and traffic

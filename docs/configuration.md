@@ -114,6 +114,13 @@ inventory atomically. Later YAML budget edits are intentionally ignored; use the
 Admin API or Budgets workspace. Keeping the original YAML list preserves the budget
 behavior when rolling back to a binary that predates schema 20.
 
+`soft_limit_bytes` is optional and must be below `limit_bytes`; crossing it exposes a
+warning through the API/Admin workspace without weakening the hard reject. When a
+pool-scoped hard budget is exhausted, selection skips that pool and follows its
+configured `fallback_pool_ids`. System/client limits still reject globally, and
+DIRECT is never introduced as an implicit fallback. Unsupported budget actions are
+rejected at validation instead of being accepted without enforcement.
+
 Listener arrays replace defaults in full. Required listener identity/protocol/auth
 fields must be present. Omitted connection limit/idle timeout receive safe defaults;
 explicit zero is invalid. Binds must be literal IP:port, with brackets for IPv6.

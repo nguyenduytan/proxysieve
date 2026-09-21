@@ -46,6 +46,7 @@ type Status struct {
 	Used        traffic.Bytes `json:"used_bytes"`
 	Reserved    traffic.Bytes `json:"reserved_bytes"`
 	Remaining   traffic.Bytes `json:"remaining_bytes"`
+	Warning     bool          `json:"warning"`
 	Exhausted   bool          `json:"exhausted"`
 	WindowStart *time.Time    `json:"window_start,omitempty"`
 	WindowEnd   *time.Time    `json:"window_end,omitempty"`
@@ -211,6 +212,39 @@ func (m *Manager) Reserve(ctx context.Context, ids []model.ID, amount traffic.By
 	return &Lease{manager: m, configs: configs, at: at, remaining: amount}, nil
 }
 
+// CanReserve checks the current hard limits without changing reservations.
+// Reserve remains the atomic authority after route selection.
+func (m *Manager) CanReserve(ctx context.Context, ids []model.ID, amount traffic.Bytes) error {
+	if m == nil || len(ids) == 0 || amount == 0 || amount > m.maxReservation {
+		return budget.ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	at := m.now().UTC()
+	seen := map[model.ID]bool{}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, id := range ids {
+		if seen[id] {
+			return budget.ErrInvalid
+		}
+		seen[id] = true
+		configured, ok := m.configs[id]
+		if !ok {
+			return ErrNotFound
+		}
+		usage, err := m.usageLocked(ctx, configured, at)
+		if errors.Is(err, traffic.ErrOverflow) || err == nil && wouldExceed(usage, amount, configured.Limit) {
+			return budget.ErrExceeded
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Consume converts reserved bytes into used bytes and never grants more than the
 // reservation. Gate stream reads/writes using the returned allowance.
 func (l *Lease) Consume(ctx context.Context, amount traffic.Bytes) (traffic.Bytes, error) {
@@ -349,7 +383,8 @@ func (m *Manager) statusLocked(ctx context.Context, id model.ID, at time.Time) (
 	if usage.Used < config.Limit && usage.Reserved < config.Limit-usage.Used {
 		remaining = config.Limit - usage.Used - usage.Reserved
 	}
-	status := Status{Config: config, Revision: m.revisions[id], Used: usage.Used, Reserved: usage.Reserved, Remaining: remaining, Exhausted: remaining == 0}
+	warning := config.SoftLimit > 0 && reaches(usage, config.SoftLimit)
+	status := Status{Config: config, Revision: m.revisions[id], Used: usage.Used, Reserved: usage.Reserved, Remaining: remaining, Warning: warning, Exhausted: remaining == 0}
 	if !start.IsZero() {
 		status.WindowStart, status.WindowEnd = &start, &end
 	}
@@ -401,6 +436,21 @@ func (m *Manager) ApplicableIDs(clientID, poolID, proxyID model.ID) []model.ID {
 	return ids
 }
 
+// RouteIDs returns limits whose applicability can change when selection moves
+// to another pool or proxy. System and client limits are enforced after routing.
+func (m *Manager) RouteIDs(poolID, proxyID model.ID) []model.ID {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := make([]model.ID, 0)
+	for id, configured := range m.configs {
+		if configured.Scope == budget.ScopePool && configured.ScopeID == poolID || configured.Scope == budget.ScopeProxy && configured.ScopeID == proxyID {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
+}
+
 func (m *Manager) References(scope budget.Scope, id model.ID) bool {
 	if m == nil {
 		return false
@@ -419,6 +469,10 @@ func wouldExceed(usage budget.Usage, amount, limit traffic.Bytes) bool {
 		return true
 	}
 	return amount > limit-usage.Used-usage.Reserved
+}
+
+func reaches(usage budget.Usage, limit traffic.Bytes) bool {
+	return usage.Used >= limit || usage.Reserved >= limit-usage.Used
 }
 
 func budgetUsageKey(config budget.Config, at time.Time) (usageKey, error) {

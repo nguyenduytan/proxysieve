@@ -36,6 +36,7 @@ describe("budget workspace", () => {
       used_bytes: 25,
       reserved_bytes: 5,
       remaining_bytes: 70,
+      warning: false,
       exhausted: false,
       window_start: "2026-09-16T00:00:00Z",
       window_end: "2026-09-17T00:00:00Z",

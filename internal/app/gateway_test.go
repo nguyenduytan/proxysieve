@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -542,6 +543,47 @@ func TestPaidRouteHardBudgetPersistsAndRejectsNextRequest(t *testing.T) {
 	usage, err := runtime.Store.BudgetUsage(t.Context(), c.Budgets[0], at)
 	if err != nil || usage.Used != 2 || usage.Reserved != 0 {
 		t.Fatal(usage, err)
+	}
+}
+
+func TestExhaustedPoolBudgetUsesConfiguredFallbackPool(t *testing.T) {
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "p") }))
+	defer primary.Close()
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "f") }))
+	defer fallback.Close()
+	endpoint := func(id model.ID, raw string) proxy.Endpoint {
+		u, _ := url.Parse(raw)
+		host, portRaw, _ := net.SplitHostPort(u.Host)
+		return proxy.Endpoint{ID: id, Name: string(id), Protocol: proxy.HTTP, Host: host, Port: parsePort(t, portRaw), Enabled: true, TrustedRemoteDNS: true}
+	}
+	c := config.Defaults(t.TempDir())
+	c.Listeners = c.Listeners[:1]
+	c.Proxies = []proxy.Endpoint{endpoint("primary-proxy", primary.URL), endpoint("fallback-proxy", fallback.URL)}
+	c.Pools = []routing.Pool{
+		{ID: "primary", Name: "primary", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"primary-proxy"}, FallbackPoolIDs: []model.ID{"fallback"}, Enabled: true},
+		{ID: "fallback", Name: "fallback", Strategy: routing.RoundRobin, EndpointIDs: []model.ID{"fallback-proxy"}, Enabled: true},
+	}
+	c.Policies = []policy.Policy{{Version: 1, ID: "default", Name: "default", Rules: []policy.Rule{{ID: "route", Name: "route", Enabled: true, StopProcessing: true, Actions: []policy.Action{{Type: "proxy", PoolID: "primary"}}}}}}
+	c.Budgets = []publicbudget.Config{{ID: "primary-budget", Name: "Primary", Scope: publicbudget.ScopePool, ScopeID: "primary", Limit: 1, Hard: true, Action: publicbudget.ActionReject}}
+	runtime, err := Build(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Store.Close() })
+	downstream := httptest.NewServer(runtime.Server.Handler)
+	defer downstream.Close()
+	proxyURL, _ := url.Parse(downstream.URL)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+	for index, expected := range []string{"p", "f"} {
+		response, requestErr := client.Get(fmt.Sprintf("http://origin.example.invalid/%d", index))
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		body, readErr := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if readErr != nil || string(body) != expected {
+			t.Fatalf("request %d body=%q err=%v", index, body, readErr)
+		}
 	}
 }
 

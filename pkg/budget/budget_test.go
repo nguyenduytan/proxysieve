@@ -55,3 +55,20 @@ func TestRollingWindowUsesElapsedTimeAndValidatesDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestBudgetRequiresImplementedHardRejectAndValidSoftLimit(t *testing.T) {
+	valid := Config{ID: "budget", Name: "Budget", Limit: 100, SoftLimit: 80, Hard: true, Action: ActionReject}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []Config{
+		{ID: "alert", Name: "Alert", Limit: 100, Action: ActionAlert},
+		{ID: "throttle", Name: "Throttle", Limit: 100, Action: ActionThrottle},
+		{ID: "soft-equal", Name: "Soft equal", Limit: 100, SoftLimit: 100, Hard: true, Action: ActionReject},
+		{ID: "soft-over", Name: "Soft over", Limit: 100, SoftLimit: 101, Hard: true, Action: ActionReject},
+	} {
+		if invalid.Validate() == nil {
+			t.Fatalf("unsupported budget was accepted: %+v", invalid)
+		}
+	}
+}

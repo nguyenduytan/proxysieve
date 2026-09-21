@@ -44,6 +44,7 @@ type Config struct {
 	Scope          Scope         `json:"scope" yaml:"scope"`
 	ScopeID        model.ID      `json:"scope_id,omitempty" yaml:"scope_id,omitempty"`
 	Limit          traffic.Bytes `json:"limit_bytes" yaml:"limit_bytes"`
+	SoftLimit      traffic.Bytes `json:"soft_limit_bytes,omitempty" yaml:"soft_limit_bytes,omitempty"`
 	Hard           bool          `json:"hard" yaml:"hard"`
 	Action         Action        `json:"action" yaml:"action"`
 	Window         Window        `json:"window,omitempty" yaml:"window,omitempty"`
@@ -55,10 +56,7 @@ func (c Config) Validate() error {
 	if !c.ID.Valid() || c.Name == "" || c.Limit == 0 || uint64(c.Limit) > math.MaxInt64 {
 		return ErrInvalid
 	}
-	if c.Action != ActionAlert && c.Action != ActionReject && c.Action != ActionThrottle {
-		return ErrInvalid
-	}
-	if c.Hard && c.Action != ActionReject {
+	if !c.Hard || c.Action != ActionReject || c.SoftLimit >= c.Limit {
 		return ErrInvalid
 	}
 	scope := c.Scope

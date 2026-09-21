@@ -25,6 +25,7 @@ budgets:
     name: Paid egress safety limit
     scope: system
     limit_bytes: 10000000000
+    soft_limit_bytes: 8000000000
     hard: true
     action: reject
     window: monthly
@@ -63,5 +64,12 @@ reservations immediately; leases already in flight finish with their captured
 configuration. Historical usage rows remain after deletion. Client, pool and proxy
 records cannot be deleted while a scoped budget references them.
 
-Soft threshold notifications, cost-denominated limits, transport framing, pool
-switching and fallback-policy actions remain required before M8 is complete.
+An optional `soft_limit_bytes` threshold exposes a warning state in the API and
+Admin workspace while the hard limit remains authoritative. An exhausted pool- or
+proxy-scoped budget removes that route from selection, allowing normal configured
+`fallback_pool_ids` to take over; attribution and enforcement use the selected
+fallback pool. System/client exhaustion still rejects the paid route. Unsupported
+`alert` and `throttle` budget actions are rejected rather than silently ignored.
+
+Cost-denominated limits, transport/proxy framing, general alert delivery and
+fallback-policy actions remain outside this byte-budget implementation.

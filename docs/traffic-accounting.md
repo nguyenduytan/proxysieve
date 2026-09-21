@@ -136,7 +136,7 @@ The legacy `traffic.retention_days` field remains the raw retention policy;
 coarser tiers. Effective durations are normalized so a coarser tier is never shorter
 than the tier below it. Analytics read one non-overlapping authoritative tier for
 each time range, and all four watermarks survive restart. Transport-framing
-accounting and rolling-window/cost budgets are not completed by this foundation.
+accounting and cost-denominated budgets are not completed by this foundation.
 The Admin dashboard projects 30-day paid stream usage and configured cost from the
 current 24-hour rate, keeping currencies separate and labeling both as estimates.
 Configured-cost analytics are estimates over rated application-stream
