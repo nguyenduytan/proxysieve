@@ -155,6 +155,8 @@
 
 ### Fixed
 
+- Install the private Inspect CA atomically on Windows without relying on hard-link
+  creation, while preserving no-overwrite behavior and restrictive ACLs.
 - Policy validation now rejects unsupported `allow`, `set_tag` and
   `set_session_policy` actions instead of accepting runtime no-ops.
 - Report unavailable `CACHE`, `MOCK`, `REDIRECT` and `REWRITE` policy actions as

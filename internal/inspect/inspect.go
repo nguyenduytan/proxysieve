@@ -101,7 +101,7 @@ func Create(dataDir string, rotate bool) (Info, error) {
 	}
 	defer func() { _ = os.Remove(temporary) }()
 	if !rotate {
-		if err = os.Link(temporary, target); err != nil {
+		if err = installFile(temporary, target); err != nil {
 			if errors.Is(err, os.ErrExist) {
 				return Info{}, ErrExists
 			}

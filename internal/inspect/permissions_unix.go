@@ -11,6 +11,8 @@ func secureFile(path string) error {
 	return verifySecureFile(path)
 }
 
+func installFile(source, target string) error { return os.Link(source, target) }
+
 func replaceFile(source, target string) error { return os.Rename(source, target) }
 
 func verifySecureFile(path string) error {

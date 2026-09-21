@@ -3,10 +3,31 @@
 package inspect
 
 import (
+	"os"
 	"strings"
 
 	"golang.org/x/sys/windows"
 )
+
+func installFile(source, target string) error {
+	err := moveFile(source, target, windows.MOVEFILE_WRITE_THROUGH)
+	if err == windows.ERROR_ALREADY_EXISTS || err == windows.ERROR_FILE_EXISTS {
+		return os.ErrExist
+	}
+	return err
+}
+
+func moveFile(source, target string, flags uint32) error {
+	from, err := windows.UTF16PtrFromString(source)
+	if err != nil {
+		return err
+	}
+	to, err := windows.UTF16PtrFromString(target)
+	if err != nil {
+		return err
+	}
+	return windows.MoveFileEx(from, to, flags)
+}
 
 func secureFile(path string) error {
 	token := windows.GetCurrentProcessToken()
@@ -30,15 +51,7 @@ func secureFile(path string) error {
 }
 
 func replaceFile(source, target string) error {
-	from, err := windows.UTF16PtrFromString(source)
-	if err != nil {
-		return err
-	}
-	to, err := windows.UTF16PtrFromString(target)
-	if err != nil {
-		return err
-	}
-	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+	return moveFile(source, target, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
 
 func verifySecureFile(path string) error {
