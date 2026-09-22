@@ -119,7 +119,7 @@ func runOnce(ctx context.Context, loaded loadedManifest, request Request) (respo
 	}()
 	decoder := publicextension.NewDecoder(stdout)
 	if err = publicextension.Encode(stdin, publicextension.Message{Type: "hello", Descriptor: publicextension.Descriptor{APIVersion: publicextension.APIVersion}}); err != nil {
-		return response, stderr, processFailure(attemptContext, "protocol_write", err)
+		return response, stderr, processFailure(attemptContext, "handshake_failed", err)
 	}
 	var message publicextension.Message
 	if err = decoder.Decode(&message); err != nil {
@@ -137,7 +137,7 @@ func runOnce(ctx context.Context, loaded loadedManifest, request Request) (respo
 	}
 	callID := "1"
 	if err = publicextension.Encode(stdin, publicextension.Message{Type: "call", ID: callID, Capability: request.Capability, Method: request.Method, Input: request.Input}); err != nil {
-		return response, stderr, processFailure(attemptContext, "protocol_write", err)
+		return response, stderr, processFailure(attemptContext, "call_failed", err)
 	}
 	message = publicextension.Message{}
 	if err = decoder.Decode(&message); err != nil {
