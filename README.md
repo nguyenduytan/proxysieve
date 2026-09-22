@@ -3,7 +3,7 @@
   <p><strong>Smart traffic control for paid proxies.</strong></p>
   <p>Stop paying for bytes you do not need. Route smarter, filter earlier, measure everything.</p>
   <p>
-    <a href="https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0-rc.1"><img src="https://img.shields.io/github/v/release/nguyenduytan/proxysieve?include_prereleases&sort=semver&style=flat-square&logo=github" alt="Latest release" /></a>
+    <a href="https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0"><img src="https://img.shields.io/github/v/release/nguyenduytan/proxysieve?sort=semver&style=flat-square&logo=github" alt="Latest release" /></a>
     <a href="https://github.com/nguyenduytan/proxysieve/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nguyenduytan/proxysieve/ci.yml?branch=main&label=backend&style=flat-square" alt="Backend CI" /></a>
     <a href="https://github.com/nguyenduytan/proxysieve/actions/workflows/frontend.yml"><img src="https://img.shields.io/github/actions/workflow/status/nguyenduytan/proxysieve/frontend.yml?branch=main&label=frontend&style=flat-square" alt="Frontend CI" /></a>
     <a href="https://github.com/nguyenduytan/proxysieve/actions/workflows/security.yml"><img src="https://img.shields.io/github/actions/workflow/status/nguyenduytan/proxysieve/security.yml?branch=main&label=security&style=flat-square" alt="Security checks" /></a>
@@ -21,11 +21,10 @@
 
 ## 🚦 Release Status
 
-[v1.0.0-rc.1](https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0-rc.1)
-is the current public prerelease. It ships native archives for Linux, macOS and
-Windows on amd64 and arm64, plus SHA-256 checksums, an SPDX JSON SBOM and a
-portable provenance manifest. It is ready for controlled evaluation, but it is
-not the stable v1.0.0 release yet.
+[v1.0.0](https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0) is the
+current stable release. It ships native archives for Linux, macOS and Windows on
+amd64 and arm64, plus SHA-256 checksums, an SPDX JSON SBOM and a portable
+provenance manifest.
 
 The release includes HTTP forward/CONNECT and SOCKS5 CONNECT, configurable
 upstream HTTP/HTTPS/SOCKS routes, a protected local admin API, SQLite-backed
@@ -87,7 +86,7 @@ test does not imply an unimplemented capability is available.
 Prerequisites: Go **1.27.x** (tested 1.27.1), Node.js **24 LTS**, and pnpm
 **11.19.0** for dashboard development. To use a prebuilt binary, download the
 archive for your platform from the
-[v1.0.0-rc.1 release](https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0-rc.1),
+[v1.0.0 release](https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0),
 verify it against `checksums.txt`, extract it, then run:
 
 ```sh

@@ -47,8 +47,8 @@ Usage:
   proxysieve config validate [--file PATH] [--set dotted.path=value]
   proxysieve config print-effective [--file PATH] [--set dotted.path=value]
 
-Status: local development build; HTTP/SOCKS5 listeners, upstream routing,
-authenticated dashboard and traffic accounting are available with fail-closed defaults.
+Status: stable v1 release; HTTP/SOCKS5 listeners, upstream routing, authenticated
+dashboard and traffic accounting use fail-closed defaults.
 `
 
 // Run executes a command and returns a process exit code: 0 success, 1 output

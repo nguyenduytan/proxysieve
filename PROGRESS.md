@@ -23,7 +23,7 @@ smoke tests and release-candidate evidence are tracked separately under M16.
 - [x] M13 — Shadow policies, events, alerts, extensions (bounded operational events, signed webhook alerts, shadow comparison and external Extension API v1 complete locally)
 - [x] M14 — Optional HTTPS Inspect (default-off scoped HTTP/1.1 interception, restrictive CA lifecycle, canonical routing and privacy-bounded Admin visibility complete locally)
 - [x] M15 — Backup, restore, import/export, operations (doctor diagnostics, SQLite status/migration/offline compaction, WAL-consistent validated backup/restore, versioned secret-free portable config and restore acceptance for inventory/runtime/analytics complete locally)
-- [ ] M16 — Hardening, benchmarks, release candidate and v1
+- [x] M16 — Hardening, benchmarks, release candidate and v1
 
 ### Release acceptance continuation — 2026-09-22
 
@@ -54,8 +54,8 @@ smoke tests and release-candidate evidence are tracked separately under M16.
 - Published [`v1.0.0-rc.1`](https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0-rc.1)
   from reviewed commit `7713dd1` after the tag workflow and native Linux, Windows
   and macOS amd64 archive smoke passed. All six archives, checksums, SPDX 2.3 SBOM
-  and portable provenance were digest-verified before publication. M16 remains open
-  for controlled RC feedback and the stable `v1.0.0` decision.
+  and portable provenance were digest-verified before publication. The accepted RC
+  evidence and final release gates satisfy M16; stable `v1.0.0` is approved.
 
 ### M13 events and alerts continuation — 2026-09-21
 
@@ -155,8 +155,8 @@ smoke tests and release-candidate evidence are tracked separately under M16.
   portable in-toto/SLSA provenance statement and adds GitHub artifact attestations
   where the repository visibility/account type supports them.
 - Added operator verification/publish guidance. Hosted container,
-  benchmark/protocol/browser matrices pass and `v1.0.0-rc.1` is published; container
-  publication and stable `v1.0.0` remain gated on RC acceptance.
+  benchmark/protocol/browser matrices pass and `v1.0.0-rc.1` is published. The RC
+  is accepted for stable `v1.0.0`; container publication remains out of scope.
 - Fixed outbound TLS in the scratch container by copying a current CA bundle from
   the pinned Alpine build stage. The compose target remains an artifact smoke test,
   not an implicitly exposed gateway deployment.
@@ -289,15 +289,13 @@ Verified locally on Windows amd64, Go 1.27.1 / Node 24.19.0 / pnpm 11.19.0:
 - [x] Hosted CI passed, including native Linux/Windows/macOS protocol execution.
 - [x] Hosted hardened container build and non-root smoke test passed (Docker remains
   unavailable locally).
-- [x] Hosted repository launch/security settings confirmed within the features
-  available to a user-owned private repository.
+- [x] Hosted repository launch/security and public contribution settings confirmed.
 
-The existing remote is private and `main` is the default branch. Dependabot
-vulnerability alerts and automated security fixes are enabled with no open alerts.
-GitHub reports branch protection/rulesets unavailable without GitHub Pro or public
-visibility, and secret scanning/CodeQL unavailable for this user-owned private
-repository; these platform limits are documented rather than represented as
-enabled. Do not tag stable `v1.0.0` before the published RC is accepted.
+The remote is public and `main` is the protected default branch. Required hosted
+checks apply to administrators; force-push and deletion are disabled. Issues,
+Discussions, Dependabot updates, vulnerability alerts, secret scanning/push
+protection, private vulnerability reporting and CodeQL default analysis are
+enabled. The accepted RC and final release gates authorize stable `v1.0.0`.
 
 The original plan's intentional Markdown hard-break spaces are preserved. The
 staged whitespace check applies to newly authored files without rewriting that

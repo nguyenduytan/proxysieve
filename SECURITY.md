@@ -2,18 +2,18 @@
 
 ## Supported versions
 
-No production-supported version exists yet. The unreleased build includes network
-gateway and admin functionality, but its release/security acceptance matrix is not
-complete. Do not deploy it for production traffic or production secrets. Support
-windows will be documented with the first release candidate.
+| Version | Supported |
+| --- | --- |
+| 1.0.x | Yes |
+| 1.0.0 release candidates | Security fixes only when needed to verify an upgrade |
+| Earlier builds | No |
 
 ## Report a vulnerability privately
 
-Contact maintainer **Tony Nguyen** at **admin@ndtan.net** with the subject
-`[ProxySieve security]`. This is the maintainer contact configured for this project.
-Do not create a public issue for an unpatched vulnerability or attach live secrets.
-GitHub private vulnerability reporting is a pending repository setup task; do not
-assume it is enabled until confirmed.
+Use GitHub's private **Security → Report a vulnerability** form. If that is
+unavailable, contact maintainer **Tony Nguyen** at **admin@ndtan.net** with the
+subject `[ProxySieve security]`. Do not create a public issue for an unpatched
+vulnerability or attach live secrets.
 
 Include the affected commit/version, OS, deployment mode, sanitized reproduction,
 impact, expected behavior, and relevant redacted logs. Use local test servers and
