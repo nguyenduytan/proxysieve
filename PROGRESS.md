@@ -149,8 +149,9 @@ smoke tests and release-candidate evidence are tracked separately under M16.
   responses. CONNECT/SOCKS fail closed and traffic attribution remains explicit.
 - Added a SemVer-tag-gated, least-privilege release workflow using pinned actions
   and tool versions. GoReleaser produces draft Linux/Windows/macOS amd64/arm64
-  archives and checksums; Syft adds an SPDX JSON SBOM and GitHub attests both the
-  archive checksums and SBOM provenance.
+  archives and checksums; Syft adds an SPDX JSON SBOM. The workflow publishes a
+  portable in-toto/SLSA provenance statement and adds GitHub artifact attestations
+  where the repository visibility/account type supports them.
 - Added operator verification/publish guidance. Hosted container,
   benchmark/protocol/browser matrices now pass; container publication and an actual
   RC remain gated, so M16 and the v1 release gate stay open.

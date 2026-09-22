@@ -6,11 +6,12 @@ the backend verification gates and creates a **draft** GitHub Release. Creating 
 tag does not publish the draft.
 
 The draft contains Linux, Windows and macOS archives for amd64 and arm64, a
-`checksums.txt` file and `proxysieve.spdx.json`. Each archive also includes the
-example configuration, operator documentation and runtime-dependency-free browser adapter
-sources. GitHub artifact attestations
-bind the archives and SBOM to the tag workflow. Pre-release tags remain
-pre-releases.
+`checksums.txt` file, `proxysieve.spdx.json` and a portable in-toto/SLSA provenance
+statement covering every archive and the SBOM. Each archive also includes the
+example configuration, operator documentation and runtime-dependency-free browser
+adapter sources. Public repositories additionally publish GitHub artifact
+attestations; GitHub does not provide attestation storage for user-owned private
+repositories. Pre-release tags remain pre-releases.
 
 The tag workflow checksum-verifies, extracts and executes the amd64 archive on
 Linux, Windows and macOS before it can be considered green. Before publishing a
@@ -30,7 +31,13 @@ PowerShell users can compare the matching `checksums.txt` digest with:
 Get-FileHash .\proxysieve_1.0.0_windows_amd64.zip -Algorithm SHA256
 ```
 
-Verify GitHub provenance after downloading an archive or SBOM:
+Inspect the portable provenance subjects after downloading the release assets:
+
+```sh
+jq -r '.subject[] | [.digest.sha256, .name] | @tsv' proxysieve-v1.0.0.provenance.json
+```
+
+For public-repository releases that expose GitHub artifact attestations, also run:
 
 ```sh
 gh attestation verify proxysieve_1.0.0_linux_amd64.tar.gz --repo nguyenduytan/proxysieve

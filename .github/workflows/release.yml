@@ -57,11 +57,78 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create portable provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          const subjects = readFileSync('dist/checksums.txt', 'utf8')
+            .trim()
+            .split(/\r?\n/)
+            .map((line) => {
+              const match = line.match(/^([a-f0-9]{64})\s+(.+)$/);
+              if (!match) throw new Error(`Invalid checksum line: ${line}`);
+              return { name: match[2], digest: { sha256: match[1] } };
+            });
+          const sbom = readFileSync('proxysieve.spdx.json');
+          subjects.push({
+            name: 'proxysieve.spdx.json',
+            digest: { sha256: createHash('sha256').update(sbom).digest('hex') },
+          });
+          subjects.sort((left, right) => left.name.localeCompare(right.name));
+
+          const server = process.env.GITHUB_SERVER_URL;
+          const repository = process.env.GITHUB_REPOSITORY;
+          const statement = {
+            _type: 'https://in-toto.io/Statement/v1',
+            subject: subjects,
+            predicateType: 'https://slsa.dev/provenance/v1',
+            predicate: {
+              buildDefinition: {
+                buildType: 'https://actions.github.io/buildtypes/workflow/v1',
+                externalParameters: {
+                  workflow: {
+                    ref: process.env.GITHUB_REF,
+                    repository: `${server}/${repository}`,
+                    path: '.github/workflows/release.yml',
+                  },
+                },
+                internalParameters: {
+                  github: {
+                    eventName: process.env.GITHUB_EVENT_NAME,
+                    runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+                    runId: process.env.GITHUB_RUN_ID,
+                  },
+                },
+                resolvedDependencies: [{
+                  uri: `git+${server}/${repository}@${process.env.GITHUB_REF}`,
+                  digest: { gitCommit: process.env.GITHUB_SHA },
+                }],
+              },
+              runDetails: {
+                builder: { id: `${server}/${process.env.GITHUB_WORKFLOW_REF}` },
+                metadata: {
+                  invocationId: `${server}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}/attempts/${process.env.GITHUB_RUN_ATTEMPT}`,
+                },
+              },
+            },
+          };
+          const output = `proxysieve-${process.env.RELEASE_TAG}.provenance.json`;
+          writeFileSync(output, `${JSON.stringify(statement, null, 2)}\n`);
+          NODE
+          gh release upload "$RELEASE_TAG" "proxysieve-$RELEASE_TAG.provenance.json" --clobber
       - name: Attest release archives
+        if: ${{ github.event.repository.visibility == 'public' }}
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-checksums: dist/checksums.txt
       - name: Attest SBOM
+        if: ${{ github.event.repository.visibility == 'public' }}
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: proxysieve.spdx.json
