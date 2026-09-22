@@ -132,6 +132,18 @@ jobs:
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: proxysieve.spdx.json
+      - name: Upload native smoke artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-native-smoke
+          path: |
+            dist/checksums.txt
+            dist/proxysieve_*_linux_amd64.tar.gz
+            dist/proxysieve_*_windows_amd64.zip
+            dist/proxysieve_*_darwin_amd64.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
   native-smoke:
     needs: release
@@ -156,16 +168,18 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Download and verify release archive
+      - name: Download release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-native-smoke
+          path: .
+      - name: Verify release archive
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
           TARGET: ${{ matrix.target }}
           EXTENSION: ${{ matrix.extension }}
           BINARY: ${{ matrix.binary }}
         run: |
-          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern "proxysieve_*_$($env:TARGET)_amd64.$($env:EXTENSION)" --pattern checksums.txt
           $archives = @(Get-ChildItem -File "proxysieve_*_$($env:TARGET)_amd64.$($env:EXTENSION)")
           if ($archives.Count -ne 1) { throw "Expected one $($env:TARGET) archive, found $($archives.Count)" }
           $archive = $archives[0]

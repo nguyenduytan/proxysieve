@@ -42,8 +42,9 @@ smoke tests and release-candidate evidence are tracked separately under M16.
   no flaky wall-clock threshold.
 - Completed the v1 documentation index plus CLI, cache, deployment,
   troubleshooting and benchmarking guides. Added a tag-only native archive smoke
-  job that downloads the draft Linux/Windows/macOS amd64 assets, verifies checksums,
-  extracts them and runs `version` plus schema-v1 config validation.
+  job that passes the just-built Linux/Windows/macOS amd64 assets through workflow
+  artifacts, verifies checksums, extracts them and runs `version` plus schema-v1
+  config validation before the draft can be published.
 - M1 acceptance confirms public packages do not import SQLite/UI/provider adapters,
   schema-v1 config and migration determinism are tested, and secret values redact
   through normal formatting/logging. M11 acceptance confirms viewer/operator/admin
