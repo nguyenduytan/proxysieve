@@ -1,31 +1,41 @@
 <div align="center">
-  <h1>ProxySieve</h1>
+  <h1>🛡️ ProxySieve</h1>
   <p><strong>Smart traffic control for paid proxies.</strong></p>
   <p>Stop paying for bytes you do not need. Route smarter, filter earlier, measure everything.</p>
   <p>
+    <a href="https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0-rc.1"><img src="https://img.shields.io/github/v/release/nguyenduytan/proxysieve?include_prereleases&sort=semver&style=flat-square&logo=github" alt="Latest release" /></a>
     <a href="https://github.com/nguyenduytan/proxysieve/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nguyenduytan/proxysieve/ci.yml?branch=main&label=backend&style=flat-square" alt="Backend CI" /></a>
     <a href="https://github.com/nguyenduytan/proxysieve/actions/workflows/frontend.yml"><img src="https://img.shields.io/github/actions/workflow/status/nguyenduytan/proxysieve/frontend.yml?branch=main&label=frontend&style=flat-square" alt="Frontend CI" /></a>
-    <img src="https://img.shields.io/badge/Go-1.27.1-00ADD8?logo=go&logoColor=white&style=flat-square" alt="Go 1.27.1" />
-    <img src="https://img.shields.io/badge/React-19.3-149ECA?logo=react&logoColor=white&style=flat-square" alt="React 19.3" />
-    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-3DA639?style=flat-square" alt="Apache 2.0 license" /></a>
-    <img src="https://img.shields.io/badge/status-development-F59E0B?style=flat-square" alt="Development status" />
+    <a href="https://github.com/nguyenduytan/proxysieve/actions/workflows/security.yml"><img src="https://img.shields.io/github/actions/workflow/status/nguyenduytan/proxysieve/security.yml?branch=main&label=security&style=flat-square" alt="Security checks" /></a>
+    <img src="https://img.shields.io/github/go-mod/go-version/nguyenduytan/proxysieve?style=flat-square&logo=go" alt="Go version" />
+    <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-informational?style=flat-square" alt="Linux, macOS and Windows" />
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/nguyenduytan/proxysieve?style=flat-square" alt="Apache 2.0 license" /></a>
   </p>
-  <p>Created and maintained by <strong>Tony Nguyen</strong> · <a href="https://github.com/nguyenduytan">@nguyenduytan</a></p>
+  <p>
+    <a href="#-quick-start">Quick start</a> ·
+    <a href="docs/README.md">Documentation</a> ·
+    <a href="SECURITY.md">Security</a> ·
+    <a href="CONTRIBUTING.md">Contributing</a>
+  </p>
 </div>
 
-## Status
+## 🚦 Release Status
 
-ProxySieve is an active **development build**, not a production release. It has a
-locally tested HTTP forward/CONNECT and SOCKS5 CONNECT foundation, configurable
+[v1.0.0-rc.1](https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0-rc.1)
+is the current public prerelease. It ships native archives for Linux, macOS and
+Windows on amd64 and arm64, plus SHA-256 checksums, an SPDX JSON SBOM and a
+portable provenance manifest. It is ready for controlled evaluation, but it is
+not the stable v1.0.0 release yet.
+
+The release includes HTTP forward/CONNECT and SOCKS5 CONNECT, configurable
 upstream HTTP/HTTPS/SOCKS routes, a protected local admin API, SQLite-backed
-first-run setup, and an embedded operational dashboard.
+first-run setup and an embedded operational dashboard.
 
 The project intentionally fails closed. Saved endpoint, pool and policy edits are
 staged until an operator explicitly activates the complete inventory as one
-revision. There is no stable release, hosted dashboard, or
-published container image yet.
+revision. There is no hosted dashboard or published container image.
 
-## Architecture
+## 🧭 Architecture
 
 ```text
 Client
@@ -56,7 +66,7 @@ inside those tunnels. The optional Playwright/Puppeteer adapters can block known
 browser resources before they enter a tunnel. HTTPS inspection remains off by
 default and requires explicit host scopes plus a locally trusted ProxySieve CA.
 
-## Current Capabilities
+## ✨ Capabilities
 
 | Area | Available locally | Still in progress |
 | --- | --- | --- |
@@ -72,10 +82,21 @@ default and requires explicit host scopes plus a locally trusted ProxySieve CA.
 Read [PROGRESS.md](PROGRESS.md) for the precise milestone checklist. A green local
 test does not imply an unimplemented capability is available.
 
-## Quick Start
+## 🚀 Quick Start
 
 Prerequisites: Go **1.27.x** (tested 1.27.1), Node.js **24 LTS**, and pnpm
-**11.19.0** for dashboard development.
+**11.19.0** for dashboard development. To use a prebuilt binary, download the
+archive for your platform from the
+[v1.0.0-rc.1 release](https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0-rc.1),
+verify it against `checksums.txt`, extract it, then run:
+
+```sh
+proxysieve version
+proxysieve config validate --file config.example.yaml
+proxysieve start --file config.example.yaml
+```
+
+To build and check the current source instead:
 
 ```sh
 go test ./...
@@ -132,7 +153,7 @@ the backup atomically. Portable config export/import is available through
 `proxysieve export` and `proxysieve import`; it excludes raw secrets, validates the
 manifest/config before writing, refuses overwrite and supports `--dry-run`.
 
-## Development
+## 🧪 Development
 
 ```sh
 go test ./...
@@ -155,7 +176,7 @@ pnpm --dir integrations test:e2e
 embedding in the Go binary. The dashboard consumes same-origin `/api/v1` routes;
 it never opens SQLite directly.
 
-## Security Model
+## 🔐 Security Model
 
 - Listener and admin defaults bind to loopback only.
 - DIRECT is disabled unless both global configuration and a policy allowlist permit it.
@@ -171,7 +192,7 @@ it never opens SQLite directly.
 Please read [SECURITY.md](SECURITY.md) before reporting a vulnerability. Do not
 paste proxy credentials, cookies, API keys, setup tokens, or user traffic in issues.
 
-## Documentation
+## 📚 Documentation
 
 - [Documentation index](docs/README.md)
 - [Implementation plan](PROXYSIEVE_PLAN.md)
@@ -198,7 +219,7 @@ paste proxy credentials, cookies, API keys, setup tokens, or user traffic in iss
 - [Release process and artifact verification](docs/release.md)
 - [Contributing](CONTRIBUTING.md)
 
-## License And Credits
+## 📄 License And Credits
 
 Copyright 2026 **Tony Nguyen**. ProxySieve is licensed under
 [Apache-2.0](LICENSE); attribution details are in [NOTICE](NOTICE). Contributions
