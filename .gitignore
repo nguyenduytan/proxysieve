@@ -24,6 +24,7 @@ backups/
 /proxysieve.exe
 /bin/
 /dist/
+/proxysieve.spdx.json
 /coverage/
 *.test
 *.out
