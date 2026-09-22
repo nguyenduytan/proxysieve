@@ -51,10 +51,11 @@ smoke tests and release-candidate evidence are tracked separately under M16.
   boundaries, one-time API-key disclosure, parsed OpenAPI and mutation audit trails.
   M12 acceptance is the plan's browser-only first-run criterion; recommended pages
   are consolidated into working API-backed workspaces instead of empty navigation.
-- Remote `main` now matches the reviewed release-candidate head and its backend,
-  frontend and dependency-security workflows pass. M16 remains open until repository
-  launch settings are enabled, the curated `v1.0.0-rc.1` tag workflow/native archive
-  smoke passes, and the resulting draft assets/SBOM/provenance are reviewed.
+- Published [`v1.0.0-rc.1`](https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0-rc.1)
+  from reviewed commit `7713dd1` after the tag workflow and native Linux, Windows
+  and macOS amd64 archive smoke passed. All six archives, checksums, SPDX 2.3 SBOM
+  and portable provenance were digest-verified before publication. M16 remains open
+  for controlled RC feedback and the stable `v1.0.0` decision.
 
 ### M13 events and alerts continuation — 2026-09-21
 
@@ -154,8 +155,8 @@ smoke tests and release-candidate evidence are tracked separately under M16.
   portable in-toto/SLSA provenance statement and adds GitHub artifact attestations
   where the repository visibility/account type supports them.
 - Added operator verification/publish guidance. Hosted container,
-  benchmark/protocol/browser matrices now pass; container publication and an actual
-  RC remain gated, so M16 and the v1 release gate stay open.
+  benchmark/protocol/browser matrices pass and `v1.0.0-rc.1` is published; container
+  publication and stable `v1.0.0` remain gated on RC acceptance.
 - Fixed outbound TLS in the scratch container by copying a current CA bundle from
   the pinned Alpine build stage. The compose target remains an artifact smoke test,
   not an implicitly exposed gateway deployment.
@@ -288,14 +289,15 @@ Verified locally on Windows amd64, Go 1.27.1 / Node 24.19.0 / pnpm 11.19.0:
 - [x] Hosted CI passed, including native Linux/Windows/macOS protocol execution.
 - [x] Hosted hardened container build and non-root smoke test passed (Docker remains
   unavailable locally).
-- [ ] Hosted repository protection/security settings confirmed.
+- [x] Hosted repository launch/security settings confirmed within the features
+  available to a user-owned private repository.
 
-The existing remote is private. Remote `main` matches the reviewed release-candidate
-head and its required workflows pass, while `codex/m1-foundations` remains the
-default branch. Repository protection/security settings still need
-maintainer-authorized setup. These are M16 launch gates, not reasons to weaken the
-now-complete M0 implementation acceptance. Do not tag stable `v1.0.0` from the
-development branch.
+The existing remote is private and `main` is the default branch. Dependabot
+vulnerability alerts and automated security fixes are enabled with no open alerts.
+GitHub reports branch protection/rulesets unavailable without GitHub Pro or public
+visibility, and secret scanning/CodeQL unavailable for this user-owned private
+repository; these platform limits are documented rather than represented as
+enabled. Do not tag stable `v1.0.0` before the published RC is accepted.
 
 The original plan's intentional Markdown hard-break spaces are preserved. The
 staged whitespace check applies to newly authored files without rewriting that
