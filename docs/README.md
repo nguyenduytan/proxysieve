@@ -24,4 +24,5 @@ topics are intentionally consolidated so one behavior has one source of truth.
 | Development and benchmarks | [Development](development.md) and [benchmarking](benchmarking.md) |
 | Release | [Release process](release.md) |
 
-Release notes: [v1.0.0-rc.1](releases/v1.0.0-rc.1.md).
+Release notes: [v1.0.0](releases/v1.0.0.md) ·
+[v1.0.0-rc.1](releases/v1.0.0-rc.1.md).

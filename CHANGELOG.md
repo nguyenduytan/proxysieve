@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-22
+
+### Changed
+
+- Promoted `v1.0.0-rc.1` to the first stable release after the complete hosted
+  backend, frontend, security, fuzz, benchmark, browser and native protocol gates
+  passed without a known P0/P1 correctness or security defect.
+- Updated the README, CLI, Admin Panel, support and security guidance for the
+  stable release and public contribution workflow.
+
 ## [1.0.0-rc.1] - 2026-09-22
 
 ### Added
@@ -177,7 +187,6 @@
   freshness from `s-maxage`, `max-age`/`Age` or `Expires`, while conservatively
   bypassing stale, partial, `no-cache` and unsupported `Vary` responses.
 
-No public release is published. See PROGRESS.md for verification status.
-
-[Unreleased]: https://github.com/nguyenduytan/proxysieve/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/nguyenduytan/proxysieve/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/nguyenduytan/proxysieve/compare/v1.0.0-rc.1...v1.0.0
 [1.0.0-rc.1]: https://github.com/nguyenduytan/proxysieve/releases/tag/v1.0.0-rc.1

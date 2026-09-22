@@ -467,8 +467,8 @@ function Dashboard({ user, onExpired }: { user: User; onExpired: () => void }) {
               )}
             </section>
             <p className="scope-notice">
-              This is a development build, not a stable release. Configuration
-              editing and production release checks are still in progress.
+              ProxySieve v1 is stable. Review security-sensitive configuration,
+              validate changes and keep current backups before production use.
             </p>
           </div>
         )}
