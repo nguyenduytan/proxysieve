@@ -12,6 +12,6 @@
   },
   "devDependencies": {
     "playwright-core": "1.63.0",
-    "puppeteer-core": "25.11.0"
+    "puppeteer-core": "25.12.0"
   }
 }
